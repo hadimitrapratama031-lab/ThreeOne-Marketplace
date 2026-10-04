@@ -134,3 +134,50 @@ export function parsePcRequirements(pc) {
   const o = pc && !Array.isArray(pc) && typeof pc === 'object' ? pc : {};
   return { min: parseRequirements(o.minimum), rec: parseRequirements(o.recommended) };
 }
+
+/* ---------- Info game ---------- */
+
+const names = (v, max = 5, len = 40) => {
+  const out = [];
+  for (const x of Array.isArray(v) ? v : []) {
+    const t = clean(decodeEntities(typeof x === 'string' ? x : x?.description)).trim().slice(0, len);
+    if (t && !out.some((o) => o.toLowerCase() === t.toLowerCase())) out.push(t);
+    if (out.length >= max) break;
+  }
+  return out;
+};
+
+/** Daftar nama dipisah koma, dipotong di batas nama (bukan di tengah nama) agar muat `max` karakter. */
+export function joinNames(list, max = 200) {
+  let out = '';
+  for (const n of list) {
+    const next = out ? `${out}, ${n}` : n;
+    if (next.length > max) break;
+    out = next;
+  }
+  return out;
+}
+
+/**
+ * Metadata non-media dari `appdetails`: developer, publisher, tanggal rilis, genre, kategori fitur Steam, Metacritic.
+ * Nilai yang tidak ada dibiarkan kosong (string kosong / array kosong / null); tidak ada yang dikarang.
+ */
+export function parseGameInfo(d = {}) {
+  const developers = names(d.developers, 5, 100);
+  const publishers = names(d.publishers, 5, 100);
+  const rd = d.release_date && typeof d.release_date === 'object' ? d.release_date : {};
+  const mc = d.metacritic && typeof d.metacritic === 'object' ? d.metacritic : null;
+  const score = mc && Number.isInteger(Number(mc.score)) ? Number(mc.score) : null;
+  return {
+    developers,
+    publishers,
+    developer: joinNames(developers),
+    publisher: joinNames(publishers),
+    releaseDate: clean(String(rd.date ?? '')).trim().slice(0, 60),
+    comingSoon: rd.coming_soon === true,
+    genres: names(d.genres, 10),
+    steamCategories: names(d.categories, 15),
+    metacritic: score !== null && score >= 0 && score <= 100 ? score : null,
+    website: typeof d.website === 'string' && /^https?:\/\/[^\s]+$/i.test(d.website) ? d.website.slice(0, 300) : '',
+  };
+}

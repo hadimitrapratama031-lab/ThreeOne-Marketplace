@@ -79,7 +79,7 @@ export function createApp() {
     r2Ready: r2Configured(),
     contactIcons: CONTACT_ICONS,
     uploadFolders: FOLDERS,
-    limits: { imageMB: config.limits.imageBytes / 1048576, videoMB: config.limits.videoBytes / 1048576, productMedia: 6, reviewImages: 3 },
+    limits: { imageMB: config.limits.imageBytes / 1048576, videoMB: config.limits.videoBytes / 1048576, productMedia: config.limits.productMedia, reviewImages: 3 },
   }));
   admin.use('/dashboard', dashboardRouter);
   admin.use('/products', productsRouter);

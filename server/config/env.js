@@ -32,7 +32,7 @@ export const config = {
   corsOrigins: list(e.CORS_ORIGINS),
   trustProxy: e.TRUST_PROXY !== undefined ? (Number.isNaN(Number(e.TRUST_PROXY)) ? e.TRUST_PROXY : Number(e.TRUST_PROXY)) : (isProd ? 1 : false),
   seedDemo: bool(e.SEED_DEMO),
-  limits: { imageBytes: 8 * 1024 * 1024, videoBytes: 30 * 1024 * 1024 },
+  limits: { imageBytes: 8 * 1024 * 1024, videoBytes: 30 * 1024 * 1024, productMedia: 6 },
 };
 
 export const r2Configured = () =>

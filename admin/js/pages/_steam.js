@@ -7,12 +7,27 @@ import { api } from '../api.js';
 const MSG = {
   searching: 'Searching Steam...',
   found: 'Game ditemukan',
-  partial: 'Game ditemukan, tetapi beberapa metadata tidak tersedia.',
+  partialMeta: 'Game ditemukan, tetapi beberapa metadata tidak tersedia.',
+  partialMedia: 'Game ditemukan, beberapa media tidak tersedia.',
+  partialBoth: 'Game ditemukan, beberapa media dan metadata tidak tersedia.',
   invalid: 'Steam App ID tidak valid.',
   noVideo: 'Video tidak tersedia, silakan upload manual.',
 };
 const BADGE = '✓ Data from Steam';
-const MAX_MEDIA = 6;
+const MEDIA_FIELDS = new Set(['image', 'screenshots', 'video']);
+
+// Kolom teks yang diisi dari Steam: [nama input, label untuk dialog timpa, nilai dari hasil Search]
+const TEXT_FIELDS = [
+  ['name', 'Nama produk', (i) => i.name],
+  ['description', 'Deskripsi singkat', (i) => i.description],
+  ['about', 'Deskripsi lengkap', (i) => i.about],
+  ['gameInfo.steamAppId', 'Steam App ID', (i) => i.appId],
+  ['gameInfo.developer', 'Developer', (i) => i.info.developer],
+  ['gameInfo.publisher', 'Publisher', (i) => i.info.publisher],
+  ['gameInfo.releaseDate', 'Tanggal rilis', (i) => i.info.releaseDate],
+  ['gameInfo.genres', 'Genre', (i) => i.info.genres.join(', ')],
+  ['gameInfo.metacritic', 'Metacritic', (i) => (i.info.metacritic == null ? '' : String(i.info.metacritic))],
+];
 
 export const steamSourceBlock = () => html`
   <div class="fieldset">
@@ -51,20 +66,22 @@ function askOverwrite(fields) {
 
 /**
  * @param {HTMLFormElement} f  form produk
- * @param {{ media, setSpecRows(kind, rows), readSpecs(kind), onCount() }} deps
+ * @param {{ media, max, setSpecRows(kind, rows), readSpecs(kind), onCount() }} deps  max = batas file galeri produk (dari server)
  */
-export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
+export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
   const panel = $('[data-steam]', f);
   const input = $('[data-steam-id]', f);
   const searchBtn = $('[data-steam-search]', f);
   const statusEl = $('[data-steam-status]', f);
   const cardEl = $('[data-steam-card]', f);
+  const categoryEl = f.elements.category;
 
   const steamKeys = new Set();   // key aset (R2, status temp) yang berasal dari Steam pada form ini
+  let heroKey = null;            // key gambar utama dari Steam (bila masih ada di galeri)
   let seq = 0;                   // setiap Search baru membatalkan hasil unduhan video pencarian sebelumnya
   let searching = false;
   let videoLoading = false;
-  let view = null;               // { item, videoKey, videoMsg }
+  let view = null;               // { item, videoKey, videoMsg, videoFailed, spare }
   let overwriteAll = false;
 
   /* ---------- Mode ---------- */
@@ -75,18 +92,18 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
     panel.hidden = b.dataset.src !== 'steam';
     if (!panel.hidden) input.focus();
   });
+  // Kategori default = opsi pertama. Hanya kategori yang dipilih admin sendiri yang dianggap "data manual".
+  categoryEl.addEventListener('change', () => { categoryEl.dataset.touched = '1'; });
 
   /* ---------- Indikator "Data from Steam" ---------- */
   const labelOf = {
-    name: () => f.elements.name.closest('.field').firstElementChild,
-    description: () => f.elements.description.closest('.field').firstElementChild,
-    about: () => f.elements.about.closest('.field').firstElementChild,
     min: () => $('[data-spec-list="min"]', f).closest('.field').firstElementChild,
     rec: () => $('[data-spec-list="rec"]', f).closest('.field').firstElementChild,
     media: () => $('#media-host', f).closest('.fieldset').querySelector('h3'),
   };
+  const labelEl = (key) => (labelOf[key] ? labelOf[key]() : f.elements[key].closest('.field').firstElementChild);
   const mark = (key) => {
-    const l = labelOf[key]();
+    const l = labelEl(key);
     if (l.querySelector('.from-steam')) return;
     const i = document.createElement('i');
     i.className = 'from-steam';
@@ -97,10 +114,20 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
   // Admin mengubah kolom -> data tidak lagi persis dari Steam, indikator dilepas
   f.addEventListener('input', (e) => { const field = e.target.closest('.field'); if (field && !e.target.matches('[data-steam-id]')) unmark(field.firstElementChild); });
 
-  /* ---------- Status & kartu hasil ---------- */
+  /* ---------- Status & kartu pratinjau ---------- */
   function setStatus(kind, text, detail = '') {
     statusEl.className = `steam__status is-${kind}`;
     statusEl.innerHTML = text ? `${esc(text)}${detail ? ` <small>${esc(detail)}</small>` : ''}` : '';
+  }
+
+  // "App ID valid" dan "data/media tidak lengkap" adalah dua hal berbeda: di sini game SUDAH ditemukan.
+  function refreshStatus() {
+    if (!view) return;
+    const { item } = view;
+    const mediaGap = view.videoFailed || item.warnings.some((w) => MEDIA_FIELDS.has(w.field) && (w.field !== 'video' || !item.video.available));
+    const metaGap = item.warnings.some((w) => !MEDIA_FIELDS.has(w.field));
+    const text = mediaGap && metaGap ? MSG.partialBoth : mediaGap ? MSG.partialMedia : metaGap ? MSG.partialMeta : MSG.found;
+    setStatus(mediaGap || metaGap ? 'warn' : 'ok', text, item.name);
   }
 
   const chip = (ok, label) => html`<li class="chip ${ok ? 'chip--ok' : 'chip--miss'}">${icon(ok ? 'check' : 'alert')}${label}${ok ? '' : html` <span class="sr-only">tidak tersedia</span>`}</li>`;
@@ -108,21 +135,33 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
   function renderCard() {
     if (!view) { mount(cardEl, ''); return; }
     const { item } = view;
-    const vid = view.videoKey && media.items().find((m) => m.key === view.videoKey);
-    const notes = item.warnings.filter((w) => w.field !== 'video');
+    const items = media.items();
+    const mine = items.filter((m) => steamKeys.has(m.key));
+    const hero = mine.find((m) => m.key === heroKey);
+    const shots = mine.filter((m) => m.type === 'image' && m.key !== heroKey);
+    const vid = view.videoKey && items.find((m) => m.key === view.videoKey);
+
+    const notes = item.warnings.filter((w) => w.field !== 'video').map((w) => w.message);
+    if (item.screenshotsAvailable > shots.length) notes.push(`Steam menyediakan ${item.screenshotsAvailable} screenshot; ${shots.length} masuk galeri (batas galeri produk ${max} file).`);
+    if (item.video.count > 1) notes.push(`Steam menyediakan ${item.video.count} video; produk hanya mendukung 1 video, jadi trailer utama yang dipakai.`);
+    const cat = item.categoryMatch
+      ? `Kategori diisi “${item.categoryMatch.name}” (cocok dengan genre ${item.categoryMatch.via}).`
+      : item.info.genres.length ? `Genre Steam: ${item.info.genres.join(', ')}. Tidak ada kategori toko dengan nama yang sama; pilih kategori secara manual.` : '';
+    if (cat) notes.push(cat);
+
     mount(cardEl, html`
       <div class="steam-card">
-        <div class="steam-card__img">${item.image ? html`<img src="${item.image.url}" alt="Gambar utama dari Steam">` : html`<span>${icon('image')}Gambar tidak tersedia</span>`}</div>
+        <div class="steam-card__img">${hero ? html`<img src="${hero.url}" alt="Gambar utama dari Steam">` : html`<span>${icon('image')}${item.image ? 'Gambar utama dihapus dari galeri' : 'Gambar utama tidak tersedia'}</span>`}</div>
         <div class="steam-card__body">
           <b>${item.name || 'Tanpa nama'}</b>
           <small>App ID ${item.appId}, <a href="${item.storeUrl}" target="_blank" rel="noopener noreferrer">buka di Steam</a></small>
           <ul class="chips">
-            ${chip(Boolean(item.image), 'Gambar')}${chip(Boolean(item.about || item.description), 'Deskripsi')}
-            ${chip(item.specs.min.length > 0, 'Spek minimum')}${chip(item.specs.rec.length > 0, 'Spek disarankan')}
-            ${chip(Boolean(vid) || videoLoading, 'Video')}
+            ${chip(Boolean(hero), 'Gambar utama')}${chip(shots.length > 0, `Screenshot (${shots.length})`)}${chip(Boolean(vid) || videoLoading, 'Video')}
+            ${chip(Boolean(item.about || item.description), 'Deskripsi')}${chip(item.specs.min.length > 0, 'Spek minimum')}${chip(item.specs.rec.length > 0, 'Spek disarankan')}
           </ul>
-          ${notes.length ? html`<ul class="steam-notes">${notes.map((w) => html`<li>${w.message}</li>`)}</ul>` : ''}
+          ${notes.length ? html`<ul class="steam-notes">${notes.map((m) => html`<li>${m}</li>`)}</ul>` : ''}
         </div>
+        ${shots.length ? html`<ul class="steam-card__shots" aria-label="Screenshot dari Steam">${shots.map((m, i) => html`<li><img src="${m.url}" alt="Screenshot ${i + 1}" loading="lazy"></li>`)}</ul>` : ''}
         <div class="steam-card__video">
           ${videoLoading ? html`<p class="steam__status is-busy">Mengunduh trailer dari Steam...</p>`
     : vid ? html`<video controls preload="metadata" src="${vid.url}" aria-label="Pratinjau trailer Steam"></video>`
@@ -131,10 +170,11 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
       </div>`);
   }
 
-  // Dipanggil media manager bila admin menambah/menghapus/mengurutkan file
+  // Dipanggil media manager bila admin menambah/menghapus/mengurutkan/mengganti file
   function onMediaChange() {
     const keys = new Set(media.items().map((m) => m.key));
     for (const k of [...steamKeys]) if (!keys.has(k)) steamKeys.delete(k);
+    if (heroKey && !keys.has(heroKey)) heroKey = null;
     if (!media.items().some((m) => steamKeys.has(m.key))) unmark(labelOf.media());
     if (view?.videoKey && !keys.has(view.videoKey)) { view.videoKey = null; view.videoMsg = 'Video dihapus dari galeri. Unggah video manual bila perlu.'; }
     renderCard();
@@ -142,34 +182,58 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
 
   /* ---------- Isi formulir ---------- */
   async function apply(item) {
-    const cur = { name: f.elements.name.value.trim(), description: f.elements.description.value.trim(), about: f.elements.about.value.trim(), min: readSpecs('min'), rec: readSpecs('rec') };
-    const next = { name: item.name, description: item.description, about: item.about, min: item.specs.min, rec: item.specs.rec };
-    const label = { name: 'Nama produk', description: 'Deskripsi singkat', about: 'Deskripsi lengkap', min: 'Persyaratan minimum', rec: 'Persyaratan disarankan' };
+    const cur = {}; const next = {}; const label = {};
+    for (const [name, lab, get] of TEXT_FIELDS) { cur[name] = f.elements[name].value.trim(); next[name] = get(item); label[name] = lab; }
+    cur.min = readSpecs('min'); next.min = item.specs.min; label.min = 'Persyaratan minimum';
+    cur.rec = readSpecs('rec'); next.rec = item.specs.rec; label.rec = 'Persyaratan disarankan';
+    cur.category = categoryEl.dataset.touched ? categoryEl.value : ''; next.category = item.categoryMatch?.id || ''; label.category = 'Kategori';
+
     const isEmpty = (v) => (Array.isArray(v) ? v.length === 0 : !v);
+    const same = (k) => (Array.isArray(next[k]) ? sameRows(cur[k], next[k]) : cur[k] === next[k]);
     const hasNew = (k) => !isEmpty(next[k]);
-    const conflicts = Object.keys(next).filter((k) => hasNew(k) && !isEmpty(cur[k]) && (Array.isArray(next[k]) ? !sameRows(cur[k], next[k]) : cur[k] !== next[k]));
+    const conflicts = Object.keys(next).filter((k) => hasNew(k) && !isEmpty(cur[k]) && !same(k));
 
+    // Hanya kolom yang datang dari Steam yang disentuh; kolom lain (harga, stok, dst.) tidak pernah diubah di sini.
     overwriteAll = conflicts.length ? await askOverwrite(conflicts.map((k) => label[k])) : false;
-    const can = (k) => hasNew(k) && (overwriteAll || isEmpty(cur[k]) || (Array.isArray(next[k]) ? sameRows(cur[k], next[k]) : cur[k] === next[k]));
+    const can = (k) => hasNew(k) && (overwriteAll || isEmpty(cur[k]) || same(k));
 
-    for (const k of ['name', 'description', 'about']) {
-      if (can(k)) { f.elements[k].value = next[k]; mark(k); }
-    }
+    for (const [name] of TEXT_FIELDS) if (can(name)) { f.elements[name].value = next[name]; mark(name); }
+    if (can('category')) { categoryEl.value = next.category; mark('category'); }
     onCount();
-    for (const k of ['min', 'rec']) {
-      if (can(k)) { setSpecRows(k, next[k]); mark(k); }
-    }
+    for (const k of ['min', 'rec']) if (can(k)) { setSpecRows(k, next[k]); mark(k); }
     if ((can('min') || can('rec')) && (overwriteAll || !f.elements.source.value.trim())) f.elements.source.value = item.specs.source;
+    applyMedia(item);
+  }
 
-    // Gambar: jadi gambar utama (urutan pertama). Hasil Steam dari pencarian sebelumnya diganti; file manual tidak disentuh.
-    let list = media.items().filter((m) => !steamKeys.has(m.key));
-    steamKeys.clear();
-    if (item.image) {
-      if (list.length >= MAX_MEDIA) toast('Galeri penuh', { type: 'error', detail: 'Gambar Steam tidak ditambahkan. Hapus satu file lalu cari lagi.' });
-      else { list = [item.image, ...list]; steamKeys.add(item.image.key); }
-    }
-    media.set(list);
+  /** Gambar utama + screenshot Steam masuk lebih dulu (gambar utama = urutan pertama). File manual tidak disentuh;
+   *  hasil Steam dari pencarian sebelumnya diganti. Satu slot disisakan untuk trailer bila Steam menyediakannya. */
+  function applyMedia(item) {
+    const manual = media.items().filter((m) => !steamKeys.has(m.key));
+    steamKeys.clear(); heroKey = null;
+    const manualVideo = manual.some((m) => m.type === 'video');
+    const reserveVideo = item.video.available && (!manualVideo || overwriteAll) ? 1 : 0;
+    const all = [...(item.image ? [item.image] : []), ...item.screenshots];
+    const room = Math.max(0, max - manual.length - reserveVideo);
+    const take = all.slice(0, room);
+    view.spare = all.slice(room);   // dipakai mengisi slot bila trailer ternyata gagal diunduh
+    if (all.length && !take.length) toast('Galeri penuh', { type: 'error', detail: 'Gambar Steam tidak ditambahkan. Hapus satu file lalu cari lagi.' });
+    for (const m of take) steamKeys.add(m.key);
+    if (item.image && take[0]?.key === item.image.key) heroKey = item.image.key;
+    media.set([...take, ...manual]);
     if (steamKeys.size) mark('media'); else unmark(labelOf.media());
+  }
+
+  /** Trailer tidak masuk: slot yang tadinya dicadangkan diisi screenshot cadangan (sebelum video bila ada). */
+  function backfill() {
+    if (!view?.spare?.length) return;
+    const list = media.items();
+    const add = view.spare.splice(0, Math.max(0, max - list.length));
+    if (!add.length) return;
+    const at = list.findIndex((m) => m.type === 'video');
+    list.splice(at < 0 ? list.length : at, 0, ...add);
+    for (const m of add) steamKeys.add(m.key);
+    media.set(list);
+    mark('media');
   }
 
   async function loadVideo(appId, mySeq) {
@@ -184,7 +248,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
       if (manualVideo && !overwriteAll) msg = 'Video yang sudah Anda unggah dipertahankan; trailer Steam tidak ditambahkan.';
       else {
         if (manualVideo) list = list.filter((m) => m !== manualVideo);
-        if (list.length >= MAX_MEDIA) msg = 'Galeri penuh, trailer Steam tidak ditambahkan.';
+        if (list.length >= max) msg = 'Galeri penuh, trailer Steam tidak ditambahkan.';
         else {
           media.set([...list, res.video]);
           steamKeys.add(res.video.key);
@@ -194,6 +258,9 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
       }
     }
     view.videoMsg = msg;
+    view.videoFailed = !view.videoKey && !msg.startsWith('Video yang sudah Anda unggah');
+    if (!view.videoKey) backfill();
+    refreshStatus();
     renderCard();
   }
 
@@ -210,11 +277,9 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
         const { item } = await api.get(`/steam/${id}`);
         if (mySeq !== seq) return;
         videoLoading = false;
-        view = { item, videoKey: null, videoMsg: '' };
+        view = { item, videoKey: null, videoMsg: item.video.available ? '' : MSG.noVideo, videoFailed: false, spare: [] };
         await apply(item);
-        const partial = item.warnings.some((w) => w.field !== 'video') || !item.video.available;
-        setStatus(partial ? 'warn' : 'ok', partial ? MSG.partial : MSG.found, item.name);
-        view.videoMsg = item.video.available ? '' : MSG.noVideo;
+        refreshStatus();
         renderCard();
         if (item.video.available) loadVideo(item.appId, mySeq);   // sengaja tanpa await: Search tidak menunggu unduhan video
       });

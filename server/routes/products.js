@@ -5,6 +5,7 @@ import { productInput, productListQuery, statusInput } from '../lib/schemas.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
+import { config } from '../config/env.js';
 
 const r = Router();
 const LOW_STOCK = 10; // sama dengan batas "Stok terbatas" di Marketplace
@@ -39,7 +40,7 @@ async function checkCategory(id) {
 }
 
 async function resolveMedia(keys, ownerRef) {
-  const found = await assets.resolveForOwner(keys, ownerRef, { folders: ['products'], kinds: ['image', 'video'], max: 6 });
+  const found = await assets.resolveForOwner(keys, ownerRef, { folders: ['products'], kinds: ['image', 'video'], max: config.limits.productMedia });
   if (found.filter((a) => a.kind === 'video').length > 1) throw new HttpError(422, 'Maksimal 1 video per produk.', { fields: { media: 'Maksimal 1 video' } });
   return found.map((a) => ({ type: a.kind, key: a.key, url: a.url }));
 }

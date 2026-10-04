@@ -128,6 +128,18 @@ export default {
             <label class="field"><span>Deskripsi lengkap</span><textarea name="about" rows="5" maxlength="4000">${p?.about ?? ''}</textarea><small>Tampil di bagian “Tentang Produk”. Pisahkan paragraf dengan satu baris kosong.</small></label>
           </div>
           <div class="fieldset">
+            <h3>Info game</h3>
+            <p class="hint muted">Opsional. Terisi otomatis dari Steam; kosongkan bila tidak ada.</p>
+            <div class="grid-2">
+              <label class="field"><span>Steam App ID</span><input name="gameInfo.steamAppId" inputmode="numeric" maxlength="10" value="${p?.gameInfo.steamAppId ?? ''}"></label>
+              <label class="field"><span>Tanggal rilis</span><input name="gameInfo.releaseDate" maxlength="60" value="${p?.gameInfo.releaseDate ?? ''}" placeholder="mis. 10 Jul, 2020"></label>
+              <label class="field"><span>Developer</span><input name="gameInfo.developer" maxlength="200" value="${p?.gameInfo.developer ?? ''}"></label>
+              <label class="field"><span>Publisher</span><input name="gameInfo.publisher" maxlength="200" value="${p?.gameInfo.publisher ?? ''}"></label>
+              <label class="field"><span>Genre</span><input name="gameInfo.genres" value="${(p?.gameInfo.genres ?? []).join(', ')}" placeholder="Action, RPG"><small>Pisahkan dengan koma. Maksimal 10.</small></label>
+              <label class="field"><span>Metacritic</span><input name="gameInfo.metacritic" type="number" min="0" max="100" step="1" value="${p?.gameInfo.metacritic ?? ''}"><small>Skor 0–100.</small></label>
+            </div>
+          </div>
+          <div class="fieldset">
             <h3>Harga & stok</h3>
             <div class="grid-2">
               <label class="field"><span>Harga jual</span><div class="input-prefix"><span>Rp</span><input name="price" type="number" min="0" step="1" value="${p?.price ?? ''}" required></div></label>
@@ -138,7 +150,7 @@ export default {
           </div>
           <div class="fieldset">
             <h3>Galeri</h3>
-            <p class="hint muted">Maksimal 6 file (gambar, dan 1 video). Gambar pertama jadi gambar utama di kartu produk. JPG, PNG, WebP, GIF, AVIF hingga ${ctx.meta.limits.imageMB} MB; video MP4/WebM hingga ${ctx.meta.limits.videoMB} MB.</p>
+            <p class="hint muted">Maksimal ${ctx.meta.limits.productMedia} file (gambar, dan 1 video). Gambar pertama jadi gambar utama di kartu produk; yang lain tampil sebagai galeri. JPG, PNG, WebP, GIF, AVIF hingga ${ctx.meta.limits.imageMB} MB; video MP4/WebM hingga ${ctx.meta.limits.videoMB} MB.</p>
             <div class="field" data-field="media"><div class="media-grid" id="media-host"></div></div>
           </div>
           <div class="fieldset">
@@ -159,7 +171,7 @@ export default {
       });
       const f = d.form;
       let steam = null;
-      const media = mediaManager($('#media-host', f), { max: 6, folder: 'products', video: true, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah media', onChange: () => steam?.onMediaChange() });
+      const media = mediaManager($('#media-host', f), { max: ctx.meta.limits.productMedia, folder: 'products', video: true, replace: true, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah media', onChange: () => steam?.onMediaChange() });
 
       const count = () => { $('#desc-count', f).textContent = `${f.elements.description.value.length}/300`; };
       f.elements.description.addEventListener('input', count); count();
@@ -180,7 +192,7 @@ export default {
         .filter((r) => r.label || r.value);
 
       const setSpecRows = (kind, rows) => { $(`[data-spec-list="${kind}"]`, f).innerHTML = rows.map((r, i) => specRowHTML(kind, i, r).s).join(''); };
-      if (!p) steam = initSteam(f, { media, setSpecRows, readSpecs, onCount: count });
+      if (!p) steam = initSteam(f, { media, max: ctx.meta.limits.productMedia, setSpecRows, readSpecs, onCount: count });
 
       f.addEventListener('submit', async () => {
         const btn = $('button[type="submit"]', f);
@@ -193,6 +205,14 @@ export default {
           stock: num('stock'), sold: el.sold.value === '' ? 0 : Number(el.sold.value),
           active: el.active.checked, description: el.description.value, about: el.about.value,
           specs: { min: readSpecs('min'), rec: readSpecs('rec'), source: el.source.value },
+          gameInfo: {
+            steamAppId: el['gameInfo.steamAppId'].value.trim(),
+            developer: el['gameInfo.developer'].value.trim(),
+            publisher: el['gameInfo.publisher'].value.trim(),
+            releaseDate: el['gameInfo.releaseDate'].value.trim(),
+            genres: el['gameInfo.genres'].value.split(',').map((g) => g.trim()).filter(Boolean),
+            metacritic: el['gameInfo.metacritic'].value === '' ? null : Number(el['gameInfo.metacritic'].value),
+          },
           media: media.get(),
         };
         try {

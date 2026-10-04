@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRequirements, parsePcRequirements, htmlToText, shortDescription, aboutText, decodeEntities } from '../server/lib/steamParse.js';
+import { parseGameInfo, joinNames, parseRequirements, parsePcRequirements, htmlToText, shortDescription, aboutText, decodeEntities } from '../server/lib/steamParse.js';
 
 // Bentuk umum Steam: <ul class="bb_ul"><li><strong>OS *:</strong> ...
 const UL = '<strong>Minimum:</strong><br><ul class="bb_ul"><li><strong>OS *:</strong> Windows 10 64-bit<br></li><li><strong>Processor:</strong> Intel Core i5-8400 / AMD Ryzen 5 1600<br></li><li><strong>Memory:</strong> 8 GB RAM<br></li><li><strong>Graphics:</strong> NVIDIA GTX 1060 6GB<br></li><li><strong>DirectX:</strong> Version 12<br></li><li><strong>Storage:</strong> 50 GB available space<br></li><li><strong>Additional Notes:</strong> SSD recommended</li></ul>';
@@ -70,4 +70,36 @@ test('deskripsi: ringkas <=300, lengkap <=4000, dipotong di batas kalimat', () =
   const a = aboutText(`<p>${sentence.repeat(200)}</p>`);
   assert.ok(a.text.length <= 4000 && a.truncated && a.text.endsWith('.'));
   assert.equal(aboutText('').text, '');
+});
+
+test('game info: developer, publisher, rilis, genre, kategori, Metacritic dari appdetails', () => {
+  const i = parseGameInfo({
+    developers: ['Studio A', 'Studio A', ' '], publishers: ['Pub &amp; Co'],
+    release_date: { coming_soon: false, date: '10 Jul, 2020' },
+    genres: [{ id: '1', description: 'Action' }, { id: '25', description: 'Adventure' }],
+    categories: [{ id: 2, description: 'Single-player' }],
+    metacritic: { score: 91, url: 'https://www.metacritic.com/game/x' },
+    website: 'javascript:alert(1)',
+  });
+  assert.deepEqual(i.developers, ['Studio A']);
+  assert.equal(i.publisher, 'Pub & Co');
+  assert.equal(i.releaseDate, '10 Jul, 2020');
+  assert.deepEqual(i.genres, ['Action', 'Adventure']);
+  assert.deepEqual(i.steamCategories, ['Single-player']);
+  assert.equal(i.metacritic, 91);
+  assert.equal(i.website, '', 'URL non-http ditolak');
+});
+
+test('game info: data kosong/aneh tidak melempar dan tidak mengarang nilai', () => {
+  for (const d of [{}, undefined, { developers: 'x', genres: 5, metacritic: 'abc', release_date: [] }, { metacritic: { score: 250 } }]) {
+    const i = parseGameInfo(d);
+    assert.equal(i.developer, ''); assert.equal(i.publisher, ''); assert.equal(i.releaseDate, '');
+    assert.deepEqual(i.genres, []); assert.equal(i.metacritic, null);
+  }
+  assert.equal(parseGameInfo({ release_date: { coming_soon: true, date: 'Coming soon' } }).comingSoon, true);
+});
+
+test('joinNames: dipotong di batas nama, bukan di tengah nama', () => {
+  assert.equal(joinNames(['Aaaa', 'Bbbb', 'Cccc'], 10), 'Aaaa, Bbbb');
+  assert.equal(joinNames([], 10), '');
 });

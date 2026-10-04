@@ -18,6 +18,13 @@ const FULL = {
   name: 'Contoh Game', short_description: 'Ringkasan &amp; singkat.', about_the_game: '<p>Paragraf satu.</p><p>Paragraf dua.</p>',
   header_image: 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1/header.jpg?t=1',
   pc_requirements: { minimum: REQ, recommended: REQ.replace('Minimum', 'Recommended').replace('8 GB', '16 GB') },
+  developers: ['Studio A'], publishers: ['Publisher B', 'Publisher C'], release_date: { coming_soon: false, date: '10 Jul, 2020' }, metacritic: { score: 88, url: 'https://www.metacritic.com/game/x' },
+  screenshots: [
+    { id: 0, path_thumbnail: 'https://shared.akamai.steamstatic.com/s/0.600x338.jpg?t=1', path_full: 'https://shared.akamai.steamstatic.com/s/0.1920x1080.jpg?t=1' },
+    { id: 1, path_thumbnail: 'https://shared.akamai.steamstatic.com/s/1.600x338.jpg', path_full: 'https://shared.akamai.steamstatic.com/s/1.1920x1080.jpg' },
+    { id: 2, path_full: 'https://evil.example.com/2.jpg' },
+    { id: 3, path_full: 'https://shared.akamai.steamstatic.com/s/1.1920x1080.jpg?dup=1' },
+  ],
   movies: [{ id: 1, name: 'Trailer', highlight: true, mp4: { 480: 'https://video.akamai.steamstatic.com/a/480.mp4', max: 'https://video.akamai.steamstatic.com/a/max.mp4' } }],
 };
 
@@ -54,7 +61,12 @@ test('metadata lengkap: nama, deskripsi, spesifikasi terparse; video terdeteksi'
   assert.equal(r.about, 'Paragraf satu.\n\nParagraf dua.');
   assert.deepEqual(r.specs.min, [{ label: 'OS', value: 'Windows 10' }, { label: 'Memory', value: '8 GB RAM' }]);
   assert.equal(r.specs.rec[1].value, '16 GB RAM');
-  assert.deepEqual(r.video, { available: true, title: 'Trailer' });
+  assert.deepEqual(r.video, { available: true, title: 'Trailer', count: 1 });
+  assert.equal(r.info.developer, 'Studio A');
+  assert.equal(r.info.publisher, 'Publisher B, Publisher C');
+  assert.equal(r.info.releaseDate, '10 Jul, 2020');
+  assert.equal(r.info.metacritic, 88);
+  assert.equal(r.screenshotsAvailable, 2, 'host asing & duplikat tidak dihitung');
   assert.match(calls[0], /appids=1&/);
 });
 
@@ -64,7 +76,9 @@ test('App ID valid tapi metadata sebagian -> tetap sukses dengan warnings (bukan
   assert.equal(r.name, 'Game Minim');
   assert.equal(r.partial, true);
   const fields = r.warnings.map((w) => w.field).sort();
-  assert.deepEqual(fields, ['about', 'description', 'image', 'specsMin', 'specsRec', 'video'].sort());
+  assert.deepEqual(fields, ['about', 'description', 'developer', 'genres', 'image', 'publisher', 'releaseDate', 'screenshots', 'specsMin', 'specsRec', 'video'].sort());
+  assert.equal(r.info.metacritic, null, 'Metacritic kosong tidak menjadi warning dan tidak dikarang');
+  assert.deepEqual(r.screenshots, []);
   assert.deepEqual(r.specs.min, []);
   assert.equal(r.image, null);
   assert.equal(r.video.available, false);
@@ -91,4 +105,22 @@ test('video: kandidat hanya MP4/WebM dari host CDN Steam (host lain & HLS diabai
     { name: 'y', highlight: true, webm: { 480: 'https://video.akamai.steamstatic.com/y480.webm', max: 'http://video.akamai.steamstatic.com/ymax.webm' } },
   ] });
   assert.deepEqual(c.map((v) => v.url), ['https://video.akamai.steamstatic.com/y480.webm']);
+});
+
+test('screenshot: semua entri screenshots[] dibaca (bukan hanya satu), urutan Steam dipertahankan, full lebih dulu dari thumbnail', () => {
+  const c = steam.screenshotCandidates(FULL);
+  assert.equal(c.length, 2);
+  assert.deepEqual(c[0].urls, [FULL.screenshots[0].path_full, FULL.screenshots[0].path_thumbnail]);
+  const many = { screenshots: Array.from({ length: 30 }, (_, i) => ({ id: i, path_full: `https://shared.akamai.steamstatic.com/s/${i}.jpg` })) };
+  assert.equal(steam.screenshotCandidates(many).length, 30, 'tidak ada batas 1 di tahap parsing');
+  assert.deepEqual(steam.screenshotCandidates({}), []);
+  assert.deepEqual(steam.screenshotCandidates({ screenshots: 'x' }), []);
+});
+
+test('video: jumlah trailer yang tersedia dilaporkan (produk hanya mendukung 1)', async () => {
+  const two = { ...FULL, movies: [...FULL.movies, { id: 2, name: 'Gameplay', mp4: { 480: 'https://video.akamai.steamstatic.com/b/480.mp4' } }] };
+  handler = () => json({ 1: { success: true, data: two } });
+  const r = await steam.searchApp('1');
+  assert.equal(r.video.count, 2);
+  assert.equal(r.video.title, 'Trailer', 'trailer highlight didahulukan');
 });

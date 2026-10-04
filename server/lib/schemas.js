@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { objectIdStr } from './http.js';
 import { CONTACT_ICONS } from '../models/index.js';
+import { config } from '../config/env.js';
 
 const str = (min, max) => z.string().trim().min(min).max(max);
 const int = (min, max) => z.number().int().min(min).max(max);
@@ -29,7 +30,15 @@ export const productInput = z.object({
     rec: specRows.optional().default([]),
     source: z.string().trim().max(120).optional().default(''),
   }).optional().default({}),
-  media: z.array(mediaRef).max(6).optional().default([]),
+  gameInfo: z.object({
+    steamAppId: z.string().trim().regex(/^(\d{1,10})?$/, 'App ID hanya angka').optional().default(''),
+    developer: z.string().trim().max(200).optional().default(''),
+    publisher: z.string().trim().max(200).optional().default(''),
+    releaseDate: z.string().trim().max(60).optional().default(''),
+    genres: z.array(str(1, 40)).max(10).optional().default([]),
+    metacritic: int(0, 100).nullable().optional().default(null),
+  }).optional().default({}),
+  media: z.array(mediaRef).max(config.limits.productMedia).optional().default([]),
 }).refine((v) => v.oldPrice == null || v.oldPrice > v.price, { path: ['oldPrice'], message: 'Harga coret harus lebih besar dari harga jual' });
 
 export const productListQuery = z.object({

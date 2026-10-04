@@ -57,6 +57,15 @@ const productSchema = new Schema({
     rec: { type: [specRow], default: [] },
     source: { type: String, default: '', maxlength: 120 },
   },
+  // Info game (mis. dari Steam). Semua opsional; kosong = tidak tersedia, tidak pernah dikarang.
+  gameInfo: {
+    steamAppId: { type: String, default: '', maxlength: 10 },
+    developer: { type: String, default: '', maxlength: 200 },
+    publisher: { type: String, default: '', maxlength: 200 },
+    releaseDate: { type: String, default: '', maxlength: 60 },
+    genres: { type: [{ type: String, trim: true, maxlength: 40 }], default: [] },
+    metacritic: { ...int, default: null, min: 0, max: 100 },
+  },
   media: { type: [mediaSchema], default: [] },
 }, { timestamps: true });
 productSchema.index({ active: 1, category: 1 });
