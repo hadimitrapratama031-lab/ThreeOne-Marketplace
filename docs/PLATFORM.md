@@ -130,3 +130,15 @@ Bug yang ditemukan dan diperbaiki lewat pengujian: validator `oldPrice` menolak 
 - Tidak ada multi-admin / peran; satu jenis admin.
 - Foto ulasan dan produk tidak diubah ukuran di server (disimpan apa adanya, maks 8 MB). Pertimbangkan Cloudflare Image Resizing.
 - Jumlah terjual, pelanggan, dan total pesanan diisi manual sampai modul pesanan ada.
+
+## 12. Tambah produk otomatis dari Steam App ID
+
+Admin Web -> Produk -> Tambah produk -> **Sumber produk**: `Manual` (form biasa) atau `Otomatis (Steam App ID)`.
+
+- Endpoint (admin saja): `GET /api/admin/steam/:appId` dan `POST /api/admin/steam/:appId/video`. Kode: `server/services/steam.js`, parser: `server/lib/steamParse.js`, UI: `admin/js/pages/_steam.js`.
+- Sumber data: Steam Store `appdetails` (publik, tanpa API key). Dipanggil hanya dari backend; frontend hanya menerima hasilnya.
+- Terisi otomatis: nama, deskripsi singkat (maks 300), deskripsi lengkap (maks 4000), gambar utama, video trailer (bila Steam menyediakan MP4/WebM), persyaratan minimum & disarankan (diparse menjadi baris `label/nilai`, bukan HTML mentah), dan kolom Sumber.
+- Gambar/video diunduh server dari CDN Steam (hanya HTTPS `*.steamstatic.com` / `*.akamaihd.net`, redirect divalidasi) ke R2 sebagai aset `temp`; baru menjadi milik produk saat Simpan. Biner tidak masuk MongoDB. Aset yang tidak jadi dipakai dibersihkan sweeper (6 jam).
+- App ID valid tetapi metadata sebagian -> sukses dengan `warnings`; hanya ID yang tidak dikenal Steam yang mengembalikan "Steam App ID tidak valid." Steam mati/lambat -> pesan terpisah (502), isian form tidak disentuh.
+- Cache memori 10 menit (ID tidak ditemukan 2 menit), permintaan bersamaan digabung, batas 20 pencarian/menit/IP.
+- Batasan: Steam tidak membedakan "ID tidak ada" dari "game tidak tersedia di Steam Store/wilayah"; trailer yang hanya tersedia sebagai HLS/DASH, atau lebih besar dari batas video, dilaporkan "Video tidak tersedia".

@@ -25,6 +25,7 @@ import productsRouter from './routes/products.js';
 import reviewsRouter from './routes/reviews.js';
 import settingsRouter from './routes/settings.js';
 import mediaRouter from './routes/media.js';
+import steamRouter from './routes/steam.js';
 import dashboardRouter from './routes/dashboard.js';
 import { categoriesRouter, faqRouter, contactsRouter } from './routes/content.js';
 
@@ -88,6 +89,7 @@ export function createApp() {
   admin.use('/contacts', contactsRouter);
   admin.use('/settings', settingsRouter);
   admin.use('/media', mediaRouter);
+  admin.use('/steam', steamRouter);
   app.use('/api/admin', admin);
   app.use('/api', notFoundApi);
 

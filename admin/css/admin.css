@@ -356,3 +356,47 @@ dialog.drawer[open] { animation: slide .24s cubic-bezier(.22, 1, .36, 1); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
 }
+
+/* ---------- Tambah produk: sumber Manual / Steam ---------- */
+.seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 13px; background: var(--tint); justify-self: start; max-width: 100%; }
+.seg__btn { padding: 8px 16px; border-radius: 10px; font-weight: 600; font-size: 13px; color: var(--muted); transition: background .15s, color .15s, box-shadow .15s; }
+.seg__btn:hover { color: var(--ink); }
+.seg__btn[aria-pressed="true"] { background: var(--surface); color: var(--violet); box-shadow: 0 1px 2px rgba(26, 21, 48, .12), 0 0 0 1px var(--line-strong); }
+.seg__btn:focus-visible { outline: 0; box-shadow: var(--focus); }
+
+.steam { display: grid; gap: 12px; padding: 16px; border-radius: var(--r-md); background: var(--tint-2); border: 1px solid var(--line); }
+.steam[hidden] { display: none; }
+.steam__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.steam__status { margin: 0; font-size: 13px; font-weight: 600; min-height: 0; }
+.steam__status:empty { display: none; }
+.steam__status small { font-weight: 500; color: var(--muted); margin-left: 4px; }
+.steam__status.is-busy { color: var(--violet); }
+.steam__status.is-ok { color: var(--ok); }
+.steam__status.is-warn { color: var(--warn); }
+.steam__status.is-error { color: var(--danger); }
+
+.steam-card { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 14px; padding: 12px; border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line-strong); }
+.steam-card__img { aspect-ratio: 460 / 215; align-self: start; border-radius: 9px; overflow: hidden; background: var(--tint); display: grid; place-items: center; color: var(--faint); font-size: 12px; text-align: center; }
+.steam-card__img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.steam-card__img span { display: grid; gap: 4px; justify-items: center; padding: 8px; }
+.steam-card__body { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.steam-card__body b { font-size: 15px; overflow-wrap: anywhere; }
+.steam-card__body small { color: var(--muted); }
+.steam-card__body a { color: var(--violet); text-decoration: underline; text-underline-offset: 2px; }
+.steam-card__video { grid-column: 1 / -1; }
+.steam-card__video:empty { display: none; }
+.steam-card__video video { width: 100%; max-height: 260px; border-radius: 9px; background: #000; display: block; }
+.chips { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px 2px 6px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+.chip .i { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.chip--ok { color: var(--ok); background: var(--ok-bg); }
+.chip--miss { color: var(--warn); background: var(--warn-bg); }
+.steam-notes { margin: 2px 0 0; padding-left: 16px; color: var(--muted); font-size: 12.5px; display: grid; gap: 2px; }
+
+.from-steam { font-style: normal; font-weight: 600; font-size: 11.5px; color: var(--ok); background: var(--ok-bg); padding: 1px 8px; border-radius: 99px; margin-left: 6px; white-space: nowrap; }
+
+@media (max-width: 560px) {
+  .seg { display: grid; width: 100%; }
+  .steam-card { grid-template-columns: 1fr; }
+  .steam__row { grid-template-columns: 1fr; }
+}

@@ -54,6 +54,10 @@ export const uploadLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 60,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak upload. Coba lagi sebentar.')),
 });
+export const steamLimiter = rateLimit({
+  ...limiterOpts, windowMs: 60_000, limit: 20,
+  handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak pencarian Steam. Coba lagi sebentar.')),
+});
 export const publicLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 300,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak permintaan.')),

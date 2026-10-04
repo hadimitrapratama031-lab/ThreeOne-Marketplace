@@ -1,6 +1,7 @@
 import { $, $$, html, raw, mount, icon, rp, num, dateShort, stockPill, pagerHTML, emptyState, skeletonRows, debounce, toast, toastError, dialog, confirmDialog, busy, fieldErrors } from '../ui.js';
 import { api } from '../api.js';
 import { mediaManager } from './_media.js';
+import { steamSourceBlock, initSteam } from './_steam.js';
 
 const SORTS = [['newest', 'Terbaru'], ['oldest', 'Terlama'], ['updated', 'Terakhir diubah'], ['name', 'Nama A–Z'], ['price_asc', 'Harga terendah'], ['price_desc', 'Harga tertinggi'], ['stock_asc', 'Stok tersedikit'], ['stock_desc', 'Stok terbanyak']];
 
@@ -118,6 +119,7 @@ export default {
         kind: 'drawer',
         title: p ? 'Ubah produk' : 'Tambah produk',
         body: html`
+          ${p ? '' : steamSourceBlock()}
           <div class="fieldset">
             <h3>Informasi dasar</h3>
             <label class="field"><span>Nama produk</span><input name="name" value="${p?.name ?? ''}" maxlength="120" required></label>
@@ -156,7 +158,8 @@ export default {
         foot: html`<button type="button" class="btn" data-close>Batal</button><button type="submit" class="btn btn--primary">${p ? 'Simpan perubahan' : 'Tambah produk'}</button>`,
       });
       const f = d.form;
-      const media = mediaManager($('#media-host', f), { max: 6, folder: 'products', video: true, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah media' });
+      let steam = null;
+      const media = mediaManager($('#media-host', f), { max: 6, folder: 'products', video: true, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah media', onChange: () => steam?.onMediaChange() });
 
       const count = () => { $('#desc-count', f).textContent = `${f.elements.description.value.length}/300`; };
       f.elements.description.addEventListener('input', count); count();
@@ -176,9 +179,12 @@ export default {
         .map((row) => { const [a, b] = $$('input', row); return { label: a.value.trim(), value: b.value.trim() }; })
         .filter((r) => r.label || r.value);
 
+      const setSpecRows = (kind, rows) => { $(`[data-spec-list="${kind}"]`, f).innerHTML = rows.map((r, i) => specRowHTML(kind, i, r).s).join(''); };
+      if (!p) steam = initSteam(f, { media, setSpecRows, readSpecs, onCount: count });
+
       f.addEventListener('submit', async () => {
         const btn = $('button[type="submit"]', f);
-        if (media.busy()) { toast('Tunggu upload selesai', { type: 'error' }); return; }
+        if (media.busy() || steam?.pending()) { toast('Tunggu upload selesai', { type: 'error', detail: steam?.pending() ? 'Trailer Steam masih diunduh.' : '' }); return; }
         const el = f.elements;
         const num = (name) => (el[name].value === '' ? NaN : Number(el[name].value));
         const body = {
