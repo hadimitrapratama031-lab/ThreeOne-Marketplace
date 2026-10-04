@@ -169,21 +169,25 @@ test('gambar produk: upload -> simpan -> ganti -> hapus mengikuti urutan aman', 
   assert.equal((await a.get(`/products/${p.id}`)).status, 404);
 });
 
-test('batas media: maksimal 6 file dan 1 video', async () => {
+test('galeri produk: jumlah gambar & video tidak dibatasi; duplikat dan key tak dikenal tetap ditolak', async () => {
   const ups = [];
-  for (let i = 0; i < 7; i++) ups.push((await a.upload()).body.asset.key);
+  for (let i = 0; i < 12; i++) ups.push((await a.upload()).body.asset.key);
   const cat = await mkCat('Batas');
-  const r = await a.post('/products', { name: 'Terlalu banyak', category: cat.id, price: 1, stock: 1, media: ups.map((key) => ({ key })) });
-  assert.equal(r.status, 422);
+  const r = await a.post('/products', { name: 'Banyak gambar', category: cat.id, price: 1, stock: 1, media: ups.map((key) => ({ key })) });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.item.media.length, 12);
   const vids = [];
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 3; i++) {
     const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypisom'), Buffer.alloc(30)]);
     const v = await a.upload(mp4, 'products', 'v.mp4');
     assert.equal(v.status, 201);
     vids.push(v.body.asset.key);
   }
-  const r2 = await a.post('/products', { name: 'Dua video', category: cat.id, price: 1, stock: 1, media: vids.map((key) => ({ key })) });
-  assert.equal(r2.status, 422);
+  const r2 = await a.post('/products', { name: 'Tiga video', category: cat.id, price: 1, stock: 1, media: vids.map((key) => ({ key })) });
+  assert.equal(r2.status, 201, JSON.stringify(r2.body));
+  assert.deepEqual(r2.body.item.media.map((m) => m.type), ['video', 'video', 'video']);
+  const dup = await a.post('/products', { name: 'Duplikat', category: cat.id, price: 1, stock: 1, media: [{ key: ups[0] }, { key: ups[0] }] });
+  assert.equal(dup.status, 422);
 });
 
 test('paginasi, pencarian, filter, dan urutan dilakukan di server', async () => {

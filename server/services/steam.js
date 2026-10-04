@@ -4,8 +4,8 @@
  * Sumber data: endpoint publik Steam Store `https://store.steampowered.com/api/appdetails?appids=<id>`.
  * Tidak memakai API key apa pun, jadi tidak ada rahasia yang bisa bocor ke frontend.
  *
- * Alur media: gambar/video diunduh server dari CDN resmi Steam (hanya host *.steamstatic.com / *.akamaihd.net,
- * HTTPS, redirect divalidasi ulang), lalu disimpan sebagai aset 'temp' di Cloudflare R2 lewat services/assets.js.
+ * Alur media: SEMUA `screenshots[]` dan SEMUA `movies[]` dari appdetails diunduh server dari CDN resmi Steam (hanya host
+ * *.steamstatic.com / *.akamaihd.net, selalu lewat HTTPS, redirect divalidasi ulang), lalu disimpan sebagai aset 'temp' di Cloudflare R2 lewat services/assets.js.
  * Aset baru menjadi milik produk hanya setelah admin menekan Simpan (alur upload yang sama dengan upload manual).
  * Biner tidak pernah masuk MongoDB; yang tersimpan di produk hanyalah referensi {type, key, url}.
  */
@@ -25,10 +25,17 @@ export const isValidAppId = (v) => /^\d{1,10}$/.test(String(v ?? '').trim()) && 
 
 /* ---------- HTTP aman ---------- */
 
+/**
+ * URL CDN Steam yang boleh diunduh, atau null. Hanya host *.steamstatic.com / *.akamaihd.net.
+ * appdetails kadang mengirim URL `movies[]` sebagai `http://` (host CDN yang sama); itu dinaikkan ke https, bukan dibuang,
+ * karena kalau dibuang trailer dianggap "tidak tersedia". Protokol lain (ftp:, javascript:, dst.) tetap ditolak.
+ */
 const cdnUrl = (raw) => {
   try {
     const u = new URL(raw);
-    return u.protocol === 'https:' && CDN_HOST.test(u.hostname) ? u : null;
+    if (!CDN_HOST.test(u.hostname)) return null;
+    if (u.protocol === 'http:') u.protocol = 'https:';
+    return u.protocol === 'https:' ? u : null;
   } catch { return null; }
 };
 
@@ -132,11 +139,9 @@ async function stage(srcUrl, { kind, maxBytes, timeoutMs, name }) {
 
 /* ---------- Normalisasi ---------- */
 
-// Galeri produk punya config.limits.productMedia slot (saat ini 6). Gambar utama + 5 screenshot memenuhi galeri tanpa video;
-// klien memakai sebanyak yang muat (menyisakan 1 slot untuk trailer bila ada). Sisanya tidak diunduh: tidak ada gunanya
-// menyalin puluhan screenshot ke R2 yang tidak akan masuk galeri.
-const SCREENSHOT_TARGET = Math.max(1, config.limits.productMedia - 1);
-const STAGE_CONCURRENCY = 3;
+// Tidak ada batas jumlah: semua screenshot & semua video yang disediakan Steam disalin ke R2 (aset 'temp').
+// Hanya paralelisme yang dibatasi (bukan jumlahnya) supaya server tidak membuka puluhan koneksi sekaligus.
+const STAGE_CONCURRENCY = 6;
 
 const heroCandidates = (d) => [d.header_image, d.capsule_imagev5, d.capsule_image].filter((u) => typeof u === 'string' && cdnUrl(u));
 
@@ -158,17 +163,32 @@ export function screenshotCandidates(data) {
   return out;
 }
 
-/** Daftar URL video yang bisa dipakai, dari yang paling kecil/praktis. Hanya MP4/WebM (HLS/DASH tidak didukung Marketplace). */
-export function videoCandidates(data) {
-  const movies = Array.isArray(data.movies) ? [...data.movies] : [];
-  movies.sort((a, b) => Number(Boolean(b.highlight)) - Number(Boolean(a.highlight)));
+// Urutan percobaan per video: yang paling kecil dulu. Hanya MP4/WebM (HLS/DASH tidak didukung Marketplace).
+const MOVIE_SOURCES = [['mp4', '480'], ['webm', '480'], ['mp4', 'max'], ['webm', 'max']];
+
+/**
+ * `movies[]` Steam -> [{ index, title, sources: [{ url, format, quality }] }]. SATU entri per video (bukan per format).
+ * Setiap movie Steam berbentuk { id, name, thumbnail, highlight, webm: { 480, max }, mp4: { 480, max } }.
+ * Trailer utama (highlight) didahulukan, selebihnya mengikuti urutan Steam. Video tanpa URL yang bisa dipakai dan duplikat dilewati.
+ * `index` = posisi di daftar ini; dipakai klien untuk meminta tiap video satu per satu (POST /steam/:appId/video).
+ */
+export function movieCandidates(data) {
+  const movies = Array.isArray(data?.movies) ? [...data.movies] : [];
+  movies.sort((a, b) => Number(Boolean(b?.highlight)) - Number(Boolean(a?.highlight)));   // sort stabil: urutan Steam dipertahankan
   const out = [];
-  movies.forEach((m, movie) => {
-    for (const [fmt, q] of [['mp4', '480'], ['webm', '480'], ['mp4', 'max'], ['webm', 'max']]) {
-      const url = m?.[fmt]?.[q];
-      if (typeof url === 'string' && cdnUrl(url)) out.push({ url, title: String(m.name || '').slice(0, 120), format: fmt, movie });
+  const seen = new Set();
+  for (const m of movies) {
+    const sources = [];
+    for (const [format, quality] of MOVIE_SOURCES) {
+      const u = cdnUrl(m?.[format]?.[quality]);
+      if (u) sources.push({ url: u.href, format, quality });
     }
-  });
+    if (!sources.length) continue;
+    const id = sources[0].url.split('?')[0];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ index: out.length, title: String(m?.name || '').slice(0, 120), sources });
+  }
   return out;
 }
 
@@ -183,26 +203,19 @@ async function mapLimit(items, limit, fn) {
 }
 
 /**
- * Unduh screenshot ke R2 (aset 'temp') sampai `target` berhasil atau kandidat habis. Satu gambar gagal tidak menghentikan
- * yang lain; kandidat berikutnya menggantikannya supaya galeri tetap terisi. Urutan hasil = urutan Steam.
+ * Unduh SEMUA screenshot ke R2 (aset 'temp'). Satu gambar gagal tidak menghentikan yang lain (dihitung di `failed`).
+ * path_full (1080p) dicoba lebih dulu, path_thumbnail hanya cadangan. Urutan hasil = urutan Steam.
  */
-async function stageScreenshots(appId, cands, target) {
-  const staged = [];
-  let failed = 0;
-  let i = 0;
-  while (staged.length < target && i < cands.length) {
-    const batch = cands.slice(i, i + (target - staged.length));
-    i += batch.length;
-    const res = await mapLimit(batch, STAGE_CONCURRENCY, async (c) => {
-      for (const src of c.urls) {
-        try { return await stage(src, { kind: 'image', maxBytes: config.limits.imageBytes, timeoutMs: 20_000, name: `steam-${appId}-shot-${c.id}.jpg` }); }
-        catch (err) { console.warn(`[steam] screenshot ${appId}/${c.id} gagal (${err?.message || err})`); }
-      }
-      return null;
-    });
-    for (const r of res) { if (r) staged.push(r); else failed++; }
-  }
-  return { staged, failed };
+async function stageScreenshots(appId, cands) {
+  const res = await mapLimit(cands, STAGE_CONCURRENCY, async (c) => {
+    for (const src of c.urls) {
+      try { return await stage(src, { kind: 'image', maxBytes: config.limits.imageBytes, timeoutMs: 20_000, name: `steam-${appId}-shot-${c.id}.jpg` }); }
+      catch (err) { console.warn(`[steam] screenshot ${appId}/${c.id} gagal (${err?.message || err})`); }
+    }
+    return null;
+  });
+  const staged = res.filter(Boolean);
+  return { staged, failed: res.length - staged.length };
 }
 
 /** Cocokkan genre/kategori Steam dengan kategori toko yang sudah ada (nama sama, tanpa peduli huruf). Tidak pernah membuat kategori baru. */
@@ -283,7 +296,7 @@ export async function searchApp(rawId) {
         }
         return null;
       })(),
-      shots.length ? stageScreenshots(appId, shots, SCREENSHOT_TARGET) : { staged: [], failed: 0 },
+      shots.length ? stageScreenshots(appId, shots) : { staged: [], failed: 0 },
     ]);
     image = heroRes;
     screenshots = shotRes.staged;
@@ -292,10 +305,13 @@ export async function searchApp(rawId) {
     else if (shotRes.failed) warnings.push(warn('screenshots', `${shotRes.failed} screenshot gagal diambil dan dilewati.`));
   }
 
-  // Video: hanya dilaporkan tersedia/tidak. Pengunduhan dilakukan terpisah (POST .../video) karena bisa puluhan MB.
-  const vids = videoCandidates(d);
-  const video = vids.length ? { available: true, title: vids[0].title, count: new Set(vids.map((v) => v.movie)).size } : { available: false, count: 0 };
-  if (!vids.length) warnings.push(warn('video', 'Video tidak tersedia, silakan upload manual.'));
+  // Video: hanya dilaporkan (jumlah + daftar). Pengunduhan dilakukan terpisah, satu video per permintaan
+  // (POST .../video { movie: index }) karena tiap video bisa puluhan MB; klien meminta semuanya satu per satu.
+  const movies = movieCandidates(d);
+  const video = movies.length
+    ? { available: true, title: movies[0].title, count: movies.length, items: movies.map((m) => ({ index: m.index, title: m.title })) }
+    : { available: false, count: 0, items: [] };
+  if (!movies.length) warnings.push(warn('video', 'Video tidak tersedia, silakan upload manual.'));
 
   return {
     appId,
@@ -308,34 +324,44 @@ export async function searchApp(rawId) {
     categoryMatch,
     image,
     screenshots,
-    screenshotsAvailable: shots.length,   // jumlah yang disediakan Steam (bisa lebih banyak dari yang diunduh)
+    screenshotsAvailable: shots.length,   // jumlah yang disediakan Steam (setelah host asing & duplikat dibuang)
     video,
     warnings,
     partial: warnings.length > 0,
   };
 }
 
-/** Unduh trailer Steam ke R2 sebagai aset 'temp'. Tidak melempar untuk kasus "tidak tersedia": mengembalikan { video: null, message }. */
-export async function fetchVideo(rawId) {
+/**
+ * Unduh SATU video Steam (movie ke-`movie`, default 0 = trailer utama) ke R2 sebagai aset 'temp'.
+ * Klien memanggil ini untuk setiap index 0..count-1 sehingga semua video Steam masuk galeri.
+ * Tidak melempar untuk kasus "tidak tersedia": mengembalikan { video: null, message, index, count }.
+ */
+export async function fetchVideo(rawId, movie = 0) {
   if (!isValidAppId(rawId)) throw new HttpError(422, 'Steam App ID tidak valid.', { code: 'APPID_INVALID' });
+  const idx = Number(movie);
+  if (!Number.isInteger(idx) || idx < 0) throw new HttpError(422, 'Nomor video tidak valid.', { code: 'MOVIE_INVALID' });
   const appId = String(Number(rawId));
   const found = await lookup(appId);
   if (!found.found) throw new HttpError(404, 'Steam App ID tidak valid.', { code: 'APPID_NOT_FOUND' });
 
   const UNAVAILABLE = 'Video tidak tersedia, silakan upload manual.';
-  if (!r2Configured()) return { video: null, message: `${UNAVAILABLE} (Penyimpanan R2 belum dikonfigurasi.)` };
-  const cands = videoCandidates(found.data).slice(0, 4);
-  if (!cands.length) return { video: null, message: UNAVAILABLE };
+  const movies = movieCandidates(found.data);
+  const count = movies.length;
+  const none = (message) => ({ video: null, message, index: idx, count });
+  if (!r2Configured()) return none(`${UNAVAILABLE} (Penyimpanan R2 belum dikonfigurasi.)`);
+  const m = movies[idx];
+  if (!m) return none(UNAVAILABLE);
 
   let tooLarge = false;
-  for (const c of cands) {
+  for (const c of m.sources) {
+    if (tooLarge && c.quality === 'max') continue;   // versi 480 sudah melebihi batas; versi max pasti lebih besar
     try {
-      const v = await stage(c.url, { kind: 'video', maxBytes: config.limits.videoBytes, timeoutMs: 90_000, name: `steam-${appId}-trailer.${c.format}` });
-      return { video: { ...v, title: c.title }, message: '' };
+      const v = await stage(c.url, { kind: 'video', maxBytes: config.limits.videoBytes, timeoutMs: 90_000, name: `steam-${appId}-movie-${idx}.${c.format}` });
+      return { video: { ...v, title: m.title }, message: '', index: idx, count };
     } catch (err) {
       if (err?.message === 'too-large') tooLarge = true;
-      console.warn(`[steam] video ${appId} (${c.format}) gagal: ${err?.message || err}`);
+      console.warn(`[steam] video ${appId}/${idx} (${c.format} ${c.quality}) gagal: ${err?.message || err}`);
     }
   }
-  return { video: null, message: tooLarge ? `${UNAVAILABLE} (Trailer Steam melebihi ${config.limits.videoBytes / 1048576} MB.)` : UNAVAILABLE };
+  return none(tooLarge ? `${UNAVAILABLE} (Video Steam melebihi ${config.limits.videoBytes / 1048576} MB.)` : UNAVAILABLE);
 }

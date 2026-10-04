@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { objectIdStr } from './http.js';
 import { CONTACT_ICONS } from '../models/index.js';
-import { config } from '../config/env.js';
 
 const str = (min, max) => z.string().trim().min(min).max(max);
 const int = (min, max) => z.number().int().min(min).max(max);
@@ -38,7 +37,7 @@ export const productInput = z.object({
     genres: z.array(str(1, 40)).max(10).optional().default([]),
     metacritic: int(0, 100).nullable().optional().default(null),
   }).optional().default({}),
-  media: z.array(mediaRef).max(config.limits.productMedia).optional().default([]),
+  media: z.array(mediaRef).optional().default([]),   // tanpa batas jumlah (gambar & video); key duplikat tetap ditolak di resolveForOwner
 }).refine((v) => v.oldPrice == null || v.oldPrice > v.price, { path: ['oldPrice'], message: 'Harga coret harus lebih besar dari harga jual' });
 
 export const productListQuery = z.object({

@@ -2,7 +2,8 @@
 import { $, html, mount, icon, toast, toastError } from '../ui.js';
 import { api } from '../api.js';
 
-export function mediaManager(host, { max, folder, video = false, limits, initial = [], showMain = false, addLabel = 'Tambah gambar', addHint = '', replace = false, onChange }) {
+// `max` opsional: tanpa `max` jumlah file tidak dibatasi (dipakai galeri produk). Halaman lain tetap memberi batas sendiri.
+export function mediaManager(host, { max = Infinity, folder, video = false, limits, initial = [], showMain = false, addLabel = 'Tambah gambar', addHint = '', replace = false, onChange }) {
   let items = initial.map((m) => ({ type: m.type || 'image', key: m.key, url: m.url }));
   let pending = 0;
 
@@ -59,7 +60,6 @@ export function mediaManager(host, { max, folder, video = false, limits, initial
     const isVideo = file.type.startsWith('video/');
     const maxMB = isVideo ? limits.videoMB : limits.imageMB;
     if (file.size > maxMB * 1048576) { toast(`${file.name} terlalu besar`, { type: 'error', detail: `Maksimal ${maxMB} MB.` }); return; }
-    if (isVideo && items.some((m, j) => j !== i && m.type === 'video')) { toast('Maksimal 1 video', { type: 'error', detail: 'Hapus video yang lama dulu.' }); return; }
     const old = items[i];
     pending++; render();
     try {

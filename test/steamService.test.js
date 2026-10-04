@@ -61,7 +61,7 @@ test('metadata lengkap: nama, deskripsi, spesifikasi terparse; video terdeteksi'
   assert.equal(r.about, 'Paragraf satu.\n\nParagraf dua.');
   assert.deepEqual(r.specs.min, [{ label: 'OS', value: 'Windows 10' }, { label: 'Memory', value: '8 GB RAM' }]);
   assert.equal(r.specs.rec[1].value, '16 GB RAM');
-  assert.deepEqual(r.video, { available: true, title: 'Trailer', count: 1 });
+  assert.deepEqual(r.video, { available: true, title: 'Trailer', count: 1, items: [{ index: 0, title: 'Trailer' }] });
   assert.equal(r.info.developer, 'Studio A');
   assert.equal(r.info.publisher, 'Publisher B, Publisher C');
   assert.equal(r.info.releaseDate, '10 Jul, 2020');
@@ -99,12 +99,27 @@ test('cache: lookup berulang tidak membebani Steam; permintaan bersamaan digabun
   assert.equal(calls.length, 1);
 });
 
-test('video: kandidat hanya MP4/WebM dari host CDN Steam (host lain & HLS diabaikan)', () => {
-  const c = steam.videoCandidates({ movies: [
+test('video: kandidat hanya MP4/WebM dari host CDN Steam (host lain & HLS diabaikan); http:// dinaikkan ke https://', () => {
+  const c = steam.movieCandidates({ movies: [
     { name: 'x', highlight: false, mp4: { 480: 'https://evil.example.com/a.mp4' }, hls_h264: 'https://video.akamai.steamstatic.com/a.m3u8' },
     { name: 'y', highlight: true, webm: { 480: 'https://video.akamai.steamstatic.com/y480.webm', max: 'http://video.akamai.steamstatic.com/ymax.webm' } },
+    { name: 'z', mp4: { 480: 'ftp://video.akamai.steamstatic.com/z.mp4', max: 'http://evil.example.com/z.mp4' } },
   ] });
-  assert.deepEqual(c.map((v) => v.url), ['https://video.akamai.steamstatic.com/y480.webm']);
+  assert.equal(c.length, 1, 'x (host asing) dan z (protokol/host tidak sah) dibuang');
+  assert.deepEqual(c[0].sources.map((v) => v.url), ['https://video.akamai.steamstatic.com/y480.webm', 'https://video.akamai.steamstatic.com/ymax.webm']);
+});
+
+test('video: SEMUA movies[] dibaca, satu entri per video; highlight dulu, selebihnya urutan Steam; duplikat dibuang', () => {
+  const mk = (id, over = {}) => ({ id, name: `Video ${id}`, highlight: false, webm: { 480: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie480.webm?t=1`, max: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie_max.webm?t=1` }, mp4: { 480: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie480.mp4?t=1`, max: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie_max.mp4?t=1` }, ...over });
+  const movies = [mk(1), mk(2), mk(3, { highlight: true }), mk(4), mk(2), mk(5), mk(6), mk(7), mk(8)];
+  const c = steam.movieCandidates({ movies });
+  assert.equal(c.length, 8, '8 video unik (satu duplikat dibuang), bukan hanya 1');
+  assert.deepEqual(c.map((m) => m.title), ['Video 3', 'Video 1', 'Video 2', 'Video 4', 'Video 5', 'Video 6', 'Video 7', 'Video 8']);
+  assert.deepEqual(c.map((m) => m.index), [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(c[0].sources.map((v) => `${v.format}/${v.quality}`), ['mp4/480', 'webm/480', 'mp4/max', 'webm/max'], '480 dicoba dulu (paling kecil)');
+  assert.ok(c.every((m) => m.sources.every((v) => v.url.startsWith('https://'))), 'semua URL sudah https');
+  assert.deepEqual(steam.movieCandidates({}), []);
+  assert.deepEqual(steam.movieCandidates({ movies: 'x' }), []);
 });
 
 test('screenshot: semua entri screenshots[] dibaca (bukan hanya satu), urutan Steam dipertahankan, full lebih dulu dari thumbnail', () => {
@@ -117,10 +132,11 @@ test('screenshot: semua entri screenshots[] dibaca (bukan hanya satu), urutan St
   assert.deepEqual(steam.screenshotCandidates({ screenshots: 'x' }), []);
 });
 
-test('video: jumlah trailer yang tersedia dilaporkan (produk hanya mendukung 1)', async () => {
+test('video: jumlah & daftar semua video yang tersedia dilaporkan', async () => {
   const two = { ...FULL, movies: [...FULL.movies, { id: 2, name: 'Gameplay', mp4: { 480: 'https://video.akamai.steamstatic.com/b/480.mp4' } }] };
   handler = () => json({ 1: { success: true, data: two } });
   const r = await steam.searchApp('1');
   assert.equal(r.video.count, 2);
   assert.equal(r.video.title, 'Trailer', 'trailer highlight didahulukan');
+  assert.deepEqual(r.video.items, [{ index: 0, title: 'Trailer' }, { index: 1, title: 'Gameplay' }]);
 });

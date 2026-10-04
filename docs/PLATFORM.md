@@ -4,7 +4,7 @@
 
 Prototype awal: HTML/CSS/JS statis, **tanpa backend, database, R2, maupun realtime**. Semua data hardcoded di `js/script.js` dan `js/product.js`. Tema Marketplace sendiri **hitam + ungu** (dark); Admin Web memakai **putih + ungu** sesuai brief, dengan skala ungu yang sama.
 
-Yang benar-benar ada dan dipakai: Home (hero, statistik, katalog + cari/urut/filter kategori, FAQ, kontak, footer) dan Product Detail (galeri 6 slot dengan 1 video, harga + harga coret/diskon, stok, terjual, deskripsi, persyaratan sistem, rating & ulasan berhalaman dengan foto, produk lainnya).
+Yang benar-benar ada dan dipakai: Home (hero, statistik, katalog + cari/urut/filter kategori, FAQ, kontak, footer) dan Product Detail (galeri tanpa batas jumlah (banyak gambar dan video), harga + harga coret/diskon, stok, terjual, deskripsi, persyaratan sistem, rating & ulasan berhalaman dengan foto, produk lainnya).
 Yang **tidak ada**: banner/slider, checkout, pesanan, akun pelanggan, form kirim ulasan, halaman Cek Pesanan, halaman Rating.
 
 ## 2. Feature inventory
@@ -14,7 +14,7 @@ Yang **tidak ada**: banner/slider, checkout, pesanan, akun pelanggan, form kirim
 | Fitur | Data | Koleksi | API admin | Halaman Admin | Event | Konsumen |
 |---|---|---|---|---|---|---|
 | Katalog produk | nama, kategori, harga, stok, deskripsi singkat, gambar utama | `products` | `/products` | Produk | `product:create/update/delete` | Grid produk + filter |
-| Detail produk | harga coret, terjual, deskripsi lengkap, persyaratan min/rec + sumber, galeri (≤6, ≤1 video) | `products` | `/products` | Produk (drawer) | `product:*` | Product Detail |
+| Detail produk | harga coret, terjual, deskripsi lengkap, persyaratan min/rec + sumber, galeri (jumlah gambar & video tidak dibatasi) | `products` | `/products` | Produk (drawer) | `product:*` | Product Detail |
 | Kategori | nama, urutan, aktif | `categories` | `/categories` | Kategori | `category:create/update/delete/reorder` | Filter + grup produk |
 | Hero | eyebrow, judul, deskripsi, 2 CTA, 2 label melayang, 3 cover | `settings` (`hero`) + R2 | `/settings/hero` | Hero | `hero:update` | Hero Home |
 | Statistik beranda | pelanggan, total pesanan, support (Total Produk dihitung) | `settings` (`stats`) | `/settings/stats` | Pengaturan | `settings:update` | Strip statistik |
@@ -61,7 +61,7 @@ Pencarian teks admin memakai regex tak peka huruf besar (cocok sampai ribuan pro
 
 ## 6. Struktur R2
 
-`{folder}/{YYYY}/{MM}/{uuid}.{ext}`, folder: `products` (gambar + 1 video), `reviews`, `hero`, `branding`. Gambar: JPG, PNG, WebP, GIF, AVIF ≤ 8 MB. Video: MP4/WebM ≤ 30 MB (hanya produk). SVG ditolak. Tipe file ditentukan dari isi file, bukan dari nama/header.
+`{folder}/{YYYY}/{MM}/{uuid}.{ext}`, folder: `products` (gambar + video), `reviews`, `hero`, `branding`. Gambar: JPG, PNG, WebP, GIF, AVIF ≤ 8 MB. Video: MP4/WebM ≤ 30 MB (hanya produk). SVG ditolak. Tipe file ditentukan dari isi file, bukan dari nama/header.
 
 Alur: `Admin → Backend (validasi) → R2 → verifikasi HEAD → catatan aset 'temp' → simpan entitas ke MongoDB → tandai 'used' → hapus objek lama yang tak dipakai lagi`. Upload yang tidak pernah disimpan dibuang setelah 6 jam. Bila R2 gagal menghapus, data tetap terhapus, objek ditandai `orphan`, dan dicoba lagi oleh pembersih tiap jam.
 
@@ -137,12 +137,14 @@ Admin Web -> Produk -> Tambah produk -> **Sumber produk**: `Manual` (form biasa)
 
 - Endpoint (admin saja): `GET /api/admin/steam/:appId` dan `POST /api/admin/steam/:appId/video`. Kode: `server/services/steam.js`, parser: `server/lib/steamParse.js`, UI: `admin/js/pages/_steam.js`.
 - Sumber data: Steam Store `appdetails` (publik, tanpa API key). Dipanggil hanya dari backend; frontend hanya menerima hasilnya.
-- Terisi otomatis: nama, deskripsi singkat (maks 300), deskripsi lengkap (maks 4000), **gambar utama + screenshot** (`screenshots[]`), video trailer (bila Steam menyediakan MP4/WebM), persyaratan minimum & disarankan (diparse menjadi baris `label/nilai`, bukan HTML mentah), kolom Sumber, dan **Info game** (Steam App ID, developer, publisher, tanggal rilis, genre, Metacritic). Kategori toko dipilih otomatis bila nama kategori aktif sama dengan genre/kategori Steam (tidak pernah membuat kategori baru).
-- Galeri: batas produk = `config.limits.productMedia` (6 file, maksimal 1 video; satu angka untuk server, validasi, dan Admin Web). Urutan: gambar utama Steam, screenshot, lalu file manual; satu slot dicadangkan untuk trailer. Bila trailer gagal diunduh, slotnya diisi screenshot cadangan. Server hanya mengunduh `batas - 1` screenshot (hero + 5); screenshot yang gagal digantikan kandidat berikutnya, `path_thumbnail` dipakai bila `path_full` gagal. Aset yang tidak masuk galeri dibersihkan sweeper.
+- Terisi otomatis: nama, deskripsi singkat (maks 300), deskripsi lengkap (maks 4000), **gambar utama + SEMUA screenshot** (`screenshots[]`), **SEMUA video** (`movies[]`, bila Steam menyediakan MP4/WebM), persyaratan minimum & disarankan (diparse menjadi baris `label/nilai`, bukan HTML mentah), kolom Sumber, dan **Info game** (Steam App ID, developer, publisher, tanggal rilis, genre, Metacritic). Kategori toko dipilih otomatis bila nama kategori aktif sama dengan genre/kategori Steam (tidak pernah membuat kategori baru).
+- Galeri: **tidak ada batas jumlah** gambar maupun video (server, validasi, schema, dan Admin Web); yang dibatasi hanya ukuran per file (gambar 8 MB, video 30 MB). Urutan: gambar utama Steam, semua screenshot (urutan Steam), file manual, lalu semua video Steam. Server mengunduh seluruh `screenshots[]` (paralel 6; `path_thumbnail` dipakai bila `path_full` gagal; satu gambar gagal hanya dilewati dan dilaporkan sebagai warning). Video diunduh satu per satu: `GET /steam/:appId` melaporkan `video.count` + `video.items`, lalu Admin Web memanggil `POST /steam/:appId/video` dengan body `{ "movie": <0..count-1> }` untuk tiap video (tanpa body = video pertama); tiap video yang selesai langsung masuk galeri. Urutan video: trailer `highlight` dulu, lalu urutan Steam; tiap video memakai MP4 480 → WebM 480 → MP4 max → WebM max (yang pertama berhasil & ≤ batas ukuran). Aset yang akhirnya tidak disimpan dibersihkan sweeper.
+- Struktur data Steam yang dipakai: `screenshots[]` = `{ id, path_thumbnail, path_full }`; `movies[]` = `{ id, name, thumbnail, highlight, webm: { 480, max }, mp4: { 480, max } }`. Sebagian URL `movies[]` dikirim Steam sebagai `http://`; host tetap harus CDN Steam dan dinaikkan ke `https://` (bukan dibuang).
+- Rate limit: pencarian `GET /steam/:appId` 20/menit; unduhan video `POST /steam/:appId/video` 120/menit (satu permintaan per video).
 - Admin bisa menghapus, mengganti (tombol unggah pada tile), menggeser, dan menambah media sebelum Simpan. Pratinjau Steam di form selalu mengikuti isi galeri.
 - Data manual tidak ditimpa diam-diam: bila kolom sudah berisi nilai berbeda, muncul dialog "Timpa isian yang sudah ada?"; pilihan "Isi yang kosong saja" mengisi hanya kolom kosong.
 - Info game disimpan di `product.gameInfo` (string/angka/array kecil di MongoDB). Saat ini hanya tampil di Admin Web; Marketplace belum menampilkannya.
-- Gambar/video diunduh server dari CDN Steam (hanya HTTPS `*.steamstatic.com` / `*.akamaihd.net`, redirect divalidasi) ke R2 sebagai aset `temp`; baru menjadi milik produk saat Simpan. Biner tidak masuk MongoDB. Aset yang tidak jadi dipakai dibersihkan sweeper (6 jam).
+- Gambar/video diunduh server dari CDN Steam (hanya host `*.steamstatic.com` / `*.akamaihd.net`, selalu diunduh lewat HTTPS, redirect divalidasi) ke R2 sebagai aset `temp`; baru menjadi milik produk saat Simpan. Biner tidak masuk MongoDB. Aset yang tidak jadi dipakai dibersihkan sweeper (6 jam).
 - App ID valid tetapi metadata/media sebagian -> sukses dengan `warnings` ("Game ditemukan, beberapa media tidak tersedia."); hanya ID yang tidak dikenal Steam yang mengembalikan "Steam App ID tidak valid." Steam mati/lambat -> pesan terpisah (502), isian form tidak disentuh.
 - Cache memori 10 menit (ID tidak ditemukan 2 menit), permintaan bersamaan digabung, batas 20 pencarian/menit/IP.
 - Batasan: Steam tidak membedakan "ID tidak ada" dari "game tidak tersedia di Steam Store/wilayah"; trailer yang hanya tersedia sebagai HLS/DASH, atau lebih besar dari batas video, dilaporkan "Video tidak tersedia".

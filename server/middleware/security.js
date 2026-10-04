@@ -58,6 +58,11 @@ export const steamLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 20,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak pencarian Steam. Coba lagi sebentar.')),
 });
+// Unduh media Steam ke R2: satu permintaan per video (game bisa punya belasan video), jadi batasnya lebih longgar daripada pencarian.
+export const steamMediaLimiter = rateLimit({
+  ...limiterOpts, windowMs: 60_000, limit: 120,
+  handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak unduhan media Steam. Coba lagi sebentar.')),
+});
 export const publicLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 300,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak permintaan.')),

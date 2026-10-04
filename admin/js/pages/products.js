@@ -150,7 +150,7 @@ export default {
           </div>
           <div class="fieldset">
             <h3>Galeri</h3>
-            <p class="hint muted">Maksimal ${ctx.meta.limits.productMedia} file (gambar, dan 1 video). Gambar pertama jadi gambar utama di kartu produk; yang lain tampil sebagai galeri. JPG, PNG, WebP, GIF, AVIF hingga ${ctx.meta.limits.imageMB} MB; video MP4/WebM hingga ${ctx.meta.limits.videoMB} MB.</p>
+            <p class="hint muted">Jumlah gambar dan video tidak dibatasi. Gambar pertama jadi gambar utama di kartu produk; yang lain tampil sebagai galeri. JPG, PNG, WebP, GIF, AVIF hingga ${ctx.meta.limits.imageMB} MB; video MP4/WebM hingga ${ctx.meta.limits.videoMB} MB.</p>
             <div class="field" data-field="media"><div class="media-grid" id="media-host"></div></div>
           </div>
           <div class="fieldset">
@@ -171,7 +171,7 @@ export default {
       });
       const f = d.form;
       let steam = null;
-      const media = mediaManager($('#media-host', f), { max: ctx.meta.limits.productMedia, folder: 'products', video: true, replace: true, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah media', onChange: () => steam?.onMediaChange() });
+      const media = mediaManager($('#media-host', f), { folder: 'products', video: true, replace: true, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah media', onChange: () => steam?.onMediaChange() });
 
       const count = () => { $('#desc-count', f).textContent = `${f.elements.description.value.length}/300`; };
       f.elements.description.addEventListener('input', count); count();
@@ -192,7 +192,7 @@ export default {
         .filter((r) => r.label || r.value);
 
       const setSpecRows = (kind, rows) => { $(`[data-spec-list="${kind}"]`, f).innerHTML = rows.map((r, i) => specRowHTML(kind, i, r).s).join(''); };
-      if (!p) steam = initSteam(f, { media, max: ctx.meta.limits.productMedia, setSpecRows, readSpecs, onCount: count });
+      if (!p) steam = initSteam(f, { media, setSpecRows, readSpecs, onCount: count });
 
       f.addEventListener('submit', async () => {
         const btn = $('button[type="submit"]', f);

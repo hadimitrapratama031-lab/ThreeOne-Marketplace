@@ -1,7 +1,7 @@
 /* Mode "Otomatis (Steam App ID)" pada form Tambah produk.
    Alur: App ID -> Search (backend) -> isi formulir -> admin review/edit -> Simpan (alur produk yang sudah ada).
    Modul ini hanya mengisi kolom formulir yang sama dengan mode Manual; tidak ada form kedua. */
-import { $, html, mount, icon, toast, dialog, busy, esc } from '../ui.js';
+import { $, html, mount, icon, dialog, busy, esc } from '../ui.js';
 import { api } from '../api.js';
 
 const MSG = {
@@ -66,9 +66,10 @@ function askOverwrite(fields) {
 
 /**
  * @param {HTMLFormElement} f  form produk
- * @param {{ media, max, setSpecRows(kind, rows), readSpecs(kind), onCount() }} deps  max = batas file galeri produk (dari server)
+ * @param {{ media, setSpecRows(kind, rows), readSpecs(kind), onCount() }} deps
+ * Semua screenshot & semua video yang disediakan Steam masuk galeri; tidak ada batas jumlah.
  */
-export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
+export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
   const panel = $('[data-steam]', f);
   const input = $('[data-steam-id]', f);
   const searchBtn = $('[data-steam-search]', f);
@@ -81,7 +82,7 @@ export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
   let seq = 0;                   // setiap Search baru membatalkan hasil unduhan video pencarian sebelumnya
   let searching = false;
   let videoLoading = false;
-  let view = null;               // { item, videoKey, videoMsg, videoFailed, spare }
+  let view = null;               // { item, videoKeys[], videoMsg, videoFailed, videoLoaded, videoMissed, videoReason }
   let overwriteAll = false;
 
   /* ---------- Mode ---------- */
@@ -139,11 +140,11 @@ export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
     const mine = items.filter((m) => steamKeys.has(m.key));
     const hero = mine.find((m) => m.key === heroKey);
     const shots = mine.filter((m) => m.type === 'image' && m.key !== heroKey);
-    const vid = view.videoKey && items.find((m) => m.key === view.videoKey);
+    const vids = view.videoKeys.map((k) => items.find((m) => m.key === k)).filter(Boolean);
+    const vidTotal = item.video.count;
+    const vidLabel = vidTotal ? `Video (${vids.length}${vids.length === vidTotal ? '' : `/${vidTotal}`})` : 'Video';
 
     const notes = item.warnings.filter((w) => w.field !== 'video').map((w) => w.message);
-    if (item.screenshotsAvailable > shots.length) notes.push(`Steam menyediakan ${item.screenshotsAvailable} screenshot; ${shots.length} masuk galeri (batas galeri produk ${max} file).`);
-    if (item.video.count > 1) notes.push(`Steam menyediakan ${item.video.count} video; produk hanya mendukung 1 video, jadi trailer utama yang dipakai.`);
     const cat = item.categoryMatch
       ? `Kategori diisi “${item.categoryMatch.name}” (cocok dengan genre ${item.categoryMatch.via}).`
       : item.info.genres.length ? `Genre Steam: ${item.info.genres.join(', ')}. Tidak ada kategori toko dengan nama yang sama; pilih kategori secara manual.` : '';
@@ -156,16 +157,16 @@ export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
           <b>${item.name || 'Tanpa nama'}</b>
           <small>App ID ${item.appId}, <a href="${item.storeUrl}" target="_blank" rel="noopener noreferrer">buka di Steam</a></small>
           <ul class="chips">
-            ${chip(Boolean(hero), 'Gambar utama')}${chip(shots.length > 0, `Screenshot (${shots.length})`)}${chip(Boolean(vid) || videoLoading, 'Video')}
+            ${chip(Boolean(hero), 'Gambar utama')}${chip(shots.length > 0, `Screenshot (${shots.length})`)}${chip(vids.length > 0 || videoLoading, vidLabel)}
             ${chip(Boolean(item.about || item.description), 'Deskripsi')}${chip(item.specs.min.length > 0, 'Spek minimum')}${chip(item.specs.rec.length > 0, 'Spek disarankan')}
           </ul>
           ${notes.length ? html`<ul class="steam-notes">${notes.map((m) => html`<li>${m}</li>`)}</ul>` : ''}
         </div>
         ${shots.length ? html`<ul class="steam-card__shots" aria-label="Screenshot dari Steam">${shots.map((m, i) => html`<li><img src="${m.url}" alt="Screenshot ${i + 1}" loading="lazy"></li>`)}</ul>` : ''}
         <div class="steam-card__video">
-          ${videoLoading ? html`<p class="steam__status is-busy">Mengunduh trailer dari Steam...</p>`
-    : vid ? html`<video controls preload="metadata" src="${vid.url}" aria-label="Pratinjau trailer Steam"></video>`
-      : view.videoMsg ? html`<p class="steam__status is-warn">${view.videoMsg}</p>` : ''}
+          ${vids.map((v, i) => html`<video controls preload="metadata" src="${v.url}" aria-label="Pratinjau video Steam ${i + 1}"></video>`)}
+          ${videoLoading ? html`<p class="steam__status is-busy">Mengunduh video dari Steam (${view.videoLoaded + view.videoMissed}/${vidTotal})...</p>`
+    : view.videoMsg ? html`<p class="steam__status is-warn">${view.videoMsg}</p>` : ''}
         </div>
       </div>`);
   }
@@ -176,7 +177,10 @@ export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
     for (const k of [...steamKeys]) if (!keys.has(k)) steamKeys.delete(k);
     if (heroKey && !keys.has(heroKey)) heroKey = null;
     if (!media.items().some((m) => steamKeys.has(m.key))) unmark(labelOf.media());
-    if (view?.videoKey && !keys.has(view.videoKey)) { view.videoKey = null; view.videoMsg = 'Video dihapus dari galeri. Unggah video manual bila perlu.'; }
+    if (view?.videoKeys.length) {
+      view.videoKeys = view.videoKeys.filter((k) => keys.has(k));
+      if (!view.videoKeys.length && !videoLoading) view.videoMsg = 'Video dihapus dari galeri. Unggah video manual bila perlu.';
+    }
     renderCard();
   }
 
@@ -205,61 +209,44 @@ export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
     applyMedia(item);
   }
 
-  /** Gambar utama + screenshot Steam masuk lebih dulu (gambar utama = urutan pertama). File manual tidak disentuh;
-   *  hasil Steam dari pencarian sebelumnya diganti. Satu slot disisakan untuk trailer bila Steam menyediakannya. */
+  /** Gambar utama + SEMUA screenshot Steam masuk galeri (gambar utama = urutan pertama, screenshot menyusul sesuai urutan Steam).
+   *  File manual tidak disentuh dan tetap di belakangnya; hasil Steam dari pencarian sebelumnya (termasuk video) diganti. */
   function applyMedia(item) {
     const manual = media.items().filter((m) => !steamKeys.has(m.key));
     steamKeys.clear(); heroKey = null;
-    const manualVideo = manual.some((m) => m.type === 'video');
-    const reserveVideo = item.video.available && (!manualVideo || overwriteAll) ? 1 : 0;
-    const all = [...(item.image ? [item.image] : []), ...item.screenshots];
-    const room = Math.max(0, max - manual.length - reserveVideo);
-    const take = all.slice(0, room);
-    view.spare = all.slice(room);   // dipakai mengisi slot bila trailer ternyata gagal diunduh
-    if (all.length && !take.length) toast('Galeri penuh', { type: 'error', detail: 'Gambar Steam tidak ditambahkan. Hapus satu file lalu cari lagi.' });
+    const take = [...(item.image ? [item.image] : []), ...item.screenshots];
     for (const m of take) steamKeys.add(m.key);
-    if (item.image && take[0]?.key === item.image.key) heroKey = item.image.key;
+    if (item.image) heroKey = item.image.key;
     media.set([...take, ...manual]);
     if (steamKeys.size) mark('media'); else unmark(labelOf.media());
   }
 
-  /** Trailer tidak masuk: slot yang tadinya dicadangkan diisi screenshot cadangan (sebelum video bila ada). */
-  function backfill() {
-    if (!view?.spare?.length) return;
-    const list = media.items();
-    const add = view.spare.splice(0, Math.max(0, max - list.length));
-    if (!add.length) return;
-    const at = list.findIndex((m) => m.type === 'video');
-    list.splice(at < 0 ? list.length : at, 0, ...add);
-    for (const m of add) steamKeys.add(m.key);
-    media.set(list);
-    mark('media');
-  }
-
-  async function loadVideo(appId, mySeq) {
+  /** Unduh SEMUA video Steam satu per satu (urutan Steam; trailer utama lebih dulu). Tiap video yang selesai langsung
+   *  ditambahkan ke galeri, jadi admin melihat kemajuannya. Satu video gagal tidak menghentikan yang lain. */
+  async function loadVideos(item, mySeq) {
+    const total = item.video.count;
     videoLoading = true; view.videoMsg = ''; renderCard();
-    let res = null; let msg = MSG.noVideo;
-    try { res = await api.post(`/steam/${appId}/video`); msg = res.message || MSG.noVideo; } catch (err) { msg = `${MSG.noVideo}${err.message ? ` (${err.message})` : ''}`; }
-    if (mySeq !== seq) return;   // sudah ada pencarian baru
-    videoLoading = false;
-    if (res?.video) {
-      let list = media.items();
-      const manualVideo = list.find((m) => m.type === 'video' && !steamKeys.has(m.key));
-      if (manualVideo && !overwriteAll) msg = 'Video yang sudah Anda unggah dipertahankan; trailer Steam tidak ditambahkan.';
-      else {
-        if (manualVideo) list = list.filter((m) => m !== manualVideo);
-        if (list.length >= max) msg = 'Galeri penuh, trailer Steam tidak ditambahkan.';
-        else {
-          media.set([...list, res.video]);
-          steamKeys.add(res.video.key);
-          view.videoKey = res.video.key; msg = '';
-          mark('media');
-        }
+    for (let movie = 0; movie < total; movie++) {
+      let res = null; let err = '';
+      try { res = await api.post(`/steam/${item.appId}/video`, { movie }); } catch (e) { err = e.message || ''; }
+      if (mySeq !== seq) return;   // sudah ada pencarian baru: hasil ini dibuang (aset 'temp' dibersihkan sweeper)
+      if (res?.video) {
+        media.set([...media.items(), res.video]);
+        steamKeys.add(res.video.key);
+        view.videoKeys.push(res.video.key);
+        view.videoLoaded++;
+        mark('media');
+      } else {
+        view.videoMissed++;
+        view.videoReason ||= res?.message || err;
       }
+      renderCard();
     }
-    view.videoMsg = msg;
-    view.videoFailed = !view.videoKey && !msg.startsWith('Video yang sudah Anda unggah');
-    if (!view.videoKey) backfill();
+    videoLoading = false;
+    view.videoFailed = view.videoMissed > 0;
+    view.videoMsg = !view.videoMissed ? ''
+      : view.videoLoaded ? `${view.videoMissed} dari ${total} video Steam tidak dapat diambil (gagal diunduh atau terlalu besar). Unggah manual bila perlu.`
+        : view.videoReason || MSG.noVideo;
     refreshStatus();
     renderCard();
   }
@@ -277,11 +264,11 @@ export function initSteam(f, { media, max, setSpecRows, readSpecs, onCount }) {
         const { item } = await api.get(`/steam/${id}`);
         if (mySeq !== seq) return;
         videoLoading = false;
-        view = { item, videoKey: null, videoMsg: item.video.available ? '' : MSG.noVideo, videoFailed: false, spare: [] };
+        view = { item, videoKeys: [], videoMsg: item.video.available ? '' : MSG.noVideo, videoFailed: false, videoLoaded: 0, videoMissed: 0, videoReason: '' };
         await apply(item);
         refreshStatus();
         renderCard();
-        if (item.video.available) loadVideo(item.appId, mySeq);   // sengaja tanpa await: Search tidak menunggu unduhan video
+        if (item.video.available) loadVideos(item, mySeq);   // sengaja tanpa await: Search tidak menunggu unduhan video
       });
     } catch (err) {
       // Gagal: isian formulir TIDAK disentuh (tidak ada data manual yang hilang)
