@@ -89,6 +89,55 @@ test('upload: tipe diperiksa dari isi file, ukuran dibatasi, URL publik valid', 
   assert.equal(video.status, 422, 'video hanya untuk produk');
 });
 
+test('upload video: brand MP4 umum diterima & tersimpan sebagai video/mp4; QuickTime ditolak 415 (bukan 500)', async () => {
+  for (const brand of ['isom', 'mp42', 'iso5', 'mp71']) {
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftyp' + brand), Buffer.alloc(30)]);
+    const v = await a.upload(mp4, 'products', 'v.mp4');
+    assert.equal(v.status, 201, brand);
+    assert.equal(v.body.asset.kind, 'video');
+    assert.equal(v.body.asset.mime, 'video/mp4');
+    assert.equal(t.s3.store.get('bkt/' + v.body.asset.key).type, 'video/mp4', 'Content-Type objek di R2');
+    assert.match(v.body.asset.key, /\.mp4$/);
+  }
+  const mov = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypqt  '), Buffer.alloc(30)]);
+  assert.equal((await a.upload(mov, 'products', 'v.mov')).status, 415);
+});
+
+test('upload: R2 menolak tulis (403 AccessDenied) -> 503 berpesan jelas, bukan 500; rahasia tidak bocor; tak ada aset yatim', async () => {
+  const totalBefore = (await a.get('/media')).body.total;
+  const logs = [];
+  const origError = console.error;
+  console.error = (...x) => logs.push(x.join(' '));
+  t.s3.fail.put = true;
+  let r;
+  try { r = await a.upload(); } finally { t.s3.fail.put = false; console.error = origError; }
+  assert.equal(r.status, 503);
+  assert.match(r.body.error.message, /AccessDenied/);
+  assert.match(r.body.error.message, /Object Read & Write/);
+  const wire = JSON.stringify(r.body);
+  const logged = logs.join('\n');
+  assert.match(logged, /\[r2\] PutObject GAGAL status=403 code=AccessDenied jenis=permission bucket=bkt/);
+  for (const secret of ['TOP-SECRET-R2-VALUE', 'AKIATESTKEY']) {
+    assert.equal(wire.includes(secret), false, 'respons API tidak memuat rahasia R2');
+    assert.equal(logged.includes(secret), false, 'log server tidak memuat rahasia R2');
+  }
+  assert.equal((await a.get('/media')).body.total, totalBefore, 'tidak ada catatan aset untuk upload yang gagal');
+  assert.equal((await a.upload()).status, 201, 'upload kembali normal setelah R2 pulih');
+});
+
+test('upload: field salah / multipart rusak -> 400 jelas (bukan 500)', async () => {
+  const wrong = new FormData();
+  wrong.append('folder', 'products');
+  wrong.append('image', new Blob([PNG]), 'a.png');
+  const r1 = await t.req('/api/admin/media', { method: 'POST', cookie: a.cookie, form: wrong });
+  assert.equal(r1.status, 400);
+  assert.match(r1.body.error.message, /"file"/);
+  const r2 = await t.req('/api/admin/media', { method: 'POST', cookie: a.cookie, headers: { 'content-type': 'multipart/form-data' }, form: 'bukan multipart' });
+  assert.equal(r2.status, 400);
+  const r3 = await t.req('/api/admin/media', { method: 'POST', cookie: a.cookie, form: new FormData() });
+  assert.equal(r3.status, 400, 'tanpa file');
+});
+
 test('gambar produk: upload -> simpan -> ganti -> hapus mengikuti urutan aman', async () => {
   const u1 = (await a.upload()).body.asset;
   const u2 = (await a.upload()).body.asset;

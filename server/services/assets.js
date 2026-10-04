@@ -22,16 +22,20 @@ export async function uploadAsset({ buffer, originalName, folder }) {
   const key = `${folder}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.${info.ext}`;
   await putObject({ key, body: buffer, contentType: info.mime });
 
-  // Verifikasi objek benar-benar ada di R2 sebelum dilaporkan berhasil
-  const head = await headObject(key);
-  if (!head.exists || head.size !== buffer.length) {
-    await deleteObjects([key]);
-    throw new HttpError(502, 'Upload ke penyimpanan gagal diverifikasi. Coba lagi.');
+  // Setelah objek ada di R2, kegagalan apa pun (verifikasi / simpan ke MongoDB) tidak boleh meninggalkan objek yatim
+  // yang tidak tercatat di koleksi assets (sweeper tidak akan pernah menemukannya).
+  try {
+    // Verifikasi objek benar-benar ada di R2 sebelum dilaporkan berhasil
+    const head = await headObject(key);
+    if (!head.exists || head.size !== buffer.length) throw new HttpError(502, 'Upload ke penyimpanan gagal diverifikasi. Coba lagi.');
+    return await Asset.create({
+      key, url: publicUrl(key), kind: info.kind, mime: info.mime, size: buffer.length,
+      folder, originalName: String(originalName || '').slice(0, 200), status: 'temp',
+    });
+  } catch (err) {
+    await deleteObjects([key]).catch(() => {});
+    throw err;
   }
-  return Asset.create({
-    key, url: publicUrl(key), kind: info.kind, mime: info.mime, size: buffer.length,
-    folder, originalName: String(originalName || '').slice(0, 200), status: 'temp',
-  });
 }
 
 /**

@@ -4,7 +4,9 @@ import crypto from 'node:crypto';
 const e = process.env;
 const bool = (v, d = false) => (v === undefined || v === '' ? d : ['1', 'true', 'yes', 'on'].includes(String(v).toLowerCase()));
 const list = (v) => (v ? v.split(',').map((s) => s.trim().replace(/\/$/, '')).filter(Boolean) : []);
-const trimSlash = (v) => (v ? String(v).trim().replace(/\/+$/, '') : '');
+// Nilai yang disalin ke dashboard Railway sering terbawa spasi/baris baru/tanda kutip; itu membuat kredensial R2 tidak cocok.
+const clean = (v) => (v ? String(v).trim().replace(/^(["'])(.*)\1$/s, '$2').trim() : '');
+const trimSlash = (v) => clean(v).replace(/\/+$/, '');
 
 const isProd = e.NODE_ENV === 'production';
 
@@ -19,12 +21,12 @@ export const config = {
   sessionDays: Number(e.SESSION_DAYS) || 7,
   admin: { email: (e.ADMIN_EMAIL || '').trim().toLowerCase(), password: e.ADMIN_PASSWORD || '', name: e.ADMIN_NAME || 'Admin' },
   r2: {
-    accountId: e.R2_ACCOUNT_ID || '',
-    accessKeyId: e.R2_ACCESS_KEY_ID || '',
-    secretAccessKey: e.R2_SECRET_ACCESS_KEY || '',
-    bucket: e.R2_BUCKET_NAME || '',
+    accountId: clean(e.R2_ACCOUNT_ID),
+    accessKeyId: clean(e.R2_ACCESS_KEY_ID),
+    secretAccessKey: clean(e.R2_SECRET_ACCESS_KEY),
+    bucket: clean(e.R2_BUCKET_NAME),
     publicUrl: trimSlash(e.R2_PUBLIC_URL),
-    endpoint: trimSlash(e.R2_ENDPOINT) || (e.R2_ACCOUNT_ID ? `https://${e.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : ''),
+    endpoint: trimSlash(e.R2_ENDPOINT) || (clean(e.R2_ACCOUNT_ID) ? `https://${clean(e.R2_ACCOUNT_ID)}.r2.cloudflarestorage.com` : ''),
     forcePathStyle: bool(e.R2_FORCE_PATH_STYLE),
   },
   corsOrigins: list(e.CORS_ORIGINS),

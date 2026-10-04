@@ -65,6 +65,16 @@ Pencarian teks admin memakai regex tak peka huruf besar (cocok sampai ribuan pro
 
 Alur: `Admin → Backend (validasi) → R2 → verifikasi HEAD → catatan aset 'temp' → simpan entitas ke MongoDB → tandai 'used' → hapus objek lama yang tak dipakai lagi`. Upload yang tidak pernah disimpan dibuang setelah 6 jam. Bila R2 gagal menghapus, data tetap terhapus, objek ditandai `orphan`, dan dicoba lagi oleh pembersih tiap jam.
 
+**Upload gagal? Baca log deploy.** Saat server hidup, log menampilkan variable R2 yang terbaca (hanya status/panjang, tanpa nilai rahasia) dan menjalankan uji nyata baca → tulis → verifikasi → hapus ke bucket (objek uji `_healthcheck/…` langsung dihapus). Baris `[r2] DIAGNOSA` menyebut penyebabnya. Setiap upload yang ditolak R2 dicatat sebagai `[r2] PutObject GAGAL status=… code=… bucket=… endpoint=… key=…` dan dijawab 503 dengan pesan yang jelas (bukan 500 generik):
+
+| Log / pesan | Arti | Perbaikan |
+|---|---|---|
+| `AccessDenied` 403, `baca(list)=ok tulis(put)=AccessDenied` | Token hanya boleh membaca | Buat API Token R2 dengan izin **Object Read & Write** |
+| `AccessDenied` 403 pada baca **dan** tulis | Token dibatasi ke bucket lain, atau `R2_BUCKET_NAME` / `R2_ACCOUNT_ID` tidak cocok dengan token | Cek "Specify bucket(s)" pada token dan nama bucket |
+| `InvalidAccessKeyId` / `SignatureDoesNotMatch` | Access Key ID / Secret salah, terpotong, atau ada spasi/kutip | Salin ulang dari dialog token R2 (Secret hanya tampil sekali) |
+| `NoSuchBucket` | Nama bucket salah, atau bucket jurisdiksi EU | Cek `R2_BUCKET_NAME`; EU memakai `R2_ENDPOINT=https://<account>.eu.r2.cloudflarestorage.com` |
+| `ENOTFOUND` / timeout | Endpoint salah / jaringan | Cek `R2_ACCOUNT_ID` / `R2_ENDPOINT` |
+
 ## 7. Endpoint
 
 Publik (tanpa login, data publik saja): `GET /api/public/bootstrap`, `GET /api/public/products/:id`, `GET /api/public/products/:id/reviews?page&limit`, `POST /api/public/image-error`, `GET /healthz`.

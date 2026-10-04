@@ -14,6 +14,7 @@ import { initRealtime, closeRealtime } from './lib/realtime.js';
 import { requireAdmin, originGuard, adminLimiter } from './middleware/security.js';
 import { notFoundApi, errorHandler } from './middleware/errors.js';
 import { sweepAssets } from './services/assets.js';
+import { r2EnvReport, probeR2 } from './lib/r2.js';
 import { seedDemo } from './seed/seed.js';
 import { CONTACT_ICONS } from './models/index.js';
 import { r2Configured } from './config/env.js';
@@ -131,6 +132,14 @@ export async function start({ port = config.port, quiet = false } = {}) {
   sweeper.unref();
   const actualPort = server.address().port;
   if (!quiet) console.log(`Marketplace  http://localhost:${actualPort}\nAdmin Web    http://localhost:${actualPort}/admin`);
+  if (!quiet) {
+    // Tampilkan variable R2 yang terbaca (tanpa nilai rahasia) lalu uji tulis/baca/hapus nyata ke bucket.
+    // Berjalan di latar belakang dan tidak pernah menjatuhkan server: kegagalan R2 hanya memengaruhi upload media.
+    const rep = r2EnvReport();
+    console.log(`[r2] konfigurasi terbaca:\n  ${rep.lines.join('\n  ')}`);
+    rep.warn.forEach((w) => console.warn(`[r2] PERINGATAN: ${w}`));
+    if (r2Configured()) probeR2().catch((e) => console.error('[r2] cek akses tidak dapat dijalankan:', e?.message));
+  }
 
   const stop = async () => {
     clearInterval(sweeper);

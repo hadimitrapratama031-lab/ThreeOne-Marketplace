@@ -4,14 +4,17 @@ import http from 'node:http';
 export function startS3Mock() {
   const store = new Map(); // "bucket/key" -> { body, type }
   const log = [];
-  const fail = { delete: false };   // set true untuk mensimulasikan R2 gagal menghapus
+  const fail = { delete: false, put: false };   // delete: R2 gagal menghapus; put: R2 menolak menulis (403 AccessDenied, seperti token read-only)
   const server = http.createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname).slice(1);
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       log.push(`${req.method} ${path}`);
-      if (req.method === 'PUT') {
+      if (req.method === 'PUT' && fail.put) {
+        res.writeHead(403, { 'Content-Type': 'application/xml' })
+          .end('<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>');
+      } else if (req.method === 'PUT') {
         store.set(path, { body: Buffer.concat(chunks), type: req.headers['content-type'] || 'application/octet-stream' });
         res.writeHead(200, { ETag: '"mock"' }).end();
       } else if (req.method === 'HEAD' || req.method === 'GET') {

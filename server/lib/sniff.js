@@ -9,7 +9,8 @@ export function sniff(buf) {
   if (ascii(4, 8) === 'ftyp') {
     const brand = ascii(8, 12);
     if (brand === 'avif' || brand === 'avis') return { kind: 'image', mime: 'image/avif', ext: 'avif' };
-    if (['isom', 'iso2', 'mp41', 'mp42', 'avc1', 'M4V ', 'dash'].includes(brand)) return { kind: 'video', mime: 'video/mp4', ext: 'mp4' };
+    // Brand umum MP4 dari kamera HP / ekspor editor (iso3-iso6, mp71, mmp4, MSNV selain isom/mp42 yang paling sering)
+    if (['isom', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'mp71', 'mmp4', 'MSNV', 'avc1', 'M4V ', 'dash'].includes(brand)) return { kind: 'video', mime: 'video/mp4', ext: 'mp4' };
   }
   if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return { kind: 'video', mime: 'video/webm', ext: 'webm' };
   return null;
