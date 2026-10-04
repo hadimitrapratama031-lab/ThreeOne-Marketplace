@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#ffffff">
+  <title>Admin — Marketplace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+  <div id="boot" class="boot" role="status">Memuat…</div>
+
+  <!-- Login: satu-satunya halaman login Admin -->
+  <main id="login" class="login" hidden>
+    <form id="login-form" class="login__card" novalidate>
+      <div class="brand brand--lg"><span class="brand__mark" aria-hidden="true"></span><b>Marketplace</b><span class="brand__tag">Admin</span></div>
+      <h1>Masuk ke Admin</h1>
+      <p class="muted">Kelola produk, konten, dan ulasan Marketplace.</p>
+      <label class="field"><span>Email</span><input name="email" type="email" autocomplete="username" required autofocus></label>
+      <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="form-error" role="alert" hidden></p>
+      <button class="btn btn--primary btn--block" type="submit">Masuk</button>
+    </form>
+  </main>
+
+  <div id="shell" class="shell" hidden>
+    <aside id="sidebar" class="sidebar" aria-label="Navigasi admin">
+      <a class="brand" href="#/dashboard"><span class="brand__mark" aria-hidden="true"></span><b>Marketplace</b><span class="brand__tag">Admin</span></a>
+      <nav id="nav" class="nav"></nav>
+      <div class="sidebar__foot">
+        <a class="nav__link" href="/" target="_blank" rel="noopener" id="open-store"></a>
+      </div>
+    </aside>
+    <div id="scrim" class="scrim" hidden></div>
+
+    <div class="main">
+      <header class="topbar">
+        <button id="menu-btn" class="icon-btn menu-btn" type="button" aria-label="Buka menu"></button>
+        <h1 id="page-title" class="topbar__title"></h1>
+        <div class="topbar__right">
+          <span id="live-chip" class="live" data-state="offline" title="Status koneksi realtime ke Marketplace"><i></i><span id="live-text">Menghubungkan…</span></span>
+          <div class="account">
+            <button id="account-btn" class="account__btn" type="button" aria-haspopup="menu" aria-expanded="false">
+              <span id="account-avatar" class="avatar" aria-hidden="true"></span>
+              <span class="account__who"><b id="account-name"></b><small id="account-email"></small></span>
+            </button>
+            <div id="account-menu" class="menu" role="menu" hidden>
+              <a role="menuitem" href="#/account" id="menu-account"></a>
+              <button role="menuitem" type="button" id="logout-btn"></button>
+            </div>
+          </div>
+        </div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

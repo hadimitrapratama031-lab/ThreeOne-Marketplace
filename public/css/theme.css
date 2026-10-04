@@ -1,0 +1,47 @@
+/* ==========================================================================
+   theme.css — token tema (dipakai bersama oleh style.css & background.css)
+   Identitas: HITAM + UNGU
+   Hierarki warna background:
+   black → night → deep violet → violet → purple → lavender
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  /* Layout */
+  --unit: clamp(.8px, .064vw, 1.2px);   /* satuan fluid 0.8px – 1.2px */
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --gutter: clamp(18px, calc(40 * var(--unit)), 56px);
+  --header-h: calc(max(56px, calc(64 * var(--unit))) + env(safe-area-inset-top, 0px));
+  --radius: calc(18 * var(--unit));
+
+  /* Background: dari paling gelap ke paling terang */
+  --bg-black: #07060c;          /* fondasi */
+  --bg-night: #0d0a18;          /* hitam kebiruan-violet */
+  --bg-violet-dark: #1a1038;    /* deep purple (footer, haze) */
+  --violet: #6d28d9;            /* violet kaya */
+  --purple-deep: #8b5cf6;       /* purple utama */
+  --purple: #a78bfa;            /* purple terang (aksen UI) */
+  --lavender: #c4b5fd;          /* paling terang: garis, titik, teks aksen */
+  --purple-glow: rgba(139, 92, 246, .45);
+
+  /* Teks */
+  --ink: #f4f2ec;
+  --text-light: var(--ink);
+  --muted: #9b988f;
+  --text-muted: var(--muted);
+  --dim: #6f6d66;
+
+  /* Komponen */
+  --bg: var(--bg-black);
+  --purple-text: var(--lavender);
+  --purple-soft: rgba(167, 139, 250, .12);
+  --on-purple: #140d2b;
+  --line: rgba(255, 255, 255, .08);
+  --glass: rgba(22, 22, 20, .55);
+  --shadow: #000;
+
+  /* Status stok */
+  --ok: #46d37a;
+  --warn: #ffb800;
+  --danger: #e5484d;
+}

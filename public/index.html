@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080807">
+  <title>Marketplace</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/background.css">
+</head>
+<body>
+
+  <!-- Background system (dekoratif, tidak interaktif) -->
+  <div class="marketplace-background" data-zone="hero" aria-hidden="true">
+    <div class="bg-base"></div>
+    <div class="bg-ambient">
+      <i class="bg-glow bg-glow--1"></i>
+      <i class="bg-glow bg-glow--2"></i>
+      <i class="bg-glow bg-glow--3"></i>
+    </div>
+    <div class="bg-particles"></div>
+    <div class="bg-noise"></div>
+  </div>
+
+  <!-- Header -->
+  <header class="site-header" id="site-header">
+    <div class="container header__bar">
+      <a class="logo enter" href="#home"></a>
+
+      <div class="nav-wrap enter" style="--d:.12s">
+        <nav class="nav" id="main-nav" aria-label="Navigasi utama">
+          <a href="#home" class="on">Home</a>
+          <a href="#product">Product</a>
+          <a href="#faq">FAQ</a>
+          <a href="#contact">Contact</a>
+          <a href="#" data-placeholder>Rating</a>
+        </nav>
+      </div>
+
+      <div class="header__actions enter" style="--d:.2s">
+        <a class="btn btn--ghost" href="#" data-placeholder>Cek Pesanan</a>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="main-nav">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M4 8h16M4 16h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section class="zone zone--hero bg-grid hero" id="home" data-zone="hero">
+      <!-- Artwork sinematik: komposisi cover game (ganti dengan cover asli lewat --cover-img) -->
+      <div class="bg-artwork" data-parallax="0.14" aria-hidden="true">
+        <div class="bg-artwork__beam"></div>
+        <div class="bg-cover bg-cover--a"></div>
+        <div class="bg-cover bg-cover--b"></div>
+        <div class="bg-cover bg-cover--c"></div>
+      </div>
+      <div class="bg-geometry" data-parallax="-0.06" aria-hidden="true">
+        <span class="bg-geo bg-geo--ring"></span>
+        <span class="bg-geo bg-geo--arc"></span>
+        <span class="bg-geo bg-geo--lines"></span>
+      </div>
+
+      <div class="container hero__grid">
+        <div>
+          <span class="eyebrow enter" id="hero-eyebrow" style="--d:.3s"></span>
+          <h1 class="enter" id="hero-title" style="--d:.45s"></h1>
+          <p class="lead enter" id="hero-desc" style="--d:.65s"></p>
+          <div class="hero__cta enter" style="--d:.8s">
+            <a class="btn btn--primary" id="hero-cta-1" href="#product"></a>
+            <a class="btn btn--ghost" id="hero-cta-2" href="#product"></a>
+          </div>
+        </div>
+
+        <div class="enter" style="--d:.95s">
+          <div class="hero__visual" id="hero-visual"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Statistik -->
+    <section class="zone zone--stats" data-zone="stats">
+      <div class="container">
+        <div class="stats" id="stats" data-stagger></div>
+      </div>
+    </section>
+
+    <!-- Produk -->
+    <section class="zone zone--products bg-grid section" id="product" data-zone="products">
+      <div class="container">
+      <div class="section__head reveal">
+        <h2 id="products-title"></h2>
+        <p class="section__sub" id="products-sub"></p>
+      </div>
+
+      <div class="controls reveal">
+        <label class="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/>
+            <path d="m20 20-3.5-3.5"/>
+          </svg>
+          <input id="search-input" type="search" placeholder="Cari produk" aria-label="Cari produk">
+        </label>
+
+        <select class="sort" id="sort-select" aria-label="Urutkan">
+          <option value="new">Terbaru</option>
+          <option value="lo">Harga terendah</option>
+          <option value="hi">Harga tertinggi</option>
+          <option value="az">Nama A–Z</option>
+        </select>
+      </div>
+
+      <div class="filters reveal" id="filters"></div>
+      <div id="product-groups"><p class="section__sub" role="status">Memuat produk…</p></div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="zone zone--faq section" id="faq" data-zone="faq">
+      <div class="container">
+      <div class="section__head section__head--center reveal">
+        <h2 id="faq-title"></h2>
+      </div>
+      <div class="faq" id="faq-list" data-stagger></div>
+      </div>
+    </section>
+
+    <!-- Kontak -->
+    <section class="zone zone--contact section" id="contact" data-zone="contact">
+      <div class="container">
+      <div class="section__head reveal">
+        <h2 id="contact-title"></h2>
+        <p class="section__sub" id="contact-sub"></p>
+      </div>
+      <div class="contact-grid" id="contact-list" data-stagger></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer zone zone--footer" data-zone="footer">
+    <div class="container footer__row">
+      <a class="logo" href="#home"></a>
+      <div class="footer__links">
+        <a href="#home">Home</a>
+        <a href="#product">Product</a>
+        <a href="#faq">FAQ</a>
+        <a href="#contact">Contact</a>
+      </div>
+      <small id="copyright"></small>
+    </div>
+  </footer>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/live.js"></script>
+  <script src="js/script.js"></script>
+  <script src="js/background.js"></script>
+</body>
+</html>
