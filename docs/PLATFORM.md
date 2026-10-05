@@ -5,7 +5,7 @@
 Prototype awal: HTML/CSS/JS statis, **tanpa backend, database, R2, maupun realtime**. Semua data hardcoded di `js/script.js` dan `js/product.js`. Tema Marketplace sendiri **hitam + ungu** (dark); Admin Web memakai **putih + ungu** sesuai brief, dengan skala ungu yang sama.
 
 Yang benar-benar ada dan dipakai: Home (hero, statistik, katalog + cari/urut/filter kategori, FAQ, kontak, footer) dan Product Detail (galeri tanpa batas jumlah (banyak gambar dan video), harga + harga coret/diskon, stok, terjual, deskripsi, persyaratan sistem, rating & ulasan berhalaman dengan foto, produk lainnya).
-Yang **tidak ada**: banner/slider, checkout, pesanan, akun pelanggan, form kirim ulasan, halaman Cek Pesanan, halaman Rating.
+Yang **tidak ada**: banner/slider, checkout, pesanan, akun pelanggan, halaman Cek Pesanan. (Halaman Rating dan form kirim ulasan ditambahkan kemudian, lihat bagian 11.)
 
 ## 2. Feature inventory
 
@@ -23,7 +23,7 @@ Yang **tidak ada**: banner/slider, checkout, pesanan, akun pelanggan, form kirim
 | Brand | nama, judul tab, logo | `settings` (`branding`) + R2 | `/settings/branding` | Pengaturan | `settings:update` | Header, footer, `<title>` |
 | Judul seksi | judul/keterangan produk, FAQ, kontak | `settings` (`sections`) | `/settings/sections` | Pengaturan | `settings:update` | Judul seksi Home |
 | Halaman produk | catatan "Tentang Produk", strip platform, "N+ pesanan selesai" | `settings` (`productPage`) | `/settings/productPage` | Pengaturan | `settings:update` | Product Detail |
-| Rating & ulasan | produk, nama, bintang, teks, tanggal, foto (≤3), status | `reviews` + R2 | `/reviews` | Rating & Ulasan | `review:create/update/delete` | Ulasan + ringkasan rating |
+| Rating & ulasan | `productId`, nama, bintang, teks, tanggal, foto (≤3, referensi R2) | `reviews` + R2 | `/reviews` (lihat & hapus) | Rating & Ulasan | `review:create/update/delete` | Halaman Rating (semua produk) + Product Detail (per produk) |
 | Gambar/video | file | `assets` + R2 | `/media` | Aset Gambar | `media:error` (ke Admin) | semua gambar |
 
 ## 3. Fitur yang sengaja TIDAK punya kontrol Admin
@@ -32,8 +32,8 @@ Yang **tidak ada**: banner/slider, checkout, pesanan, akun pelanggan, form kirim
 |---|---|
 | Orders, Customers, Notifications (menu Admin) | Marketplace belum punya data/logic pesanan, akun pelanggan, atau notifikasi (menunggu tahap Payment). Menu tidak dibuat karena tidak akan berfungsi. |
 | Banner / slider | Tidak ada di Marketplace. |
-| Cek Pesanan, tautan Rating, Beli Sekarang, Tambah ke Keranjang, label "QRIS" | Placeholder tahap Payment. Tidak diubah. |
-| Kirim ulasan oleh pelanggan | Tidak ada form/akun. Ulasan dimasukkan Admin. Event Marketplace→Admin untuk pesanan/pelanggan/rating baru belum ada sumbernya. |
+| Cek Pesanan, Beli Sekarang, Tambah ke Keranjang, label "QRIS" | Placeholder tahap Payment. Tidak diubah. (Tautan Rating sekarang aktif.) |
+| Persetujuan ulasan | Tidak ada. Ulasan pelanggan langsung tampil; Admin hanya melihat dan menghapus. Event pesanan/pelanggan baru belum ada sumbernya. |
 | Total Produk, diskon (%), rata-rata & distribusi rating, urutan "Terbaru" | Dihitung otomatis dari data. |
 | Pencarian, urutan, filter di Marketplace | Perilaku UI, bukan konfigurasi. |
 | Warna, font, artwork latar | Desain tetap di CSS; tidak ada konsumen untuk pengaturan tersebut. |
@@ -77,7 +77,7 @@ Alur: `Admin → Backend (validasi) → R2 → verifikasi HEAD → catatan aset 
 
 ## 7. Endpoint
 
-Publik (tanpa login, data publik saja): `GET /api/public/bootstrap`, `GET /api/public/products/:id`, `GET /api/public/products/:id/reviews?page&limit`, `POST /api/public/image-error`, `GET /healthz`.
+Publik (tanpa login, data publik saja): `GET /api/public/bootstrap`, `GET /api/public/products/:id`, `GET /api/public/products/:id/reviews?page&limit`, `GET /api/public/reviews?page&limit&productId&stars&sort` (semua ulasan + ringkasan), `POST /api/public/reviews` (kirim ulasan, multipart), `POST /api/public/image-error`, `GET /healthz`.
 
 Admin (wajib sesi; mutasi memeriksa header Origin):
 
@@ -88,7 +88,7 @@ Admin (wajib sesi; mutasi memeriksa header Origin):
 | Produk | `GET /products?page&limit&q&category&status&stock&sort` → `{items,page,limit,total,totalPages}` · `GET /:id` · `POST` · `PUT /:id` · `PATCH /:id/status` · `DELETE /:id` |
 | Kategori | `GET` · `POST` · `PUT /reorder` · `PUT /:id` · `PATCH /:id/status` · `DELETE /:id?moveTo=<id>` |
 | FAQ, Kontak | pola yang sama dengan Kategori: `/faq`, `/contacts` |
-| Ulasan | `GET /reviews?page&limit&q&productId&stars&status&sort` · `POST` · `PUT /:id` · `PATCH /:id/status` · `DELETE /:id` |
+| Ulasan | `GET /reviews?page&limit&q&productId&stars&status&sort` · `DELETE /:id` (juga menghapus foto di R2). `POST`, `PUT /:id`, `PATCH /:id/status` masih tersedia di API tetapi tidak dipakai UI Admin. |
 | Pengaturan | `GET /settings` · `PUT /settings/:key` (`branding`, `hero`, `stats`, `sections`, `productPage`) |
 | Media | `POST /media` (multipart `file`, `folder`) · `GET /media` · `DELETE /media/:id` (hanya yang tak dipakai) · `GET/DELETE /media/errors` |
 
@@ -148,3 +148,17 @@ Admin Web -> Produk -> Tambah produk -> **Sumber produk**: `Manual` (form biasa)
 - App ID valid tetapi metadata/media sebagian -> sukses dengan `warnings` ("Game ditemukan, beberapa media tidak tersedia."); hanya ID yang tidak dikenal Steam yang mengembalikan "Steam App ID tidak valid." Steam mati/lambat -> pesan terpisah (502), isian form tidak disentuh.
 - Cache memori 10 menit (ID tidak ditemukan 2 menit), permintaan bersamaan digabung, batas 20 pencarian/menit/IP.
 - Batasan: Steam tidak membedakan "ID tidak ada" dari "game tidak tersedia di Steam Store/wilayah"; trailer yang hanya tersedia sebagai HLS/DASH, atau lebih besar dari batas video, dilaporkan "Video tidak tersedia".
+
+## 11. Rating & ulasan dari pelanggan
+
+Satu sistem ulasan untuk seluruh Marketplace: koleksi `reviews` (MongoDB) dengan `productId`, `name`, `stars`, `text`, `images[{key,url}]` (hanya referensi R2, bukan biner), `createdAt`, `updatedAt`. Logika bersama ada di `server/services/reviews.js`.
+
+| Halaman | Sumber data |
+|---|---|
+| Rating (`rating.html`) | `GET /api/public/reviews`: ulasan semua produk yang tampil + ringkasan (rata-rata, jumlah, distribusi) |
+| Product Detail | `GET /api/public/products/:id` (ringkasan) dan `/products/:id/reviews`, hanya ulasan ber-`productId` produk itu |
+| Admin Web | `GET /api/admin/reviews`, `DELETE /api/admin/reviews/:id` |
+
+Alur kirim: form di halaman Rating → `POST /api/public/reviews` (multipart `productId`, `name`, `stars`, `text`, `images` ≤ 3) → validasi → foto diunggah ke R2 lewat `services/assets.js` (sniff tipe file, ≤ 8 MB, verifikasi HEAD) → ulasan disimpan `published` → foto ditandai `used` → `review:create` lewat Socket.IO. Bila langkah mana pun gagal, ulasan dibatalkan dan foto yang terlanjur terunggah dihapus dari R2. Pembatas: 8 pengiriman / 10 menit / IP di production, kolom jebakan bot, pemeriksaan Origin.
+
+Alur hapus (Admin): hapus dokumen → hapus foto di R2 (gagal → ditandai `orphan`, dicoba lagi pembersih) → `review:delete` (membawa `productId`). Halaman Rating dan Product Detail produk terkait mengambil ulang daftar + ringkasan dari server, sehingga daftar, rata-rata, dan jumlah selalu sinkron dan event ganda tidak membuat ulasan duplikat.

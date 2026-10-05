@@ -60,7 +60,7 @@ function view(d) {
       <div class="card__body">
         ${d.recentReviews.length ? html`<div class="list">${d.recentReviews.map((r) => html`
           <div class="list__row"><div class="list__main"><b>${r.name} ${starsHTML(r.stars)}</b><small>${r.productName} · ${dateShort(r.date)}${r.status === 'hidden' ? ' · disembunyikan' : ''}</small></div></div>`)}</div>`
-          : emptyState('Belum ada ulasan', 'Tambahkan ulasan dari menu Rating & Ulasan.', 'star')}
+          : emptyState('Belum ada ulasan', 'Ulasan dari pelanggan akan muncul di sini.', 'star')}
       </div></article>
   </section>`;
 }

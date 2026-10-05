@@ -2,20 +2,14 @@ import { Router } from 'express';
 import { Review, Product } from '../models/index.js';
 import { asyncH, parse, HttpError, objectIdStr, pageMeta, escapeRegex } from '../lib/http.js';
 import { reviewInput, reviewListQuery, statusInput } from '../lib/schemas.js';
-import { admReview, pubReview } from '../lib/serialize.js';
+import { admReview } from '../lib/serialize.js';
 import { emitChange, emitPublic } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
+import { reviewOwner as owner, reviewEvents as events, SORTS } from '../services/reviews.js';
 import { z } from 'zod';
 
 const r = Router();
-const owner = (id) => ({ type: 'review', id: String(id) });
-const SORTS = { newest: { date: -1 }, oldest: { date: 1 }, stars_desc: { stars: -1, date: -1 }, stars_asc: { stars: 1, date: -1 } };
-const visible = (rv) => rv.status === 'published';
-const events = {
-  adm: (rv) => admReview(rv), pub: pubReview, visible, id: (rv) => String(rv._id),
-  admDel: (rv) => ({ id: String(rv._id), productId: rv.productId }),
-  pubDel: (rv) => ({ id: String(rv._id), productId: rv.productId }),
-};
+const visible = events.visible;
 
 async function loadReview(rawId) {
   if (!objectIdStr.safeParse(rawId).success) throw new HttpError(404, 'Ulasan tidak ditemukan.');

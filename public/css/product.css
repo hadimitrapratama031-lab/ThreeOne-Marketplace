@@ -881,3 +881,21 @@
 }
 /* Teks 'Tentang Produk' dari Admin: hormati baris baru */
 .pd-prose p { white-space: pre-line; }
+
+/* Ajakan menulis ulasan di Product Detail (form ada di halaman Rating) */
+.pd-reviewcta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 24px;
+}
+
+.pd-reviewcta a:not(.btn) {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pd-reviewcta a:not(.btn):hover {
+  color: var(--purple-text);
+}

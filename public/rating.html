@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080807">
+  <title>Rating & Ulasan</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/background.css">
+  <link rel="stylesheet" href="css/product.css">
+  <link rel="stylesheet" href="css/rating.css">
+</head>
+<body>
+
+  <!-- Background system (sama dengan halaman lain; zona "products" = paling tenang) -->
+  <div class="marketplace-background" data-zone="products" aria-hidden="true">
+    <div class="bg-base"></div>
+    <div class="bg-ambient">
+      <i class="bg-glow bg-glow--1"></i>
+      <i class="bg-glow bg-glow--2"></i>
+      <i class="bg-glow bg-glow--3"></i>
+    </div>
+    <div class="bg-particles"></div>
+    <div class="bg-noise"></div>
+  </div>
+
+  <!-- Header -->
+  <header class="site-header" id="site-header">
+    <div class="container header__bar">
+      <a class="logo enter" href="index.html#home"></a>
+
+      <div class="nav-wrap enter" style="--d:.12s">
+        <nav class="nav" id="main-nav" aria-label="Navigasi utama">
+          <a href="index.html#home">Home</a>
+          <a href="index.html#product">Product</a>
+          <a href="index.html#faq">FAQ</a>
+          <a href="index.html#contact">Contact</a>
+          <a href="rating.html" class="on" aria-current="page">Rating</a>
+        </nav>
+      </div>
+
+      <div class="header__actions enter" style="--d:.2s">
+        <a class="btn btn--ghost" href="#" data-placeholder>Cek Pesanan</a>
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Menu" aria-expanded="false" aria-controls="main-nav">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <path d="M4 8h16M4 16h16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="zone zone--products bg-grid rv" data-zone="products">
+      <div class="container">
+
+        <header class="rv-head enter" style="--d:.05s">
+          <div>
+            <h1>Rating &amp; ulasan</h1>
+            <p>Penilaian dari pembeli untuk semua produk. Ulasan Anda langsung tampil setelah dikirim.</p>
+          </div>
+          <button class="btn btn--primary rv-open" id="rv-open" type="button" aria-expanded="false" aria-controls="rv-form-card">Tulis ulasan</button>
+        </header>
+
+        <div class="rv-layout">
+
+          <!-- Daftar ulasan semua produk -->
+          <div class="rv-main enter" style="--d:.15s">
+            <div id="rv-summary" class="rv-summary" aria-label="Ringkasan rating"></div>
+
+            <div class="rv-bar" id="rv-bar">
+              <label class="rv-select rv-select--bar">
+                <span class="sr-only">Filter produk</span>
+                <select id="rv-filter-product" class="sort" aria-label="Filter produk">
+                  <option value="">Semua produk</option>
+                </select>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </label>
+              <label class="rv-select rv-select--bar">
+                <span class="sr-only">Urutkan ulasan</span>
+                <select id="rv-sort" class="sort" aria-label="Urutkan ulasan">
+                  <option value="newest">Terbaru</option>
+                  <option value="oldest">Terlama</option>
+                  <option value="stars_desc">Rating tertinggi</option>
+                  <option value="stars_asc">Rating terendah</option>
+                </select>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+              </label>
+              <div class="filters rv-stars-filter" id="rv-stars-filter" role="group" aria-label="Filter bintang"></div>
+            </div>
+
+            <div id="rv-list"></div>
+            <nav class="pager" id="rv-pager" aria-label="Halaman ulasan"></nav>
+          </div>
+
+          <!-- Form ulasan -->
+          <aside class="rv-side enter" style="--d:.25s" id="rv-form-card" aria-labelledby="rv-form-title">
+            <form class="rv-form" id="rv-form" novalidate>
+              <div class="rv-form__head">
+                <h2 id="rv-form-title">Tulis ulasan</h2>
+                <p>Ceritakan pengalaman Anda. Ulasan langsung dipublikasikan.</p>
+              </div>
+
+              <div class="rv-field" data-field="productId">
+                <label for="rv-product">Produk</label>
+                <div class="rv-select">
+                  <select id="rv-product" name="productId" aria-describedby="err-productId" required>
+                    <option value="">Pilih produk yang diulas</option>
+                  </select>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <p class="rv-err" role="alert" id="err-productId"></p>
+              </div>
+
+              <fieldset class="rv-field" data-field="stars" aria-describedby="err-stars">
+                <legend>Rating</legend>
+                <div class="rv-rate-row">
+                  <div class="rv-rate" id="rv-rate"></div>
+                  <span class="rv-rate__label" id="rv-rate-label" aria-live="polite">Pilih bintang</span>
+                </div>
+                <p class="rv-err" role="alert" id="err-stars"></p>
+              </fieldset>
+
+              <div class="rv-field" data-field="name">
+                <label for="rv-name">Nama</label>
+                <input id="rv-name" name="name" type="text" maxlength="60" autocomplete="name" placeholder="Nama yang ditampilkan" aria-describedby="err-name" required>
+                <p class="rv-err" role="alert" id="err-name"></p>
+              </div>
+
+              <div class="rv-field" data-field="text">
+                <div class="rv-field__row">
+                  <label for="rv-text">Ulasan</label>
+                  <small class="rv-count" id="rv-count" aria-hidden="true">0 / 1000</small>
+                </div>
+                <textarea id="rv-text" name="text" rows="5" maxlength="1000" placeholder="Apa yang Anda sukai atau perlu diperbaiki dari produk ini?" aria-describedby="err-text" required></textarea>
+                <p class="rv-err" role="alert" id="err-text"></p>
+              </div>
+
+              <div class="rv-field" data-field="images">
+                <span class="rv-label" id="rv-photo-label">Foto <em>(opsional)</em></span>
+                <div class="rv-drop" id="rv-drop">
+                  <input id="rv-file" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple aria-labelledby="rv-photo-label">
+                  <label for="rv-file" class="rv-drop__btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="m21 16-5-5-8 8"/></svg>
+                    <span><b>Tambah foto</b><small>Seret ke sini atau pilih file. Maksimal 3 foto, 8 MB per foto.</small></span>
+                  </label>
+                </div>
+                <ul class="rv-previews" id="rv-previews" aria-label="Foto yang akan dikirim"></ul>
+                <p class="rv-err" role="alert" id="err-images"></p>
+              </div>
+
+              <!-- Kolom jebakan bot: tidak terlihat oleh pengguna -->
+              <div class="rv-hp" aria-hidden="true">
+                <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+              </div>
+
+              <p class="rv-note" id="rv-note" role="status" hidden></p>
+
+              <button class="btn btn--primary rv-submit" id="rv-submit" type="submit">
+                <span class="rv-submit__bar" aria-hidden="true"></span>
+                <span class="rv-submit__label">Kirim ulasan</span>
+              </button>
+            </form>
+          </aside>
+
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer zone zone--footer" data-zone="footer">
+    <div class="container footer__row">
+      <a class="logo" href="index.html#home"></a>
+      <div class="footer__links">
+        <a href="index.html#home">Home</a>
+        <a href="index.html#product">Product</a>
+        <a href="index.html#faq">FAQ</a>
+        <a href="index.html#contact">Contact</a>
+        <a href="rating.html">Rating</a>
+      </div>
+      <small id="copyright"></small>
+    </div>
+  </footer>
+
+  <!-- Lightbox foto ulasan -->
+  <dialog class="pd-lightbox" id="pd-lightbox" aria-label="Pratinjau foto ulasan">
+    <button class="pd-close" id="pd-close" type="button" aria-label="Tutup pratinjau">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+    <div class="pd-lightbox__img" id="pd-lightbox-img"></div>
+  </dialog>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="js/live.js"></script>
+  <script src="js/script.js"></script>
+  <script src="js/rating.js"></script>
+  <script src="js/background.js"></script>
+</body>
+</html>

@@ -71,6 +71,20 @@ export const reviewInput = z.object({
   status: z.enum(['published', 'hidden']).optional().default('published'),
   images: z.array(mediaRef).max(3).optional().default([]),
 });
+// Form ulasan dari pelanggan (multipart/form-data, jadi semua nilai datang sebagai string)
+export const publicReviewInput = z.object({
+  productId: z.coerce.number({ invalid_type_error: 'Pilih produk', required_error: 'Pilih produk' }).int('Pilih produk').min(1, 'Pilih produk').max(1_000_000_000, 'Pilih produk'),
+  name: z.string({ required_error: 'Nama wajib diisi' }).trim().min(2, 'Nama minimal 2 karakter').max(60, 'Nama maksimal 60 karakter'),
+  stars: z.coerce.number({ invalid_type_error: 'Pilih rating 1 sampai 5', required_error: 'Pilih rating 1 sampai 5' }).int('Pilih rating 1 sampai 5').min(1, 'Pilih rating 1 sampai 5').max(5, 'Pilih rating 1 sampai 5'),
+  text: z.string({ required_error: 'Ulasan wajib diisi' }).trim().min(5, 'Ulasan minimal 5 karakter').max(1000, 'Ulasan maksimal 1000 karakter'),
+});
+export const publicReviewListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(30).default(8),
+  productId: z.coerce.number().int().min(1).optional(),
+  stars: z.coerce.number().int().min(1).max(5).optional(),
+  sort: z.enum(['newest', 'oldest', 'stars_desc', 'stars_asc']).default('newest'),
+});
 export const reviewListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),

@@ -261,6 +261,10 @@
           <div id="pd-summary">${summaryHTML()}</div>
           <div id="pd-reviews"></div>
           <nav class="pager" id="pd-pager" aria-label="Halaman ulasan"></nav>
+          <p class="pd-reviewcta">
+            <a class="btn btn--soft" href="rating.html?product=${p.id}#tulis">Tulis ulasan</a>
+            <a href="rating.html">Lihat semua rating</a>
+          </p>
         </div>
       </section>
 

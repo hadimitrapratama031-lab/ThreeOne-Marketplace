@@ -51,8 +51,13 @@ export function pubContact(c) {
   return { id: idStr(c), label: c.label, value: c.value, href: c.href || '', icon: CONTACT_ICONS[c.icon] || CONTACT_ICONS.link, order: c.order, updatedAt: iso(c.updatedAt) };
 }
 
-export function pubReview(r) {
-  return { id: idStr(r), productId: r.productId, name: r.name, stars: r.stars, text: r.text, date: iso(r.date), images: (r.images || []).map((i) => ({ url: mediaUrl(i) })), updatedAt: iso(r.updatedAt) };
+export function pubReview(r, product) {
+  return {
+    id: idStr(r), productId: r.productId, name: r.name, stars: r.stars, text: r.text, date: iso(r.date),
+    images: (r.images || []).map((i) => ({ url: mediaUrl(i) })), updatedAt: iso(r.updatedAt),
+    // Hanya ada di daftar semua rating (halaman Rating); event realtime cukup membawa productId
+    ...(product ? { product: { id: product.productId, name: product.name, imageUrl: mainImage(product) ? mediaUrl(mainImage(product)) : null } } : {}),
+  };
 }
 
 /* ---------- Admin ---------- */

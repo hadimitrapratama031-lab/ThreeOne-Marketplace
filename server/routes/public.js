@@ -1,11 +1,15 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 import { Product, Category, Review, Faq, Contact } from '../models/index.js';
-import { asyncH, HttpError, pageMeta } from '../lib/http.js';
+import { asyncH, parse, HttpError, pageMeta } from '../lib/http.js';
 import { pubCategory, pubProductCard, pubProductDetail, pubFaq, pubContact, pubReview } from '../lib/serialize.js';
+import { publicReviewInput, publicReviewListQuery } from '../lib/schemas.js';
+import { config, r2Configured } from '../config/env.js';
 import { getAllSettings, publicSetting, SETTING_KEYS } from '../services/settings.js';
 import { recordImageError } from '../services/imageErrors.js';
-import { publicLimiter, telemetryLimiter } from '../middleware/security.js';
+import { summarize, listPublic, createFromCustomer } from '../services/reviews.js';
+import { publicLimiter, telemetryLimiter, reviewSubmitLimiter, originGuard } from '../middleware/security.js';
 
 const r = Router();
 r.use(publicLimiter);
@@ -40,12 +44,8 @@ r.get('/bootstrap', asyncH(async (_req, res) => {
   });
 }));
 
-async function reviewSummary(productObjectId) {
-  const counts = await Promise.all([5, 4, 3, 2, 1].map((s) => Review.countDocuments({ product: productObjectId, status: 'published', stars: s })));
-  const total = counts.reduce((a, b) => a + b, 0);
-  const sum = counts.reduce((acc, n, i) => acc + n * (5 - i), 0);
-  return { avg: total ? Math.round((sum / total) * 10) / 10 : null, total, dist: { 5: counts[0], 4: counts[1], 3: counts[2], 2: counts[3], 1: counts[4] } };
-}
+// Ringkasan rating Product Detail memakai perhitungan yang sama dengan halaman Rating
+const reviewSummary = (productId) => summarize({ productId, status: 'published' });
 
 const pidParam = z.coerce.number().int().min(1).max(1_000_000_000);
 
@@ -57,9 +57,45 @@ async function findVisible(rawId) {
   return p;
 }
 
+/* ---------- Rating & ulasan (halaman Rating) ---------- */
+
+// Semua ulasan dari semua produk yang tampil, plus ringkasan rating
+r.get('/reviews', asyncH(async (req, res) => {
+  const q = parse(publicReviewListQuery, req.query);
+  const { docs, total, summary, visible } = await listPublic(q);
+  res.json({ items: docs.map((d) => pubReview(d, visible.get(d.productId))), summary, ...pageMeta(q.page, q.limit, total) });
+}));
+
+// Kirim ulasan (multipart: productId, name, stars, text, images[]). Langsung tampil, tanpa persetujuan.
+const reviewUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: config.limits.imageBytes, files: 3, fields: 8, parts: 12 },
+}).array('images', 3);
+
+function receiveReview(req, res, next) {
+  reviewUpload(req, res, (err) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) {
+      const msg = err.code === 'LIMIT_FILE_SIZE' ? `Ukuran foto terlalu besar (maksimal ${Math.round(config.limits.imageBytes / 1048576)} MB per foto).`
+        : err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE' ? 'Maksimal 3 foto per ulasan.' : 'Data ulasan tidak valid.';
+      return next(new HttpError(err.code === 'LIMIT_FILE_SIZE' ? 413 : 422, msg, { fields: { images: msg } }));
+    }
+    next(err);
+  });
+}
+
+r.post('/reviews', originGuard, reviewSubmitLimiter, receiveReview, asyncH(async (req, res) => {
+  if (String(req.body?.website || '').trim()) throw new HttpError(422, 'Data tidak valid');   // kolom jebakan bot: manusia tidak melihatnya
+  const files = req.files || [];
+  if (files.length && !r2Configured()) throw new HttpError(503, 'Penyimpanan foto belum tersedia. Kirim ulasan tanpa foto atau coba lagi nanti.');
+  const data = parse(publicReviewInput, req.body);
+  const { saved, product } = await createFromCustomer({ ...data, files });
+  res.status(201).json({ item: pubReview(saved, product) });
+}));
+
 r.get('/products/:id', asyncH(async (req, res) => {
   const p = await findVisible(req.params.id);
-  res.json({ product: pubProductDetail(p, p.category?.name), reviews: await reviewSummary(p._id) });
+  res.json({ product: pubProductDetail(p, p.category?.name), reviews: await reviewSummary(p.productId) });
 }));
 
 const reviewQuery = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(20).default(3) });

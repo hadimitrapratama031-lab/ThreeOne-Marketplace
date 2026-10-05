@@ -405,3 +405,8 @@ dialog.drawer[open] { animation: slide .24s cubic-bezier(.22, 1, .36, 1); }
   .steam-card { grid-template-columns: 1fr; }
   .steam__row { grid-template-columns: 1fr; }
 }
+
+/* Foto ulasan di tabel Rating & ulasan */
+.rv-thumbs { display: flex; gap: 6px; }
+.rv-thumbs a { display: block; width: 36px; height: 36px; overflow: hidden; border-radius: 8px; border: 1px solid var(--line, #e6e3f0); }
+.rv-thumbs img { display: block; width: 100%; height: 100%; object-fit: cover; }

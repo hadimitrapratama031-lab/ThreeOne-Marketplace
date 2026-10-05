@@ -67,4 +67,9 @@ export const publicLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 300,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak permintaan.')),
 });
+// Kirim ulasan oleh pelanggan (tanpa login): cukup longgar untuk pengguna biasa, cukup ketat untuk spam
+export const reviewSubmitLimiter = rateLimit({
+  ...limiterOpts, windowMs: 10 * 60_000, limit: config.isProd ? 8 : 200,
+  handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak ulasan dikirim. Coba lagi beberapa menit lagi.')),
+});
 export const telemetryLimiter = rateLimit({ ...limiterOpts, windowMs: 60_000, limit: 20, handler: (_req, res) => res.status(204).end() });
