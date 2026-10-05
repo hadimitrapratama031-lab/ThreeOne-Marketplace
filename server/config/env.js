@@ -29,6 +29,9 @@ export const config = {
     endpoint: trimSlash(e.R2_ENDPOINT) || (clean(e.R2_ACCOUNT_ID) ? `https://${clean(e.R2_ACCOUNT_ID)}.r2.cloudflarestorage.com` : ''),
     forcePathStyle: bool(e.R2_FORCE_PATH_STYLE),
   },
+  // Pembayaran (KlikQRIS). Kredensial diatur di Admin Web, bukan di env. Base URL hanya untuk uji otomatis.
+  klikqrisBase: trimSlash(e.KLIKQRIS_BASE_URL) || 'https://klikqris.com/api',
+  publicBaseUrl: trimSlash(e.PUBLIC_BASE_URL),
   corsOrigins: list(e.CORS_ORIGINS),
   trustProxy: e.TRUST_PROXY !== undefined ? (Number.isNaN(Number(e.TRUST_PROXY)) ? e.TRUST_PROXY : Number(e.TRUST_PROXY)) : (isProd ? 1 : false),
   seedDemo: bool(e.SEED_DEMO),

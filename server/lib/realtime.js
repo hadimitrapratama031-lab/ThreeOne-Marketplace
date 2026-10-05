@@ -6,13 +6,19 @@ import { Admin } from '../models/index.js';
 
 /**
  * Socket.IO
- *  - namespace "/"      : Marketplace (publik, hanya menerima data publik)
+ *  - namespace "/"      : Marketplace (publik, hanya menerima data publik).
+ *                         Halaman Payment bergabung ke room "order:<orderNo>" (butuh token pelanggan) dan hanya
+ *                         menerima event order:update miliknya sendiri; data order tidak pernah di-broadcast.
  *  - namespace "/admin" : Admin Web (wajib login; cookie sesi dicek saat handshake)
  * Daftar event publik:  <entity>:create|update|delete|reorder
  */
 let io;
 let adminNs;
 let presenceTimer;
+let orderJoin = null;   // diisi services/payments.js: (orderNo, token) => tampilan order publik | null
+
+/** Didaftarkan oleh modul pembayaran supaya realtime.js tidak bergantung pada layer service. */
+export const setOrderJoinHandler = (fn) => { orderJoin = fn; };
 
 export const SESSION_COOKIE = 'mp_admin';
 
@@ -61,6 +67,24 @@ export function initRealtime(httpServer) {
   io.of('/').on('connection', (socket) => {
     schedulePresence();
     socket.on('disconnect', schedulePresence);
+
+    // Halaman Payment: gabung ke room order setelah token diverifikasi, balas dengan keadaan terkini (ack)
+    socket.on('order:join', async (msg, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const orderNo = msg?.orderNo;
+        const joined = (socket.data.orders ||= new Set());
+        if (!orderJoin || typeof orderNo !== 'string' || typeof msg?.token !== 'string') return reply({ ok: false });
+        if (joined.size >= 5 && !joined.has(orderNo)) return reply({ ok: false });
+        const order = await orderJoin(orderNo, msg.token);
+        if (!order) return reply({ ok: false });
+        socket.join(`order:${orderNo}`);
+        joined.add(orderNo);
+        reply({ ok: true, order });
+      } catch {
+        reply({ ok: false });
+      }
+    });
   });
 
   adminNs = io.of('/admin');
@@ -84,6 +108,7 @@ const safe = (fn) => {
 };
 export const emitPublic = (event, payload) => safe(() => io?.of('/').emit(event, payload));
 export const emitAdmin = (event, payload) => safe(() => adminNs?.emit(event, payload));
+export const emitToRoom = (room, event, payload) => safe(() => io?.of('/').to(room).emit(event, payload));
 export const getOnline = publicOnline;
 
 /**

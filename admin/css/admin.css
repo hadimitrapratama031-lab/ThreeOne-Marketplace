@@ -410,3 +410,20 @@ dialog.drawer[open] { animation: slide .24s cubic-bezier(.22, 1, .36, 1); }
 .rv-thumbs { display: flex; gap: 6px; }
 .rv-thumbs a { display: block; width: 36px; height: 36px; overflow: hidden; border-radius: 8px; border: 1px solid var(--line, #e6e3f0); }
 .rv-thumbs img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- Pembayaran & Pesanan ---------- */
+.seg { display: inline-grid; grid-auto-flow: column; gap: 4px; padding: 4px; border-radius: var(--r-md); background: var(--tint); }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.seg span { display: block; padding: 8px 18px; border-radius: 8px; font-weight: 600; color: var(--muted); }
+.seg input:checked + span { background: var(--surface); color: var(--violet); box-shadow: 0 1px 4px rgba(26, 21, 48, .12); }
+.seg input:focus-visible + span { box-shadow: var(--focus); }
+.copybox { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--tint-2); }
+.copybox code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.cred { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.cred.is-active { border-color: var(--lavender); background: var(--tint-2); }
+.cred__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.timeline { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.timeline li { display: grid; grid-template-columns: 150px 1fr; gap: 12px; font-size: 13px; }
+.timeline time { color: var(--muted); }
+@media (max-width: 640px) { .timeline li { grid-template-columns: 1fr; gap: 2px; } }

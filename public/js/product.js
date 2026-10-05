@@ -289,6 +289,7 @@
     const thumb = t.closest('.pd-thumb');
     if (thumb) return go(+thumb.dataset.i);
     if (t.closest('.pd-play')) return playVideo();
+    if (t.closest('#pd-buy')) { if (p && p.stock > 0) location.href = 'checkout.html?product=' + p.id; return; }
     if (t.closest('#pd-cart')) return flash(t.closest('#pd-cart'), 'Ditambahkan ke keranjang');
     if (t.closest('#pd-share')) return share(t.closest('#pd-share'));
     const pg = t.closest('[data-page]');

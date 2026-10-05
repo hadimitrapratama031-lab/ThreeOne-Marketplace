@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { objectIdStr } from './http.js';
 import { CONTACT_ICONS } from '../models/index.js';
+import { normalizeWhatsapp } from './phone.js';
 
 const str = (min, max) => z.string().trim().min(min).max(max);
 const int = (min, max) => z.number().int().min(min).max(max);
@@ -123,3 +124,34 @@ export const settingSchemas = {
 export const loginInput = z.object({ email: z.string().trim().toLowerCase().email().max(120), password: z.string().min(1).max(200) });
 export const profileInput = z.object({ name: str(1, 60), email: z.string().trim().toLowerCase().email().max(120) });
 export const passwordInput = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(10, 'Minimal 10 karakter').max(200) });
+
+/* ---------- Checkout & pembayaran ---------- */
+export const checkoutInput = z.object({
+  productId: z.coerce.number({ invalid_type_error: 'Produk tidak valid', required_error: 'Produk tidak valid' }).int('Produk tidak valid').min(1, 'Produk tidak valid').max(1_000_000_000, 'Produk tidak valid'),
+  name: z.string({ required_error: 'Nama wajib diisi' }).trim().min(2, 'Nama minimal 2 karakter').max(60, 'Nama maksimal 60 karakter'),
+  email: z.string({ required_error: 'Email wajib diisi' }).trim().toLowerCase().min(1, 'Email wajib diisi').email('Format email belum benar').max(120, 'Email maksimal 120 karakter'),
+  whatsapp: z.string({ required_error: 'Nomor WhatsApp wajib diisi' }).trim().min(1, 'Nomor WhatsApp wajib diisi').max(25, 'Nomor terlalu panjang')
+    .transform((v) => normalizeWhatsapp(v))
+    .refine((v) => v !== '', 'Nomor WhatsApp tidak valid (contoh: 0812 3456 7890)'),
+  clientKey: z.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
+});
+
+const credSet = z.object({
+  merchantId: z.string().trim().max(120).optional().default(''),
+  apiKey: z.string().trim().max(400).optional().default(''),
+  clearApiKey: z.boolean().optional().default(false),
+});
+export const paymentSettingsInput = z.object({
+  mode: z.enum(['sandbox', 'production']),
+  sandbox: credSet.optional().default({}),
+  production: credSet.optional().default({}),
+  waAdmin: z.string().trim().max(25).optional().default(''),
+  publicBaseUrl: z.string().trim().max(200).optional().default(''),
+});
+
+export const adminOrderListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  q: z.string().trim().max(100).optional().default(''),
+  status: z.enum(['PENDING', 'SUCCESS', 'EXPIRED', 'FAILED']).optional(),
+});

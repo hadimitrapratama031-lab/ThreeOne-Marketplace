@@ -148,7 +148,61 @@ assetSchema.index({ status: 1, createdAt: 1 });
 assetSchema.index({ createdAt: -1 });
 export const Asset = mongoose.model('Asset', assetSchema);
 
-export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset];
+/* Order — checkout + pembayaran QRIS (KlikQRIS).
+   Status order dikelola backend: PENDING -> SUCCESS | EXPIRED | FAILED.
+   SUCCESS/EXPIRED mengikuti status KlikQRIS (PAID/SUCCESS, EXPIRED); FAILED adalah status INTERNAL
+   untuk transaksi yang gagal dibuat di gateway (KlikQRIS tidak punya status gagal). */
+export const ORDER_STATUSES = ['PENDING', 'SUCCESS', 'EXPIRED', 'FAILED'];
+const orderEvent = new Schema({ at: { type: Date, default: Date.now }, type: { type: String, maxlength: 40 }, detail: { type: String, maxlength: 300, default: '' } }, { _id: false });
+const orderSchema = new Schema({
+  orderNo: { type: String, required: true, unique: true },            // juga dipakai sebagai order_id di KlikQRIS
+  clientKey: { type: String, maxlength: 64 },                          // kunci idempotensi dari browser (anti dobel klik)
+  status: { type: String, enum: ORDER_STATUSES, default: 'PENDING' },
+  rev: { ...int, default: 1 },                                         // naik setiap perubahan; klien mengabaikan event usang/ganda
+  customer: {
+    name: { type: String, required: true, trim: true, maxlength: 60 },
+    email: { type: String, required: true, trim: true, lowercase: true, maxlength: 120 },
+    whatsapp: { type: String, required: true, maxlength: 20 },
+  },
+  product: {
+    ref: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    productId: { ...int, required: true },
+    name: { type: String, required: true },
+    category: { type: String, default: '' },
+    imageKey: { type: String, default: '' },
+  },
+  amount: { ...int, required: true, min: 1 },                          // harga produk (snapshot saat checkout)
+  totalAmount: { type: Number, default: null },                        // total_amount dari KlikQRIS (bisa memuat kode unik)
+  uniqueAmount: { type: Number, default: 0 },                          // amount_uniq dari KlikQRIS
+  expiresAt: { type: Date, default: null },                            // batas bayar (waktu SERVER) = QRIS dibuat + 10 menit
+  payment: {
+    provider: { type: String, default: 'klikqris' },
+    mode: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
+    gatewayStatus: { type: String, default: '' },                      // status terakhir dari KlikQRIS apa adanya
+    qrisUrl: { type: String, default: '' },
+    reportUrl: { type: String, default: '' },
+    signature: { type: String, select: false },                        // signature dari respons create; pembanding webhook
+    gatewayExpiredAt: { type: String, default: '' },
+    gatewayPaidAt: { type: String, default: '' },
+    createdAt: Date,
+    paidAt: Date,
+    source: { type: String, default: '' },                             // webhook | status-check
+    lastCheckedAt: Date,
+    webhookCount: { ...int, default: 0 },
+    lastWebhookAt: Date,
+  },
+  latePayment: { type: Boolean, default: false },                      // dana masuk setelah order dinyatakan kedaluwarsa
+  stockNote: { type: String, default: '' },                            // 'short' = stok sudah habis saat pembayaran masuk
+  failureReason: { type: String, default: '', maxlength: 300 },
+  events: { type: [orderEvent], default: [] },
+}, { timestamps: true });
+orderSchema.index({ status: 1, expiresAt: 1 });
+orderSchema.index({ clientKey: 1 }, { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } });
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ 'customer.email': 1 });
+export const Order = mongoose.model('Order', orderSchema);
+
+export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order];
 
 export async function syncAllIndexes() {
   for (const m of ALL_MODELS) await m.syncIndexes();

@@ -27,6 +27,9 @@ import settingsRouter from './routes/settings.js';
 import mediaRouter from './routes/media.js';
 import steamRouter from './routes/steam.js';
 import dashboardRouter from './routes/dashboard.js';
+import { ordersRouter, webhookRouter } from './routes/orders.js';
+import { paymentSettingsRouter, adminOrdersRouter } from './routes/paymentAdmin.js';
+import { startPaymentWorker, stopPaymentWorker } from './services/payments.js';
 import { categoriesRouter, faqRouter, contactsRouter } from './routes/content.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,7 +50,8 @@ export function createApp() {
         'script-src': ["'self'"],
         'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'font-src': ["'self'", 'https://fonts.gstatic.com'],
-        'img-src': ["'self'", 'data:', 'blob:', ...(r2Origin ? [r2Origin] : [])],
+        // klikqris.com: gambar QRIS (qris_url) dimuat langsung dari KlikQRIS, tidak disalin ke R2
+        'img-src': ["'self'", 'data:', 'blob:', 'https://klikqris.com', ...(r2Origin ? [r2Origin] : [])],
         'media-src': ["'self'", 'blob:', ...(r2Origin ? [r2Origin] : [])],
         'connect-src': ["'self'", 'ws:', 'wss:'],
         'object-src': ["'none'"],
@@ -71,6 +75,8 @@ export function createApp() {
   const apiCors = config.corsOrigins.length ? cors({ origin: config.corsOrigins, credentials: true }) : (_req, _res, next) => next();
   app.use('/api', apiCors);
   app.use('/api/public', publicRouter);
+  app.use('/api/orders', ordersRouter);                              // checkout + status order (token pelanggan)
+  app.use('/api/payments/klikqris/webhook', webhookRouter);          // callback server-ke-server dari KlikQRIS
 
   app.use('/api/admin/auth', originGuard, authRouter);
   const admin = express.Router();
@@ -90,6 +96,8 @@ export function createApp() {
   admin.use('/settings', settingsRouter);
   admin.use('/media', mediaRouter);
   admin.use('/steam', steamRouter);
+  admin.use('/payment-settings', paymentSettingsRouter);
+  admin.use('/orders', adminOrdersRouter);
   app.use('/api/admin', admin);
   app.use('/api', notFoundApi);
 
@@ -132,6 +140,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
 
   sweeper = setInterval(() => sweepAssets().catch((e) => console.error('[sweep]', e.message)), 3600_000);
   sweeper.unref();
+  startPaymentWorker();   // kedaluwarsa tepat waktu + cek status KlikQRIS bila webhook terlambat
   const actualPort = server.address().port;
   if (!quiet) console.log(`Marketplace  http://localhost:${actualPort}\nAdmin Web    http://localhost:${actualPort}/admin`);
   if (!quiet) {
@@ -145,6 +154,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
 
   const stop = async () => {
     clearInterval(sweeper);
+    stopPaymentWorker();
     await closeRealtime();
     if (server.listening) await new Promise((resolve) => server.close(resolve));
     await mongoose.disconnect();
