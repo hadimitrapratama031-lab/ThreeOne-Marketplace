@@ -194,6 +194,7 @@ const orderSchema = new Schema({
   latePayment: { type: Boolean, default: false },                      // dana masuk setelah order dinyatakan kedaluwarsa
   stockNote: { type: String, default: '' },                            // 'short' = stok sudah habis saat pembayaran masuk
   failureReason: { type: String, default: '', maxlength: 300 },
+  origin: { type: String, default: '', maxlength: 200 },               // origin toko saat checkout (untuk tautan di notifikasi)
   events: { type: [orderEvent], default: [] },
 }, { timestamps: true });
 orderSchema.index({ status: 1, expiresAt: 1 });
@@ -202,7 +203,38 @@ orderSchema.index({ createdAt: -1 });
 orderSchema.index({ 'customer.email': 1 });
 export const Order = mongoose.model('Order', orderSchema);
 
-export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order];
+/* NotificationLog — satu baris per (order, event, channel). Baris ini sekaligus KUNCI idempotensi:
+   di-claim SEBELUM provider dipanggil, jadi webhook ganda / reconnect / refresh tidak pernah mengirim dua kali.
+   Struktur dan arti status sama dengan project Marketplace lama. */
+export const NOTIFICATION_EVENTS = ['orderCreated', 'paymentSuccess', 'paymentFailed', 'paymentExpired'];
+export const NOTIFICATION_CHANNELS = ['whatsapp', 'email'];
+const notificationLogSchema = new Schema({
+  orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
+  orderCode: { type: String, default: '' },
+  channel: { type: String, enum: NOTIFICATION_CHANNELS, required: true },
+  event: { type: String, enum: NOTIFICATION_EVENTS, required: true },
+  status: { type: String, enum: ['pending', 'sending', 'sent', 'failed'], default: 'pending' },
+  recipient: { type: String, default: '' },
+  templateSource: { type: String, enum: ['builtin', 'custom', ''], default: '' },
+  attempts: { type: Number, default: 0 },
+  permanentFailure: { type: Boolean, default: false },
+  error: { type: String, default: '' },
+  providerResponse: { type: Schema.Types.Mixed },
+  resendMessageId: { type: String },
+  deliveryStatus: { type: String, enum: ['unknown', 'delivered', 'bounced', 'complained', 'delayed'], default: 'unknown' },
+  deliveryStatusAt: Date,
+  claimedAt: Date,
+  sentAt: Date,
+  failedAt: Date,
+}, { timestamps: true });
+notificationLogSchema.index({ orderId: 1, event: 1, channel: 1 }, { unique: true });
+notificationLogSchema.index({ createdAt: -1 });
+notificationLogSchema.index({ orderCode: 1 });
+notificationLogSchema.index({ status: 1 });
+notificationLogSchema.index({ resendMessageId: 1 }, { sparse: true });
+export const NotificationLog = mongoose.model('NotificationLog', notificationLogSchema);
+
+export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order, NotificationLog];
 
 export async function syncAllIndexes() {
   for (const m of ALL_MODELS) await m.syncIndexes();

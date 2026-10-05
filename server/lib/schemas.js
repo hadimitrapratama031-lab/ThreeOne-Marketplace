@@ -155,3 +155,43 @@ export const adminOrderListQuery = z.object({
   q: z.string().trim().max(100).optional().default(''),
   status: z.enum(['PENDING', 'SUCCESS', 'EXPIRED', 'FAILED']).optional(),
 });
+
+/* ---------- Integrasi: Fonnte, Resend, notifikasi ---------- */
+const opt = (max) => z.string().trim().max(max).optional();
+export const fonnteSettingsInput = z.object({
+  enabled: z.boolean(),
+  token: opt(300),
+  clearToken: z.boolean().optional().default(false),
+  testTarget: opt(25),
+});
+export const resendSettingsInput = z.object({
+  enabled: z.boolean(),
+  apiKey: opt(300),
+  clearApiKey: z.boolean().optional().default(false),
+  fromEmail: opt(120),
+  fromName: opt(80),
+  replyTo: opt(120),
+  webhookSecret: opt(300),
+  clearWebhookSecret: z.boolean().optional().default(false),
+  testTo: opt(120),
+});
+const evKeys = ['orderCreated', 'paymentSuccess', 'paymentFailed', 'paymentExpired'];
+export const notificationPrefsInput = z.object({
+  whatsappEnabled: z.boolean(),
+  emailEnabled: z.boolean(),
+  events: z.object(Object.fromEntries(evKeys.map((k) => [k, z.boolean().optional()]))).partial(),
+});
+export const templatesInput = z.object({
+  whatsapp: z.object(Object.fromEntries(evKeys.map((k) => [k, z.string().max(4000).optional()]))).partial().optional(),
+  email: z.object(Object.fromEntries(evKeys.map((k) => [k, z.object({ subject: z.string().max(200).optional(), html: z.string().max(60000).optional() }).optional()]))).partial().optional(),
+});
+export const testFonnteInput = z.object({ testTarget: z.string().trim().max(25).optional().default('') });
+export const testResendInput = z.object({ testTo: z.string().trim().max(120).optional().default('') });
+export const notificationLogQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  orderNo: z.string().trim().max(40).optional().default(''),
+  event: z.enum(evKeys).optional(),
+  channel: z.enum(['whatsapp', 'email']).optional(),
+  status: z.enum(['pending', 'sending', 'sent', 'failed']).optional(),
+});

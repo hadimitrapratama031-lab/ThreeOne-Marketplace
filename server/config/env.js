@@ -32,6 +32,17 @@ export const config = {
   // Pembayaran (KlikQRIS). Kredensial diatur di Admin Web, bukan di env. Base URL hanya untuk uji otomatis.
   klikqrisBase: trimSlash(e.KLIKQRIS_BASE_URL) || 'https://klikqris.com/api',
   publicBaseUrl: trimSlash(e.PUBLIC_BASE_URL),
+  // Provider notifikasi. Kredensial diatur di Admin Web; nilai env hanya cadangan (sama seperti project lama) dan base URL untuk uji.
+  fonnteBase: trimSlash(e.FONNTE_BASE_URL) || 'https://api.fonnte.com',
+  resendBase: trimSlash(e.RESEND_BASE_URL) || 'https://api.resend.com',
+  envFallback: {
+    fonnteToken: clean(e.FONNTE_TOKEN),
+    resendApiKey: clean(e.RESEND_API_KEY),
+    resendFromEmail: clean(e.RESEND_FROM_EMAIL),
+    resendFromName: clean(e.RESEND_FROM_NAME),
+    resendReplyTo: clean(e.RESEND_REPLY_TO),
+    resendWebhookSecret: clean(e.RESEND_WEBHOOK_SECRET),
+  },
   corsOrigins: list(e.CORS_ORIGINS),
   trustProxy: e.TRUST_PROXY !== undefined ? (Number.isNaN(Number(e.TRUST_PROXY)) ? e.TRUST_PROXY : Number(e.TRUST_PROXY)) : (isProd ? 1 : false),
   seedDemo: bool(e.SEED_DEMO),

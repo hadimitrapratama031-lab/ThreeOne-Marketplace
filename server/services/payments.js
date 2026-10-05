@@ -3,6 +3,8 @@ import { Order, Product } from '../models/index.js';
 import { HttpError } from '../lib/http.js';
 import { safeEqual } from '../lib/secrets.js';
 import { config } from '../config/env.js';
+import { tokenFor, tokenOk } from '../lib/orderToken.js';
+import { queueOrderEvent } from './notifications.js';
 import { publicUrl } from '../lib/r2.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler } from '../lib/realtime.js';
@@ -29,10 +31,6 @@ function newOrderNo() {
   for (let i = 0; i < 6; i += 1) rand += ALPHABET[crypto.randomInt(ALPHABET.length)];
   return `MP-${ymd}-${rand}`;
 }
-/** Token akses pelanggan diturunkan dari APP_SECRET + order ID: tidak perlu disimpan dan tidak bisa ditebak. */
-export const tokenFor = (orderNo) => crypto.createHmac('sha256', config.appSecret).update(`order-token:${orderNo}`).digest('hex').slice(0, 40);
-const tokenOk = (orderNo, token) => typeof token === 'string' && token.length > 0 && safeEqual(token, tokenFor(orderNo));
-
 /* ---------- Bentuk data ---------- */
 const iso = (d) => (d ? new Date(d).toISOString() : null);
 const PUBLIC_FAIL = 'Transaksi pembayaran tidak dapat dibuat. Tidak ada dana yang ditagihkan.';
@@ -128,6 +126,7 @@ export async function createCheckout(input, { requestBase }) {
         product: { ref: product._id, productId: product.productId, name: product.name, category: product.category?.name || '', imageKey: (product.media || []).find((m) => m.type === 'image')?.key || '' },
         amount: product.price,
         payment: { mode: cfg.mode },
+        origin: cfg.publicBaseUrl || requestBase,   // dipakai tautan di notifikasi (tanpa request)
         events: [log('created', `produk #${product.productId}`)],
       });
     } catch (err) {
@@ -174,6 +173,9 @@ export async function createCheckout(input, { requestBase }) {
     ) || order;
   }
   await emitOrder(order);
+  // Notifikasi dikirim dari state yang SUDAH tersimpan, di latar belakang (idempoten lewat NotificationLog)
+  if (order.status === 'PENDING') queueOrderEvent(order, 'orderCreated');
+  else if (order.status === 'FAILED') queueOrderEvent(order, 'paymentFailed');
   return { orderNo: order.orderNo, token: tokenFor(order.orderNo), status: order.status };
 }
 
@@ -212,6 +214,7 @@ async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) 
   await adjustStock(won);
   const fresh = (await Order.findById(won._id)) || won;
   await emitOrder(fresh);
+  queueOrderEvent(fresh, 'paymentSuccess');   // hanya pemenang transisi yang sampai di sini: callback ganda tidak mengirim ulang
   return fresh;
 }
 
@@ -221,7 +224,10 @@ async function markExpired(orderNo, { source, gatewayStatus = '' }) {
     { $set: { status: 'EXPIRED', ...(gatewayStatus ? { 'payment.gatewayStatus': gatewayStatus } : {}) }, $inc: { rev: 1 }, $push: { events: push(log('expired', source)) } },
     { new: true },
   );
-  if (won) await emitOrder(won);
+  if (won) {
+    await emitOrder(won);
+    queueOrderEvent(won, 'paymentExpired');
+  }
   return won;
 }
 
@@ -300,7 +306,10 @@ async function failOrphan(order) {
     { $set: { status: 'FAILED', failureReason: 'Transaksi tidak selesai dibuat.' }, $inc: { rev: 1 }, $push: { events: push(log('create_failed', 'tidak ada QRIS setelah batas waktu')) } },
     { new: true },
   );
-  if (won) await emitOrder(won);
+  if (won) {
+    await emitOrder(won);
+    queueOrderEvent(won, 'paymentFailed');
+  }
 }
 
 export async function settleIfDue(order) {

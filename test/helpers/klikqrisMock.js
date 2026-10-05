@@ -41,3 +41,38 @@ export async function startKlikqrisMock({ uniqueCode = 16 } = {}) {
     close: () => new Promise((r) => server.close(r)),
   };
 }
+
+/** Fonnte + Resend tiruan lokal: meniru bentuk request/respons yang dipakai project lama (form /send, JSON /emails). */
+export async function startProvidersMock() {
+  const state = { wa: [], mail: [], failWa: 0, failMail: 0, permanentWa: false, noIdWa: false, domains: [{ id: 'd1', name: 'toko.example', status: 'verified', region: 'ap-northeast-1', records: [{ record: 'DKIM', type: 'TXT', name: 'resend._domainkey', value: 'p=abc', status: 'verified' }] }] };
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const send = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+      if (req.method === 'POST' && req.url === '/send') {
+        if (req.headers.authorization !== 'FONNTE-TOKEN') return send(200, { status: false, reason: 'invalid token' });
+        const f = Object.fromEntries(new URLSearchParams(raw));
+        if (state.permanentWa) return send(200, { status: false, reason: 'target invalid' });
+        if (state.failWa > 0) { state.failWa -= 1; return send(503, {}); }
+        state.wa.push({ target: f.target, message: f.message });
+        return send(200, state.noIdWa ? { status: true, detail: 'queued' } : { status: true, id: [`wa-${state.wa.length}`], detail: 'success! message in queue' });
+      }
+      if (req.url.startsWith('/emails') || req.url.startsWith('/domains')) {
+        if (req.headers.authorization !== 'Bearer re_KEY') return send(401, { name: 'validation_error', message: 'API key is invalid' });
+        if (req.method === 'POST' && req.url === '/emails') {
+          const b = JSON.parse(raw);
+          if (state.failMail > 0) { state.failMail -= 1; return send(500, { message: 'oops' }); }
+          state.mail.push(b);
+          return send(200, { id: `mail-${state.mail.length}` });
+        }
+        if (req.url === '/domains') return send(200, { data: state.domains.map(({ id, name, status }) => ({ id, name, status })) });
+        const m = req.url.match(/^\/domains\/(.+)$/);
+        if (m) return send(200, state.domains.find((d) => d.id === m[1]));
+      }
+      send(404, {});
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return { url: `http://127.0.0.1:${server.address().port}`, state, close: () => new Promise((r) => server.close(r)) };
+}

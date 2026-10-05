@@ -30,6 +30,8 @@ import dashboardRouter from './routes/dashboard.js';
 import { ordersRouter, webhookRouter } from './routes/orders.js';
 import { paymentSettingsRouter, adminOrdersRouter } from './routes/paymentAdmin.js';
 import { startPaymentWorker, stopPaymentWorker } from './services/payments.js';
+import { integrationsRouter, notificationsRouter } from './routes/integrations.js';
+import webhooksRouter from './routes/webhooks.js';
 import { categoriesRouter, faqRouter, contactsRouter } from './routes/content.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,7 +67,8 @@ export function createApp() {
   }));
   app.use(compression());
   app.use(cookieParser());
-  app.use(express.json({ limit: '256kb' }));
+  // rawBody: byte mentah dibutuhkan untuk verifikasi signature webhook Resend (Svix)
+  app.use(express.json({ limit: '256kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/webhooks/')) req.rawBody = buf; } }));
 
   app.get('/healthz', (_req, res) => {
     const dbUp = mongoose.connection.readyState === 1;
@@ -76,7 +79,8 @@ export function createApp() {
   app.use('/api', apiCors);
   app.use('/api/public', publicRouter);
   app.use('/api/orders', ordersRouter);                              // checkout + status order (token pelanggan)
-  app.use('/api/payments/klikqris/webhook', webhookRouter);          // callback server-ke-server dari KlikQRIS
+  app.use('/api/payments/klikqris/webhook', webhookRouter);
+  app.use('/api/webhooks', webhooksRouter);                          // webhook status pengiriman email (Resend)          // callback server-ke-server dari KlikQRIS
 
   app.use('/api/admin/auth', originGuard, authRouter);
   const admin = express.Router();
@@ -98,6 +102,8 @@ export function createApp() {
   admin.use('/steam', steamRouter);
   admin.use('/payment-settings', paymentSettingsRouter);
   admin.use('/orders', adminOrdersRouter);
+  admin.use('/integrations', integrationsRouter);
+  admin.use('/notifications', notificationsRouter);
   app.use('/api/admin', admin);
   app.use('/api', notFoundApi);
 

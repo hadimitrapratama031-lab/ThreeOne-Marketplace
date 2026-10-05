@@ -19,3 +19,7 @@ export function formatWhatsapp(d) {
   const rest = s.slice(2);
   return `+62 ${rest.slice(0, 3)}-${rest.slice(3, 7)}-${rest.slice(7)}`.replace(/-$/, '');
 }
+
+/** Nomor yang sudah dinormalkan (62…) layak dikirim ke Fonnte: 62 + 8–13 digit (aturan sama dengan project lama). */
+export const isValidWhatsApp = (n) => /^62\d{8,13}$/.test(String(n || '').replace(/\D/g, ''));
+export const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
