@@ -62,7 +62,7 @@ export default {
           <div class="card__head"><h3>Halaman detail produk</h3></div>
           <div class="card__body stack">
             <label class="field"><span>Catatan di “Tentang Produk”</span><textarea name="notes" rows="5" maxlength="2000">${s.productPage.notes.join('\n\n')}</textarea><small>Ditambahkan di bawah deskripsi setiap produk. Pisahkan paragraf dengan satu baris kosong (maks. 4).</small></label>
-            <label class="field"><span>Pesanan selesai</span><input name="completedOrders" type="number" min="0" step="1" value="${s.productPage.completedOrders}"><small>Ditampilkan sebagai “N+ pesanan selesai”. Isi 0 untuk menyembunyikan.</small></label>
+            <label class="field"><span>Pesanan selesai (otomatis)</span><input type="text" value="${Number(s.productPage.completedOrders || 0).toLocaleString('id-ID')}" disabled><small>Dihitung dari pesanan yang sudah dibayar. Ditampilkan sebagai “N+ pesanan selesai”; tersembunyi bila 0.</small></label>
             <div class="field"><span>Strip platform & toko</span>
               <div class="spec-rows" id="platforms">${s.productPage.platforms.map(platformRow)}</div>
               <div><button type="button" class="btn btn--sm" id="add-platform">${icon('plus')}Tambah platform</button></div>
@@ -95,7 +95,6 @@ export default {
       }),
       productPage: (f) => ({
         notes: f.notes.value.split(/\n{2,}/).map((t) => t.trim()).filter(Boolean),
-        completedOrders: Number(f.completedOrders.value || 0),
         platforms: $$('[data-platform]', root).map((r) => ({ icon: $('select', r).value, label: $('input', r).value.trim() })).filter((p) => p.label),
       }),
     };

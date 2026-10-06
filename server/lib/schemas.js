@@ -120,7 +120,6 @@ export const settingSchemas = {
   productPage: z.object({
     notes: z.array(str(1, 500)).max(4),
     platforms: z.array(z.object({ icon: z.enum(['windows', 'steam', 'store']), label: str(1, 24) })).max(6),
-    completedOrders: int(0, 1_000_000_000),
   }),
 };
 

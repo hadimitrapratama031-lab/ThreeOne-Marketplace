@@ -22,7 +22,7 @@ export const DEFAULTS = {
     faq: { title: 'Pertanyaan Umum' },
     contact: { title: 'Hubungi Kami', subtitle: 'Ada kendala dengan pesanan? Kirim nomor pesanan Anda, tim kami siap membantu.' },
   },
-  productPage: { notes: [], platforms: [], completedOrders: 0 },
+  productPage: { notes: [], platforms: [] },   // completedOrders dihitung dari database order
 };
 
 export const SETTING_KEYS = Object.keys(DEFAULTS);

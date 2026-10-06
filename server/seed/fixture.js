@@ -67,7 +67,7 @@ export const settings = {
       'Simpan nomor pesanan Anda. Jika ada kendala, hubungi kami lewat WhatsApp atau Discord agar cepat ditangani.',
     ],
     platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'steam', label: 'Steam' }, { icon: 'store', label: '31 Store' }],
-    completedOrders: 19000,
+    
   },
 };
 

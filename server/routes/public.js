@@ -8,7 +8,7 @@ import { publicReviewInput, publicReviewListQuery } from '../lib/schemas.js';
 import { config, r2Configured } from '../config/env.js';
 import { getAllSettings, publicSetting, SETTING_KEYS } from '../services/settings.js';
 import { recordImageError } from '../services/imageErrors.js';
-import { withLiveStats } from '../services/stats.js';
+import { withLiveStats, withLiveProductPage } from '../services/stats.js';
 import { summarize, listPublic, createFromCustomer } from '../services/reviews.js';
 import { publicLimiter, telemetryLimiter, reviewSubmitLimiter, originGuard } from '../middleware/security.js';
 
@@ -35,6 +35,7 @@ r.get('/bootstrap', asyncH(async (_req, res) => {
   ]);
   const pub = {};
   for (const k of SETTING_KEYS) pub[k] = publicSetting(k, settings[k]);
+  pub.productPage = await withLiveProductPage(pub.productPage);
   pub.stats = await withLiveStats(pub.stats);   // pelanggan & pesanan dihitung dari database order
   res.json({
     settings: pub,

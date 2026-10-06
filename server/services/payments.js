@@ -216,7 +216,7 @@ async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) 
   await adjustStock(won);
   const fresh = (await Order.findById(won._id)) || won;
   await emitOrder(fresh);
-  broadcastStats(await getSetting('stats').catch(() => ({})));   // Pelanggan & Total Pesanan di beranda ikut naik
+  broadcastStats(await getSetting('stats').catch(() => ({})), await getSetting('productPage').catch(() => ({})));   // Pelanggan & Total Pesanan di beranda ikut naik
   queueOrderEvent(fresh, 'paymentSuccess');   // hanya pemenang transisi yang sampai di sini: callback ganda tidak mengirim ulang
   return fresh;
 }

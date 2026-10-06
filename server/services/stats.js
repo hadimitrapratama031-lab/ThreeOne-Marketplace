@@ -23,12 +23,20 @@ export async function withLiveStats(stats = {}) {
   return { ...stats, ...(await liveStats()) };
 }
 
+/** "N+ pesanan selesai" di halaman produk = jumlah order SUCCESS dari database. */
+export async function withLiveProductPage(pp = {}) {
+  return { ...pp, completedOrders: await Order.countDocuments({ status: 'SUCCESS' }) };
+}
+
 /** Umumkan statistik terbaru ke Marketplace + Admin (dipanggil setelah pembayaran berhasil). */
-export async function broadcastStats(base = {}) {
+export async function broadcastStats(base = {}, basePage = {}) {
   try {
     const value = await withLiveStats(base);
     emitPublic('settings:update', { key: 'stats', value });
     emitAdmin('settings:update', { key: 'stats', value });
+    const page = await withLiveProductPage(basePage);
+    emitPublic('settings:update', { key: 'productPage', value: page });
+    emitAdmin('settings:update', { key: 'productPage', value: page });
   } catch (err) {
     console.error('[stats] gagal menyiarkan statistik:', err.message);
   }
