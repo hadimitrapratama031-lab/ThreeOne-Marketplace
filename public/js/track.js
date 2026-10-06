@@ -189,12 +189,28 @@
         ? `Kami menunggu pembayaran QRIS Anda. Batas bayar <b>${when(o.expiresAt)}</b>. Buka tautan pembayaran yang dikirim ke email atau WhatsApp Anda untuk melihat kode QRIS.`
         : 'Kode pembayaran sedang disiapkan. Halaman ini berubah otomatis begitu siap.';
     }
+    if (o.status === 'SUCCESS' && o.redeem?.state === 'assigned') return `Pembayaran sudah kami terima${o.paidAt ? ` pada <b>${when(o.paidAt)}</b>` : ''}. Code redeem Anda ada di bawah.`;
+    if (o.status === 'SUCCESS' && o.redeem?.state === 'waiting') return 'Pembayaran sudah kami terima, tetapi stok code sedang habis. Code muncul otomatis di sini begitu tersedia; Anda tidak perlu membayar lagi.';
     if (o.status === 'SUCCESS') return `Pembayaran sudah kami terima${o.paidAt ? ` pada <b>${when(o.paidAt)}</b>` : ''}. Hubungi Admin lewat WhatsApp agar produk segera diproses.`;
     if (o.status === 'EXPIRED') return 'Batas pembayaran 10 menit sudah lewat, jadi kode QRIS tidak berlaku lagi. <b>Jangan membayar dengan kode lama.</b> Sudah terlanjur membayar? Hubungi Admin; status ini berubah otomatis bila pembayaran terkonfirmasi.';
     return `${esc(o.failureReason || 'Transaksi pembayaran tidak dapat dibuat.')} Buat pesanan baru, atau hubungi Admin bila masih gagal.`;
   }
 
   const liveOn = () => Boolean(Live.socket?.connected);
+
+  /* Produk Sistem Code: code dari backend, hanya ada bila pembayaran SUCCESS */
+  function redeemHTML(o) {
+    if (o.redeem?.state !== 'assigned') return '';
+    return `
+      <section class="trk-redeem" aria-labelledby="trk-rd-h">
+        <h3 class="sum-group__title" id="trk-rd-h">Code Redeem</h3>
+        <div class="trk-redeem__plate">
+          <code class="trk-redeem__code">${esc(o.redeem.code)}</code>
+          ${copyBtn(o.redeem.code)}
+        </div>
+        <p class="field__hint">Code hanya dapat digunakan 1 kali. Jangan dibagikan ke siapa pun.</p>
+      </section>`;
+  }
 
   function detailHTML(o, swap) {
     const st = stOf(o);
@@ -253,6 +269,8 @@
             <p class="field__hint trk-note">Data pribadi disamarkan demi keamanan pembeli.</p>
           </section>
         </div>
+
+        ${redeemHTML(o)}
 
         ${o.mode === 'sandbox' ? `<div class="notice notice--warn">${I.info}<p><b>Mode uji coba (Sandbox).</b> Pesanan ini tidak memakai uang asli.</p></div>` : ''}
 

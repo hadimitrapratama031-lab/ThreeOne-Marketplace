@@ -122,6 +122,14 @@ function stockInfo(stock) {
   return stock ? (stock <= 10 ? ['stock--low', 'Stok terbatas'] : ['', 'Tersedia']) : ['stock--out', 'Habis'];
 }
 
+// Kartu produk: tampilkan jumlah stok sebenarnya (dari database, ikut berubah realtime)
+function stockCount(stock) {
+  const n = Math.max(0, Math.floor(Number(stock) || 0));
+  if (!n) return ['stock--out', 'Stok habis'];
+  const label = `Stok <b>${n.toLocaleString('id-ID')}</b>`;
+  return n <= 10 ? ['stock--low', `${label} · terbatas`] : ['', label];
+}
+
 // Jumlah terjual dari order berstatus SUCCESS (dihitung server). Disembunyikan bila belum ada penjualan.
 function soldInfo(sold) {
   const n = Math.floor(Number(sold));
@@ -129,7 +137,7 @@ function soldInfo(sold) {
 }
 
 function productCard(p) {
-  const [stockClass, stockLabel] = stockInfo(p.stock);
+  const [stockClass, stockLabel] = stockCount(p.stock);
 
   const media = p.imageUrl
     ? `<img loading="lazy" alt="${esc(p.name)}" src="${esc(p.imageUrl)}" data-seed="${p.id}">`

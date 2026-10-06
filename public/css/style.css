@@ -709,6 +709,11 @@ h2 {
   white-space: nowrap;
 }
 
+.card__meta .stock b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .sold {
   flex: none;
   margin-left: auto;

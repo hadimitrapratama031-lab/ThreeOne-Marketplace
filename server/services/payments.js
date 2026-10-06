@@ -109,7 +109,8 @@ export function maskWhatsapp(wa) {
   return `+${d.slice(0, 2)} ${DOT.repeat(Math.max(3, d.length - 6))} ${d.slice(-4)}`;
 }
 
-export function pubTrack(o) {
+/** `redeem` = { state, code } untuk produk code yang SUDAH dibayar (lihat trackRedeem). Tanpa itu, Cek Pesanan tidak memuat code. */
+export function pubTrack(o, { redeem = null } = {}) {
   const pending = o.status === 'PENDING';
   const unique = o.totalAmount != null ? Math.max(0, Math.round((o.totalAmount - o.amount) * 100) / 100) : 0;
   return {
@@ -128,7 +129,14 @@ export function pubTrack(o) {
     uniqueAmount: unique,
     totalAmount: o.totalAmount,
     failureReason: o.status === 'FAILED' ? PUBLIC_FAIL : null,
+    ...(redeem ? { redeem } : {}),
   };
+}
+
+/** Bagian code yang ditampilkan di Cek Pesanan: hanya state + code (tanpa tutorial), dan hanya setelah pembayaran SUCCESS. */
+async function trackRedeem(o) {
+  const r = await redeemViewFor(o);
+  return r && r.state !== 'locked' ? { state: r.state, code: r.code || '' } : null;
 }
 
 const log = (type, detail = '') => ({ at: new Date(), type, detail: String(detail).slice(0, 300) });
@@ -139,7 +147,7 @@ export async function emitOrder(o) {
   const { waAdmin } = await getPaymentConfig();
   const redeem = await redeemViewFor(o);   // code hanya ke room order:<id> (anggota room sudah lolos verifikasi token); admin lewat laporan Code
   emitToRoom(`order:${o.orderNo}`, 'order:update', pubOrder(o, { waAdmin, redeem }));
-  emitToRoom(`track:${o.orderNo}`, 'track:update', pubTrack(o));   // halaman Cek Pesanan (ber-masking)
+  emitToRoom(`track:${o.orderNo}`, 'track:update', pubTrack(o, { redeem: redeem && redeem.state !== 'locked' ? { state: redeem.state, code: redeem.code || '' } : null }));   // halaman Cek Pesanan (ber-masking)
   emitAdmin('order:update', admOrder(o));
 }
 
@@ -453,9 +461,10 @@ export async function trackOrders({ by, q }) {
     docs = await Order.find({ 'customer.email': q }).sort({ createdAt: -1 }).limit(TRACK_LIMIT);   // memakai indeks customer.email
   }
   // Order yang sudah lewat batas bayar dituntaskan dulu (cek KlikQRIS), sama seperti halaman Payment: status tidak pernah usang
-  docs = await Promise.all(docs.map((d) => settleIfDue(d)));
+  docs = await Promise.all(docs.map(async (d) => ensureOrderCode(await settleIfDue(d))));
   const { waAdmin } = await getPaymentConfig();
-  return { orders: docs.map((d) => ({ ...pubTrack(d), watch: watchTokenFor(d.orderNo) })), waAdmin };
+  const orders = await Promise.all(docs.map(async (d) => ({ ...pubTrack(d, { redeem: await trackRedeem(d) }), watch: watchTokenFor(d.orderNo) })));
+  return { orders, waAdmin };
 }
 
 /** Pembacaan satu order untuk halaman Cek Pesanan lewat token pantau (join Socket.IO & polling cadangan). */
@@ -463,8 +472,8 @@ export async function getTrackForWatch(orderNo, watch) {
   if (typeof orderNo !== 'string' || !ORDER_NO_RE.test(orderNo) || !watchTokenOk(orderNo, watch)) return null;
   let order = await Order.findOne({ orderNo });
   if (!order) return null;
-  order = await settleIfDue(order);
-  return pubTrack(order);
+  order = await ensureOrderCode(await settleIfDue(order));
+  return pubTrack(order, { redeem: await trackRedeem(order) });
 }
 
 setTrackJoinHandler(getTrackForWatch);
