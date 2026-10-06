@@ -19,7 +19,7 @@ Reset menghapus produk, kategori, rating, pesanan, log notifikasi, penghitung ID
 Akun admin, pengaturan (pembayaran/Resend/Fonnte/branding/hero) beserta logo/cover, FAQ, dan kontak dipertahankan.
 Opsi: `--include-content`, `--include-settings`, `--include-admins`, `--keep-images`, `--yes=<nama-db>`.
 
-Migrasi: kategori, produk (nama, harga, stok, terjual, status), pesanan + data pembeli, rating. Deskripsi/gambar produk tidak diambil dari project lama.
+Migrasi: kategori, produk (nama, harga, stok, terjual, status), pesanan + data pembeli (termasuk pesanan dari produk yang sudah dihapus di sistem lama), rating (termasuk yang tanpa produk, jadi ulasan umum). Deskripsi/gambar produk tidak diambil dari project lama.
 Opsi: `--skip-orders`, `--skip-reviews`, `--verbose`. Aman dijalankan berulang.
 
 Pesanan lama yang sudah terlanjur diimpor dengan status salah (mis. selesai tapi tercatat EXPIRED) ikut diperbaiki saat migrasi dijalankan ulang dengan `--apply`.

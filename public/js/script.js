@@ -41,7 +41,7 @@ const extAttrs = (h) => (/^https?:\/\//i.test(h) ? ' target="_blank" rel="noopen
 const DEFAULT_SETTINGS = {
   branding: { name: 'Marketplace', siteTitle: 'Marketplace', logoUrl: null },
   hero: { eyebrow: '', title: '', desc: '', primaryCta: { label: '', href: '#product' }, secondaryCta: { label: '', href: '#product' }, chips: [], covers: [null, null, null] },
-  stats: { customers: 0, orders: 0, support: '' },
+  stats: { orders: 0, rating: 0, ratingCount: 0, support: '' },
   sections: {
     products: { title: 'Produk Tersedia', subtitle: '' },
     faq: { title: 'Pertanyaan Umum' },
@@ -233,8 +233,8 @@ function renderStats(settle) {
   if (!root) return;
   const s = DATA.settings.stats;
   const stats = [{ label: 'Total Produk', value: PRODUCTS.length, suffix: '' }];
-  if (s.customers > 0) stats.push({ label: 'Pelanggan', value: s.customers, suffix: '' });
   if (s.orders > 0) stats.push({ label: 'Pesanan Selesai', value: s.orders, suffix: '' });
+  stats.push({ label: 'Rating', text: `${s.rating > 0 ? Number(s.rating).toFixed(1) : 0}/5` });   // dari ulasan di database; 0/5 bila belum ada
   if (s.support) stats.push({ label: 'Support', text: s.support });
 
   root.style.setProperty('--cols', stats.length);

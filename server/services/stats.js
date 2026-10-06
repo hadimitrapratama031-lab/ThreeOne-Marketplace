@@ -1,43 +1,53 @@
-import { Order } from '../models/index.js';
-import { emitPublic, emitAdmin } from '../lib/realtime.js';
+import { Product } from '../models/index.js';
+import { emitPublic, emitAdmin, setChangeHook } from '../lib/realtime.js';
+import { summarize, visibleProducts } from './reviews.js';
+import { getSetting } from './settings.js';
 
 /**
- * Statistik beranda yang dihitung langsung dari koleksi `orders` (MongoDB), bukan angka yang diketik manual.
- *  - orders    : jumlah pesanan yang sudah dibayar (status SUCCESS)
- *  - customers : jumlah pelanggan unik (email) dari pesanan yang sudah dibayar
+ * Statistik beranda yang dihitung langsung dari database (bukan angka yang diketik manual):
+ *  - orders : "Pesanan Selesai" = jumlah terjual (total `sold` seluruh produk). Bertambah otomatis setiap pembayaran berhasil.
+ *  - rating : rata-rata bintang dari ulasan yang tayang (0 bila belum ada), + ratingCount.
  */
 export async function liveStats() {
-  const [orders, grouped] = await Promise.all([
-    Order.countDocuments({ status: 'SUCCESS' }),
-    Order.aggregate([
-      { $match: { status: 'SUCCESS' } },
-      { $group: { _id: '$customer.email' } },
-      { $count: 'n' },
-    ]),
+  const [sold, visible] = await Promise.all([
+    Product.aggregate([{ $group: { _id: null, n: { $sum: '$sold' } } }]),
+    visibleProducts(),
   ]);
-  return { customers: grouped[0]?.n ?? 0, orders };
+  const ids = [...visible.keys()];
+  const summary = await summarize({ status: 'published', productId: { $in: [...ids, null] } });   // sama dengan halaman Rating
+  return { orders: sold[0]?.n ?? 0, rating: summary.avg ?? 0, ratingCount: summary.total };
 }
 
 /** Gabungkan angka hidup ke pengaturan stats (sisanya, mis. `support`, tetap dari pengaturan admin). */
 export async function withLiveStats(stats = {}) {
-  return { ...stats, ...(await liveStats()) };
+  const { customers, ...rest } = stats;   // `customers` bawaan data lama tidak dipakai lagi
+  return { ...rest, ...(await liveStats()) };
 }
 
-/** "N+ pesanan selesai" di halaman produk = jumlah order SUCCESS dari database. */
+/** "N pesanan selesai" di halaman produk = angka yang sama dengan beranda. */
 export async function withLiveProductPage(pp = {}) {
-  return { ...pp, completedOrders: await Order.countDocuments({ status: 'SUCCESS' }) };
+  return { ...pp, completedOrders: (await liveStats()).orders };
 }
 
-/** Umumkan statistik terbaru ke Marketplace + Admin (dipanggil setelah pembayaran berhasil). */
-export async function broadcastStats(base = {}, basePage = {}) {
+/** Umumkan statistik terbaru ke Marketplace + Admin. */
+export async function broadcastStats() {
   try {
-    const value = await withLiveStats(base);
-    emitPublic('settings:update', { key: 'stats', value });
-    emitAdmin('settings:update', { key: 'stats', value });
-    const page = await withLiveProductPage(basePage);
-    emitPublic('settings:update', { key: 'productPage', value: page });
-    emitAdmin('settings:update', { key: 'productPage', value: page });
+    const [stats, page] = await Promise.all([getSetting('stats'), getSetting('productPage')]);
+    const [s, p] = await Promise.all([withLiveStats(stats), withLiveProductPage(page)]);
+    emitPublic('settings:update', { key: 'stats', value: s });
+    emitAdmin('settings:update', { key: 'stats', value: s });
+    emitPublic('settings:update', { key: 'productPage', value: p });
+    emitAdmin('settings:update', { key: 'productPage', value: p });
   } catch (err) {
     console.error('[stats] gagal menyiarkan statistik:', err.message);
   }
 }
+
+// Produk (terjual berubah) atau ulasan berubah -> siarkan ulang statistik (digabung agar tidak beruntun)
+let timer;
+setChangeHook((entity) => {
+  if (entity !== 'product' && entity !== 'review') return;
+  clearTimeout(timer);
+  timer = setTimeout(broadcastStats, 300);
+  timer.unref?.();
+});

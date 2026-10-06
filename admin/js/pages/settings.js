@@ -34,9 +34,9 @@ export default {
         <form class="card" data-card="stats" novalidate>
           <div class="card__head"><h3>Statistik di beranda</h3></div>
           <div class="card__body stack">
-            <p class="muted">“Total Produk” dihitung otomatis dari database. “Pelanggan” dan “Pesanan Selesai” juga dihitung otomatis dari pesanan yang sudah dibayar. Di sini hanya teks Support yang bisa diatur.</p>
+            <p class="muted">“Total Produk” dihitung otomatis dari database. “Pesanan Selesai” (jumlah terjual) dan “Rating” (rata-rata ulasan) juga dihitung otomatis dari database. Di sini hanya teks Support yang bisa diatur.</p>
             <div class="grid-3">
-              <label class="field"><span>Pelanggan (otomatis)</span><input type="text" value="${Number(s.stats.customers || 0).toLocaleString('id-ID')}" disabled></label>
+              <label class="field"><span>Rating (otomatis)</span><input type="text" value="${s.stats.rating > 0 ? Number(s.stats.rating).toFixed(1) : 0}/5 · ${Number(s.stats.ratingCount || 0).toLocaleString('id-ID')} ulasan" disabled></label>
               <label class="field"><span>Pesanan selesai (otomatis)</span><input type="text" value="${Number(s.stats.orders || 0).toLocaleString('id-ID')}" disabled></label>
               <label class="field"><span>Support</span><input name="support" value="${s.stats.support}" maxlength="20" placeholder="24/7"></label>
             </div>
@@ -62,7 +62,7 @@ export default {
           <div class="card__head"><h3>Halaman detail produk</h3></div>
           <div class="card__body stack">
             <label class="field"><span>Catatan di “Tentang Produk”</span><textarea name="notes" rows="5" maxlength="2000">${s.productPage.notes.join('\n\n')}</textarea><small>Ditambahkan di bawah deskripsi setiap produk. Pisahkan paragraf dengan satu baris kosong (maks. 4).</small></label>
-            <label class="field"><span>Pesanan selesai (otomatis)</span><input type="text" value="${Number(s.productPage.completedOrders || 0).toLocaleString('id-ID')}" disabled><small>Dihitung dari pesanan yang sudah dibayar. Ditampilkan apa adanya sebagai “N pesanan selesai”; tersembunyi bila 0.</small></label>
+            <label class="field"><span>Pesanan selesai (otomatis)</span><input type="text" value="${Number(s.productPage.completedOrders || 0).toLocaleString('id-ID')}" disabled><small>Sama dengan “Pesanan Selesai” di beranda (jumlah terjual dari database). Ditampilkan apa adanya sebagai “N pesanan selesai”; tersembunyi bila 0.</small></label>
             <div class="field"><span>Strip platform & toko</span>
               <div class="spec-rows" id="platforms">${s.productPage.platforms.map(platformRow)}</div>
               <div><button type="button" class="btn btn--sm" id="add-platform">${icon('plus')}Tambah platform</button></div>

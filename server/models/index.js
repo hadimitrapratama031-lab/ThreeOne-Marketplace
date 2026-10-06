@@ -167,8 +167,8 @@ const orderSchema = new Schema({
     whatsapp: { type: String, required: true, maxlength: 20 },
   },
   product: {
-    ref: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
-    productId: { ...int, required: true },
+    ref: { type: Schema.Types.ObjectId, ref: 'Product', default: null },   // kosong = riwayat impor dari produk yang sudah dihapus di sistem lama
+    productId: { ...int, default: null },
     name: { type: String, required: true },
     category: { type: String, default: '' },
     imageKey: { type: String, default: '' },

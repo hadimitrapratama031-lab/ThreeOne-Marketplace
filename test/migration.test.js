@@ -65,7 +65,9 @@ test('apply: kategori, produk (harga/stok/terjual), pesanan+pembeli, rating; pro
   assert.equal(prods.find((p) => p.name === 'App B').active, false);
 
   const orders = (await a.get('/orders?limit=100')).body.items;
-  assert.equal(orders.length, 2, 'pesanan dengan produk terhapus dilewati');
+  assert.equal(orders.length, 3, 'pesanan dengan produk terhapus TETAP diimpor (snapshot nama produk)');
+  const o3 = orders.find((o) => o.orderNo === 'ORD-20260103-CCCCCC');
+  assert.equal(o3.status, 'SUCCESS'); assert.equal(o3.product.name, 'Produk Terhapus');
   const o1 = orders.find((o) => o.orderNo === 'ORD-20260101-AAAAAA');
   assert.equal(o1.status, 'SUCCESS'); assert.equal(o1.customer.email, 'budi@mail.com'); assert.equal(o1.mode, 'sandbox'); assert.equal(o1.totalAmount, 50016);
   const o2 = orders.find((o) => o.orderNo === 'ORD-20260102-BBBBBB');
@@ -73,7 +75,7 @@ test('apply: kategori, produk (harga/stok/terjual), pesanan+pembeli, rating; pro
   assert.equal(o2.customer.whatsapp, '6281211112222'); assert.equal(o2.customer.name, 'Pelanggan');
 
   const reviews = (await a.get('/reviews?limit=100')).body.items;
-  assert.equal(reviews.length, 2, 'rating tanpa produk dilewati');
+  assert.equal(reviews.length, 3, 'rating tanpa produk diimpor sebagai ulasan umum');
   assert.equal(reviews.find((r) => r.text === 'Mantap').status, 'published');
   assert.equal(reviews.find((r) => r.text === 'Baru masuk').status, 'hidden');
 });

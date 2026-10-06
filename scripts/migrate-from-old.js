@@ -11,7 +11,7 @@
  *   • Pesanan + pembeli : tiap pesanan lama jadi riwayat pesanan (nama, email, WhatsApp, produk, nominal, status, waktu, mode
  *                  sandbox/production dari transaksi). Project baru tidak punya tabel pelanggan terpisah: data pembeli tersimpan di pesanan.
  *                  Tidak mengubah stok, tidak mengirim notifikasi, tidak ada yang berstatus "menunggu".
- *   • Rating     : bintang, ulasan, nama, tanggal. approved→tayang; hidden/pending→tersembunyi. Tanpa produk = dilewati.
+ *   • Rating     : bintang, ulasan, nama, tanggal. approved→tayang; hidden/pending→tersembunyi. Tanpa produk (atau produknya sudah dihapus) = tetap diimpor sebagai ulasan umum.
  * Aman dijalankan berulang (tidak membuat data dobel). Opsi: --skip-orders --skip-reviews --verbose
  */
 import mongoose from 'mongoose';
@@ -35,7 +35,7 @@ await mongoose.connect(config.mongoUri, { serverSelectionTimeoutMS: 10_000 });
 const old = await mongoose.createConnection(oldUri, { serverSelectionTimeoutMS: 10_000 }).asPromise();
 const read = (name, sort = { _id: 1 }) => old.db.collection(name).find({}).sort(sort).toArray();
 
-const rep = { cat: { created: 0, existing: 0, skipped: [] }, prod: { created: 0, updated: 0, skipped: [] }, ord: { created: 0, existing: 0, repaired: 0, total: 0, skipped: [], buyers: new Set(), byStatus: {}, legacy: {} }, rev: { created: 0, existing: 0, skipped: [] } };
+const rep = { cat: { created: 0, existing: 0, skipped: [] }, prod: { created: 0, updated: 0, skipped: [] }, ord: { created: 0, existing: 0, repaired: 0, noProduct: 0, total: 0, skipped: [], buyers: new Set(), byStatus: {}, legacy: {} }, rev: { created: 0, existing: 0, skipped: [] } };
 
 /* ---- Kategori ---- */
 const catMap = new Map();
@@ -98,8 +98,12 @@ if (!flags.has('skip-orders')) {
     const entry = prodMap.get(String(o.product?.productId)) || prodByName.get(cleanName(o.product?.name, 120).toLowerCase());
     const email = String(o.customer?.email || '').trim().toLowerCase().slice(0, 120);
     const total = toInt(o.total ?? (Number(o.product?.price) * Number(o.quantity || 1)), 1);
-    if (!entry) { rep.ord.skipped.push(`${code} (produk tidak ditemukan)`); continue; }
+    // Produk sudah dihapus di sistem lama: pesanan TETAP diimpor memakai snapshot nama/kategori di pesanan itu,
+    // supaya jumlah pesanan selesai tidak berkurang (sebelumnya pesanan seperti ini dilewati).
+    const snapName = cleanName(o.product?.name, 120) || entry?.name || '';
+    if (!snapName) { rep.ord.skipped.push(`${code} (nama produk kosong)`); continue; }
     if (!email || !Number.isFinite(total)) { rep.ord.skipped.push(`${code} (email/nominal tidak valid)`); continue; }
+    if (!entry) rep.ord.noProduct += 1;
     const t = tx.get(String(o._id));
     const status = mapped;
     const wa = normalizeWa(o.customer?.whatsapp, normalizeWhatsapp);
@@ -108,7 +112,7 @@ if (!flags.has('skip-orders')) {
     const doc = {
       orderNo: code, status, rev: 1,
       customer: { name: cleanName(o.customer?.name, 60) || 'Pelanggan', email, whatsapp: wa.slice(0, 20) },
-      product: { ref: entry.ref, productId: entry.productId, name: cleanName(o.product?.name, 120) || entry.name, category: cleanName(o.product?.category, 60) || entry.category, imageKey: '' },
+      product: { ref: entry?.ref ?? null, productId: entry?.productId ?? null, name: snapName, category: cleanName(o.product?.category, 60) || entry?.category || '', imageKey: '' },
       amount: total, totalAmount, uniqueAmount: totalAmount && totalAmount >= total ? totalAmount - total : 0,
       expiresAt: t?.expiredAt ? new Date(t.expiredAt) : null,
       payment: { provider: 'klikqris', mode: t?.environment === 'sandbox' ? 'sandbox' : 'production', gatewayStatus: String(t?.status || ''), qrisUrl: '', source: 'import', ...(status === 'SUCCESS' ? { paidAt: t?.paidAt ? new Date(t.paidAt) : updatedAt } : {}) },
@@ -127,12 +131,11 @@ if (!flags.has('skip-reviews')) {
     if (await Review.exists({ legacyId })) { rep.rev.existing += 1; continue; }
     const entry = r.productId ? prodMap.get(String(r.productId)) : null;
     const stars = toInt(r.rating, 1); const text = cleanName(r.review, 1000);
-    if (!r.productId) { rep.rev.skipped.push(`"${cleanName(r.user, 30)}" (rating tanpa produk)`); continue; }
-    if (!entry) { rep.rev.skipped.push(`"${cleanName(r.user, 30)}" (produknya tidak ditemukan)`); continue; }
+    if (r.productId && !entry) { rep.rev.skipped.push(`"${cleanName(r.user, 30)}" (produknya tidak ditemukan)`); continue; }
     if (!Number.isFinite(stars) || stars > 5 || !text) { rep.rev.skipped.push(`"${cleanName(r.user, 30)}" (bintang/ulasan tidak valid)`); continue; }
     const createdAt = r.createdAt ? new Date(r.createdAt) : new Date();
     rep.rev.created += 1;
-    if (APPLY) await Review.create([{ product: entry.ref, productId: entry.productId, name: cleanName(r.user, 60) || 'Pengguna', stars, text, date: createdAt, status: mapReviewStatus(r.status), legacyId, createdAt, updatedAt: r.updatedAt ? new Date(r.updatedAt) : createdAt }], { timestamps: false });
+    if (APPLY) await Review.create([{ product: entry?.ref ?? null, productId: entry?.productId ?? null, name: cleanName(r.user, 60) || 'Pengguna', stars, text, date: createdAt, status: mapReviewStatus(r.status), legacyId, createdAt, updatedAt: r.updatedAt ? new Date(r.updatedAt) : createdAt }], { timestamps: false });
   }
 }
 
@@ -145,6 +148,7 @@ rowOut('Produk baru / diperbarui', `${rep.prod.created} / ${rep.prod.updated}`);
 if (!flags.has('skip-orders')) {
   rowOut('Pesanan di database lama', rep.ord.total);
   rowOut('Pesanan diimpor / sudah ada', `${rep.ord.created} / ${rep.ord.existing}`);
+  rowOut('  di antaranya produknya sudah dihapus', rep.ord.noProduct);
   rowOut('Pesanan lama yang diperbaiki statusnya', rep.ord.repaired);
   rowOut('Status lama (order/pembayaran/transaksi)', '');
   for (const [k, v] of Object.entries(rep.ord.legacy)) rowOut(`  ${k}`, `${v.n} → ${v.to}`);

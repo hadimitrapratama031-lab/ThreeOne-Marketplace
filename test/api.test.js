@@ -288,10 +288,10 @@ test('konten: hero, FAQ, kontak, pengaturan tersimpan dan tervalidasi', async ()
   const stats = await a.put('/settings/stats', { support: 'x'.repeat(21) });
   assert.equal(stats.status, 422);
   // angka pelanggan/pesanan tidak bisa diisi manual: nilai kiriman diabaikan, hasilnya dari database order
-  const manual = await a.put('/settings/stats', { customers: 999, orders: 999, support: '24/7' });
+  const manual = await a.put('/settings/stats', { orders: 999, rating: 5, support: '24/7' });
   assert.equal(manual.status, 200);
-  assert.equal(manual.body.value.customers, 0);
-  assert.equal(manual.body.value.orders, 0);
+  assert.notEqual(manual.body.value.orders, 999);
+  assert.ok(manual.body.value.rating <= 5 && manual.body.value.rating !== undefined);
 });
 
 test('keamanan: tidak ada rahasia di respons publik/admin, image-error hanya untuk URL R2', async () => {

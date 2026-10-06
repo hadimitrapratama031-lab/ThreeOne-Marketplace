@@ -20,6 +20,10 @@ let orderJoin = null;   // diisi services/payments.js: (orderNo, token) => tampi
 /** Didaftarkan oleh modul pembayaran supaya realtime.js tidak bergantung pada layer service. */
 export const setOrderJoinHandler = (fn) => { orderJoin = fn; };
 
+let changeHook = null;
+/** Dipasang services/stats.js: dipanggil setiap ada perubahan entitas (untuk menyiarkan ulang statistik). */
+export const setChangeHook = (fn) => { changeHook = fn; };
+
 export const SESSION_COOKIE = 'mp_admin';
 
 export function verifyToken(token) {
@@ -128,4 +132,5 @@ export function emitChange(entity, { before, after, adm, pub, visible, id, admDe
   if (!wasVisible && isVisible) emitPublic(`${entity}:create`, pub(after));
   else if (wasVisible && isVisible) emitPublic(`${entity}:update`, pub(after));
   else if (wasVisible && !isVisible) emitPublic(`${entity}:delete`, delPub(before));
+  safe(() => changeHook?.(entity));
 }
