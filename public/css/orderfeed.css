@@ -1,0 +1,150 @@
+/* ==========================================================================
+   orderfeed.css — Floating Order Notification
+   Kecil, tenang, mengikuti token tema (hitam + ungu). Tidak menerima klik (pointer-events: none)
+   sehingga tidak pernah menghalangi tombol atau konten di bawahnya.
+   z-index 15 < header (20): menu/header selalu di atasnya.
+   ========================================================================== */
+.order-feed {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
+  z-index: 15;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 9px 14px 9px 9px;
+  border: 1px solid rgba(196, 181, 253, .14);
+  border-radius: 16px;
+  background: rgba(17, 13, 32, .82);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: 0 14px 32px -16px rgba(0, 0, 0, .75), inset 0 1px 0 rgba(255, 255, 255, .04);
+  color: var(--ink, #f4f2ec);
+  font-family: inherit;
+  pointer-events: none;
+  user-select: none;
+
+  /* keadaan tersembunyi (keluar: cepat dan halus) */
+  opacity: 0;
+  visibility: hidden;
+  transform: translate3d(0, 8px, 0) scale(.98);
+  transform-origin: 0 100%;
+  transition: opacity .28s var(--ease, ease), transform .28s var(--ease, ease), visibility 0s linear .28s;
+}
+
+.order-feed.is-in {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity .4s var(--ease, ease), transform .4s var(--ease, ease), visibility 0s;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .order-feed { background: rgba(17, 13, 32, .96); }
+}
+
+.order-feed__thumb {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 11px;
+  background: var(--purple-soft, rgba(167, 139, 250, .12));
+  color: var(--lavender, #c4b5fd);
+}
+
+.order-feed__thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity .2s linear;
+}
+
+.order-feed__thumb.has-img img { opacity: 1; }
+.order-feed__thumb.has-img svg { visibility: hidden; }
+
+.order-feed__body {
+  flex: 1;
+  min-width: 0;            /* wajib agar ellipsis bekerja di dalam flex */
+  display: grid;
+  gap: 2px;
+}
+
+.order-feed__line,
+.order-feed__meta {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.order-feed__line {
+  color: var(--muted, #9b988f);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.order-feed__line strong,
+.order-feed__line .of-product {
+  color: var(--ink, #f4f2ec);
+}
+
+.order-feed__line strong { font-weight: 600; }
+.order-feed__line .of-product { font-weight: 500; }
+
+.order-feed__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted, #9b988f);
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+
+.order-feed__meta .of-email {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: .01em;
+}
+
+.order-feed__meta .of-time {
+  flex: none;
+  margin-left: auto;
+  color: var(--dim, #6f6d66);
+}
+
+.order-feed__meta [hidden] { display: none; }
+
+@media (max-width: 560px) {
+  .order-feed {
+    left: max(12px, env(safe-area-inset-left, 0px));
+    bottom: max(12px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+    width: min(268px, calc(100vw - 24px));
+    gap: 9px;
+    padding: 8px 12px 8px 8px;
+    border-radius: 14px;
+  }
+  .order-feed__thumb { width: 32px; height: 32px; border-radius: 10px; }
+  .order-feed__line { font-size: 12.5px; }
+  .order-feed__meta { font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-feed,
+  .order-feed.is-in {
+    transform: none;
+    transition: opacity .2s linear, visibility 0s linear .2s;
+  }
+  .order-feed.is-in { transition: opacity .2s linear, visibility 0s; }
+}

@@ -75,6 +75,19 @@ Produk berjenis **Sistem Code**: setelah pembayaran SUCCESS, pembeli otomatis me
 | Keamanan | Code tidak ada di API publik, Cek Pesanan, atau log. Hanya pemilik order (token pelanggan) dan Admin yang bisa membacanya. |
 | Notifikasi | Code ikut di WhatsApp/Email `paymentSuccess` (slot `NotificationLog` mencegah kirim ganda); placeholder `{{redeem_code}}` untuk template custom. |
 
+## Floating Order Notification
+
+Toast kecil di kiri bawah Marketplace (`/`) yang menampilkan order sukses terbaru sebagai social proof. Memakai Order, Payment, MongoDB, dan Socket.IO yang sudah ada; tidak ada koleksi, status, atau server Socket.IO baru.
+
+| Bagian | Detail |
+|---|---|
+| Sumber data | Order berstatus `SUCCESS` saja (definisi yang sama dengan "Terjual"), diurutkan menurut waktu bayar. PENDING / EXPIRED / FAILED tidak pernah ikut. |
+| `GET /api/public/recent-orders` | 5 order terbaru, dipakai saat halaman dibuka dan untuk sinkron ulang setelah reconnect. |
+| Socket.IO | Event publik `sale:create`, disiarkan dari `markPaid()` oleh pemenang transisi ke SUCCESS (callback ganda tidak menyiarkan ulang). |
+| Payload | `id`, nama depan, email ber-masking (`rizk*****@gmail.com`), nama produk, gambar produk, waktu bayar. Masking dilakukan di server; email utuh tidak pernah dikirim. `id` adalah HMAC opaque, **bukan** `orderNo` (orderNo membuka Cek Pesanan). |
+| Klien (`public/js/orderfeed.js`) | Antrean maksimal 5, terbaru di depan. Tampil 3 detik, hilang 1 detik, lalu order berikutnya; setelah yang terakhir kembali ke yang terbaru. Order baru masuk ke posisi pertama dan menjadi yang berikutnya tampil (notifikasi yang sedang tampil tidak disela). Dedup lewat `id`. Berhenti saat tab tersembunyi dan lanjut saat kembali. |
+| Indeks | `orders: { status: 1, 'payment.paidAt': -1 }`. |
+
 ## Struktur
 
 ```

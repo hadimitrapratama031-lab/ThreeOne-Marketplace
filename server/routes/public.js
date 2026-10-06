@@ -11,6 +11,7 @@ import { recordImageError } from '../services/imageErrors.js';
 import { withLiveStats, withLiveProductPage } from '../services/stats.js';
 import { summarize, listPublic, createFromCustomer } from '../services/reviews.js';
 import { soldByProduct, soldOf } from '../services/sales.js';
+import { listRecentSales } from '../services/salesFeed.js';
 import { publicLimiter, telemetryLimiter, reviewSubmitLimiter, originGuard } from '../middleware/security.js';
 
 const r = Router();
@@ -47,6 +48,12 @@ r.get('/bootstrap', asyncH(async (_req, res) => {
     contacts: contacts.map(pubContact),
     serverTime: new Date().toISOString(),
   });
+}));
+
+/** Floating Order Notification: 5 order SUCCESS terbaru, sudah ber-masking di sini (email utuh tidak pernah keluar dari server).
+ *  Dipakai saat Marketplace dibuka dan untuk sinkron ulang setelah reconnect; order baru datang lewat Socket.IO `sale:create`. */
+r.get('/recent-orders', asyncH(async (_req, res) => {
+  res.json({ items: await listRecentSales(), serverTime: new Date().toISOString() });
 }));
 
 // Ringkasan rating Product Detail memakai perhitungan yang sama dengan halaman Rating

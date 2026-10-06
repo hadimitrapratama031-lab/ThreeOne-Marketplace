@@ -212,6 +212,7 @@ orderSchema.index({ status: 1, expiresAt: 1 });
 orderSchema.index({ status: 1, 'product.ref': 1 });                  // hitung "Terjual" per produk (services/sales.js)
 orderSchema.index({ clientKey: 1 }, { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } });
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ status: 1, 'payment.paidAt': -1 });                  // Floating Order Notification: order SUCCESS terbaru (services/salesFeed.js)
 orderSchema.index({ 'product.kind': 1, status: 1, codeState: 1 });                       // pemulihan order code yang belum diproses
 orderSchema.index({ 'product.ref': 1, createdAt: 1 }, { partialFilterExpression: { codeState: 'waiting' } });   // antrean order menunggu code (FIFO)
 orderSchema.index({ 'customer.email': 1 });

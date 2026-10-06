@@ -12,6 +12,7 @@ import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler, setTrackJoinHan
 import { getPaymentConfig, getCredentials } from './paymentSettings.js';
 import { soldOf } from './sales.js';
 import { assignCode, redeemViewFor } from './codes.js';
+import { publishSale } from './salesFeed.js';
 import * as klikqris from './klikqris.js';
 
 /**
@@ -292,6 +293,7 @@ async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) 
   await publishProductSale(won);
   const fresh = (await Order.findById(won._id)) || won;
   await emitOrder(fresh);
+  publishSale(fresh);   // Floating Order Notification di Marketplace (data ber-masking, lihat services/salesFeed.js)
   queueOrderEvent(fresh, 'paymentSuccess');   // hanya pemenang transisi yang sampai di sini: callback ganda tidak mengirim ulang
   return fresh;
 }
