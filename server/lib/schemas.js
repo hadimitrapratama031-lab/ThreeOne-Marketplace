@@ -21,7 +21,6 @@ export const productInput = z.object({
   price: int(0, 1_000_000_000),
   oldPrice: int(0, 1_000_000_000).nullable().optional().default(null),
   stock: int(0, 1_000_000),
-  sold: int(0, 100_000_000).optional().default(0),
   active: z.boolean().optional().default(true),
   description: z.string().trim().max(300).optional().default(''),
   about: z.string().trim().max(4000).optional().default(''),

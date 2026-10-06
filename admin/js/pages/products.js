@@ -55,7 +55,7 @@ export default {
               <td>${p.category.name}${p.category.active ? '' : raw(' <span class="pill pill--mute">nonaktif</span>')}</td>
               <td class="num">${rp(p.price)}${p.oldPrice ? html`<br><small class="faint"><s>${rp(p.oldPrice)}</s></small>` : ''}</td>
               <td>${stockPill(p.stock)}</td>
-              <td class="num">${num(p.sold)}</td>
+              <td class="num">${p.sold == null ? '—' : num(p.sold)}</td>
               <td><label class="switch"><input type="checkbox" data-toggle="${p.id}" ${p.active ? 'checked' : ''} aria-label="Tampilkan ${p.name} di Marketplace"><i></i></label></td>
               <td class="muted">${dateShort(p.updatedAt)}</td>
               <td><div class="row-actions"><button class="icon-btn" type="button" data-edit="${p.id}" aria-label="Ubah ${p.name}">${icon('edit')}</button><button class="icon-btn danger" type="button" data-del="${p.id}" aria-label="Hapus ${p.name}">${icon('trash')}</button></div></td>
@@ -119,7 +119,7 @@ export default {
         kind: 'drawer',
         title: p ? 'Ubah produk' : 'Tambah produk',
         body: html`
-          ${p ? '' : steamSourceBlock()}
+          ${steamSourceBlock(p ? { editing: true, appId: p.gameInfo.steamAppId } : {})}
           <div class="fieldset">
             <h3>Informasi dasar</h3>
             <label class="field"><span>Nama produk</span><input name="name" value="${p?.name ?? ''}" maxlength="120" required></label>
@@ -145,7 +145,7 @@ export default {
               <label class="field"><span>Harga jual</span><div class="input-prefix"><span>Rp</span><input name="price" type="number" min="0" step="1" value="${p?.price ?? ''}" required></div></label>
               <label class="field"><span>Harga coret</span><div class="input-prefix"><span>Rp</span><input name="oldPrice" type="number" min="0" step="1" value="${p?.oldPrice ?? ''}"></div><small>Opsional. Diskon dihitung otomatis.</small></label>
               <label class="field"><span>Stok</span><input name="stock" type="number" min="0" step="1" value="${p?.stock ?? 0}" required></label>
-              <label class="field"><span>Jumlah terjual</span><input name="sold" type="number" min="0" step="1" value="${p?.sold ?? 0}"><small>Diisi manual sampai modul pesanan aktif.</small></label>
+              <div class="field"><span>Jumlah terjual</span><output class="readonly">${p ? num(p.sold ?? 0) : '0'}</output><small>Dihitung otomatis dari pesanan yang sudah dibayar. Tidak bisa diubah manual.</small></div>
             </div>
           </div>
           <div class="fieldset">
@@ -192,7 +192,7 @@ export default {
         .filter((r) => r.label || r.value);
 
       const setSpecRows = (kind, rows) => { $(`[data-spec-list="${kind}"]`, f).innerHTML = rows.map((r, i) => specRowHTML(kind, i, r).s).join(''); };
-      if (!p) steam = initSteam(f, { media, setSpecRows, readSpecs, onCount: count });
+      steam = initSteam(f, { media, setSpecRows, readSpecs, onCount: count, editing: Boolean(p) });
 
       f.addEventListener('submit', async () => {
         const btn = $('button[type="submit"]', f);
@@ -202,7 +202,7 @@ export default {
         const body = {
           name: el.name.value, category: el.category.value,
           price: num('price'), oldPrice: el.oldPrice.value === '' ? null : Number(el.oldPrice.value),
-          stock: num('stock'), sold: el.sold.value === '' ? 0 : Number(el.sold.value),
+          stock: num('stock'),
           active: el.active.checked, description: el.description.value, about: el.about.value,
           specs: { min: readSpecs('min'), rec: readSpecs('rec'), source: el.source.value },
           gameInfo: {

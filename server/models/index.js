@@ -200,6 +200,7 @@ const orderSchema = new Schema({
   events: { type: [orderEvent], default: [] },
 }, { timestamps: true });
 orderSchema.index({ status: 1, expiresAt: 1 });
+orderSchema.index({ status: 1, 'product.ref': 1 });                  // hitung "Terjual" per produk (services/sales.js)
 orderSchema.index({ clientKey: 1 }, { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } });
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ 'customer.email': 1 });

@@ -15,7 +15,8 @@ export function pubCategory(c) {
   return { id: idStr(c), name: c.name, order: c.order, updatedAt: iso(c.updatedAt) };
 }
 
-export function pubProductCard(p, catName) {
+// `sold` = jumlah order SUCCESS produk ini (services/sales.js). Sengaja BUKAN p.sold (counter lama yang bisa diisi manual).
+export function pubProductCard(p, catName, sold = 0) {
   return {
     id: p.productId,
     name: p.name,
@@ -23,6 +24,7 @@ export function pubProductCard(p, catName) {
     category: catName ?? '',
     price: p.price,
     stock: p.stock,
+    sold,
     description: p.description,
     imageUrl: mainImage(p) ? mediaUrl(mainImage(p)) : null,
     createdAt: iso(p.createdAt),
@@ -30,13 +32,12 @@ export function pubProductCard(p, catName) {
   };
 }
 
-export function pubProductDetail(p, catName) {
+export function pubProductDetail(p, catName, sold = 0) {
   const hasOld = p.oldPrice && p.oldPrice > p.price;
   return {
-    ...pubProductCard(p, catName),
+    ...pubProductCard(p, catName, sold),
     oldPrice: hasOld ? p.oldPrice : null,
     discount: hasOld ? Math.round((1 - p.price / p.oldPrice) * 100) : 0,
-    sold: p.sold || 0,
     about: String(p.about || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
     specs: { min: p.specs?.min || [], rec: p.specs?.rec || [], source: p.specs?.source || '' },
     media: (p.media || []).map((m) => ({ type: m.type, url: mediaUrl(m) })),
@@ -65,7 +66,8 @@ export function admCategory(c, productCount = 0) {
   return { id: idStr(c), name: c.name, order: c.order, active: c.active, productCount, createdAt: iso(c.createdAt), updatedAt: iso(c.updatedAt) };
 }
 
-export function admProduct(p, cat) {
+// `sold`: lihat pubProductCard. null = tidak dihitung pada pemanggilan ini (mis. Dashboard), bukan 0.
+export function admProduct(p, cat, sold = null) {
   const c = cat || p.category;
   return {
     id: idStr(p),
@@ -75,7 +77,7 @@ export function admProduct(p, cat) {
     price: p.price,
     oldPrice: p.oldPrice ?? null,
     stock: p.stock,
-    sold: p.sold || 0,
+    sold,
     active: p.active,
     description: p.description,
     about: p.about,

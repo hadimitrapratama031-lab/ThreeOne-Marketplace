@@ -148,3 +148,62 @@ test('Admin: ubah nomor WhatsApp tersinkron realtime; uji koneksi; stok habis me
   await a.put(`/products/${product.id}`, { name: product.name, category: product.category.id, price: 50000, stock: 0 });
   assert.equal((await checkout()).status, 409);
 });
+
+test('Terjual: hanya order SUCCESS yang dihitung, per produk yang benar, realtime, dan tidak tertimpa saat admin mengedit', async () => {
+  await a.put('/payment-settings', settings());
+  const cat = (await a.post('/categories', { name: 'Terjual' })).body.item;
+  const mine = (await a.post('/products', { name: 'Game Terjual', category: cat.id, price: 40000, stock: 9 })).body.item;
+  const other = (await a.post('/products', { name: 'Game Lain', category: cat.id, price: 30000, stock: 9 })).body.item;
+  const buy = (p) => t.req('/api/orders', { method: 'POST', body: { productId: p.productId, ...BUYER } });
+  const pay = (o, status = 'PAID') => t.req('/api/payments/klikqris/webhook', { method: 'POST', body: mock.webhookBody(o.orderNo, status) });
+  const card = async (p) => (await t.req('/api/public/bootstrap')).body.products.find((x) => x.id === p.productId);
+  const admRow = async (p) => (await a.get(`/products/${p.id}`)).body.item;
+
+  assert.equal((await card(mine)).sold, 0, 'belum ada penjualan');
+
+  const pub = io(t.base, { transports: ['websocket'] }); sockets.push(pub);
+  const seen = [];
+  pub.on('product:update', (x) => seen.push(x));
+  await new Promise((r) => pub.once('connect', r));
+
+  // PENDING, EXPIRED dan FAILED bukan penjualan
+  const pending = (await buy(mine)).body;
+  const expired = (await buy(mine)).body;
+  await pay(expired, 'EXPIRED');
+  mock.state.failCreate = true; const failed = await buy(mine); mock.state.failCreate = false;
+  assert.equal((await read(failed.body)).body.order.status, 'FAILED');
+  assert.equal((await card(mine)).sold, 0, 'pending/expired/failed tidak dihitung');
+  assert.equal((await admRow(mine)).sold, 0);
+
+  // Pembayaran berhasil: kartu produk yang benar berubah lewat Socket.IO yang sama, tanpa refresh
+  await pay(pending);
+  const ev = await until(() => seen.find((x) => x.id === mine.productId && x.sold === 1));
+  assert.equal(ev.stock, 8);
+  assert.equal(seen.some((x) => x.id === other.productId), false, 'produk lain tidak ikut berubah');
+  assert.equal((await card(mine)).sold, 1);
+  assert.equal((await card(other)).sold, 0, 'terhubung ke produk yang benar');
+  assert.equal((await admRow(mine)).sold, 1);
+
+  // Callback ganda tidak menambah angka; pembayaran terlambat (setelah EXPIRED) tetap penjualan sungguhan
+  await Promise.all([1, 2, 3].map(() => pay(pending)));
+  assert.equal((await card(mine)).sold, 1, 'idempoten');
+  await pay(expired);
+  assert.equal((await card(mine)).sold, 2, 'order EXPIRED yang akhirnya dibayar dihitung');
+
+  // Admin mengedit produk (form tidak lagi mengirim sold): angka tetap, dan event publik tetap membawanya
+  seen.length = 0;
+  const put = await a.put(`/products/${mine.id}`, { name: 'Game Terjual v2', category: cat.id, price: 40000, stock: 7, sold: 999 });
+  assert.equal(put.status, 200);
+  assert.equal(put.body.item.sold, 2);
+  assert.equal((await until(() => seen.find((x) => x.name === 'Game Terjual v2'))).sold, 2);
+  assert.equal((await card(mine)).sold, 2, 'nilai sold kiriman klien diabaikan');
+  assert.equal((await t.req(`/api/public/products/${mine.productId}`)).body.product.sold, 2, 'halaman detail memakai angka yang sama');
+
+  // Stok sudah 0 saat pembayaran masuk: penjualan tetap tercatat dan tetap disiarkan
+  await a.put(`/products/${other.id}`, { name: other.name, category: cat.id, price: 30000, stock: 1 });
+  const o1 = (await buy(other)).body; const o2 = (await buy(other)).body;
+  await pay(o1);
+  seen.length = 0;
+  await pay(o2);
+  assert.equal((await until(() => seen.find((x) => x.id === other.productId && x.sold === 2))).stock, 0);
+});

@@ -24,7 +24,7 @@ function client(ns = '/', opts = {}) {
   return api;
 }
 
-const PUBLIC_PRODUCT_KEYS = ['category', 'categoryId', 'createdAt', 'description', 'id', 'imageUrl', 'name', 'price', 'stock', 'updatedAt'];
+const PUBLIC_PRODUCT_KEYS = ['category', 'categoryId', 'createdAt', 'description', 'id', 'imageUrl', 'name', 'price', 'sold', 'stock', 'updatedAt'];
 
 test('Admin -> Marketplace: produk create/update/hide/show/delete sampai ke klien publik', async () => {
   const pub = client(); await pub.ready;

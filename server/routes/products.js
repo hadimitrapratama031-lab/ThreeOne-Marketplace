@@ -5,6 +5,7 @@ import { productInput, productListQuery, statusInput } from '../lib/schemas.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
+import { soldByProduct, soldOf } from '../services/sales.js';
 
 const r = Router();
 const LOW_STOCK = 10; // sama dengan batas "Stok terbatas" di Marketplace
@@ -17,13 +18,18 @@ const SORTS = {
 const owner = (id) => ({ type: 'product', id: String(id) });
 const visible = (p) => p.active && p.category?.active !== false;
 const events = {
-  adm: (p) => admProduct(p),
-  pub: (p) => pubProductCard(p, p.category?.name),
   visible,
   id: (p) => p.productId,
   admDel: (p) => ({ id: String(p._id), productId: p.productId }),
   pubDel: (p) => ({ id: p.productId }),
 };
+// "Terjual" dihitung dari order SUCCESS (services/sales.js); event realtime membawa angka yang sama dengan API,
+// jadi kartu di Marketplace tidak kehilangan/merusak angka saat admin mengubah produk.
+const eventsWith = (sold) => ({
+  ...events,
+  adm: (p) => admProduct(p, undefined, sold),
+  pub: (p) => pubProductCard(p, p.category?.name, sold),
+});
 
 async function loadProduct(rawId) {
   if (!objectIdStr.safeParse(rawId).success) throw new HttpError(404, 'Produk tidak ditemukan.');
@@ -61,10 +67,14 @@ r.get('/', asyncH(async (req, res) => {
     Product.countDocuments(filter),
     Product.find(filter).sort({ ...SORTS[q.sort], _id: 1 }).skip((q.page - 1) * q.limit).limit(q.limit).populate('category', 'name active'),
   ]);
-  res.json({ items: docs.map((d) => admProduct(d)), ...pageMeta(q.page, q.limit, total) });
+  const sold = await soldByProduct(docs.map((d) => d._id));
+  res.json({ items: docs.map((d) => admProduct(d, undefined, sold.get(String(d._id)) ?? 0)), ...pageMeta(q.page, q.limit, total) });
 }));
 
-r.get('/:id', asyncH(async (req, res) => res.json({ item: admProduct(await loadProduct(req.params.id)) })));
+r.get('/:id', asyncH(async (req, res) => {
+  const doc = await loadProduct(req.params.id);
+  res.json({ item: admProduct(doc, undefined, await soldOf(doc._id)) });
+}));
 
 r.post('/', asyncH(async (req, res) => {
   const data = parse(productInput, req.body);
@@ -75,8 +85,8 @@ r.post('/', asyncH(async (req, res) => {
   const doc = await Product.create({ ...data, media, productId });
   await assets.attach(owner(doc._id), keys);
   doc.category = cat;
-  emitChange('product', { before: null, after: doc, ...events });
-  res.status(201).json({ item: admProduct(doc, cat) });
+  emitChange('product', { before: null, after: doc, ...eventsWith(0) });   // produk baru belum punya order
+  res.status(201).json({ item: admProduct(doc, cat, 0) });
 }));
 
 r.put('/:id', asyncH(async (req, res) => {
@@ -94,8 +104,9 @@ r.put('/:id', asyncH(async (req, res) => {
   await assets.attach(owner(current._id), keys);
 
   updated.category = cat;
-  emitChange('product', { before, after: updated.toObject(), ...events });
-  res.json({ item: admProduct(updated, cat) });
+  const sold = await soldOf(updated._id);
+  emitChange('product', { before, after: updated.toObject(), ...eventsWith(sold) });
+  res.json({ item: admProduct(updated, cat, sold) });
 }));
 
 r.patch('/:id/status', asyncH(async (req, res) => {
@@ -104,8 +115,9 @@ r.patch('/:id/status', asyncH(async (req, res) => {
   const before = current.toObject();
   current.active = active;
   await current.save();
-  emitChange('product', { before, after: current.toObject(), ...events });
-  res.json({ item: admProduct(current) });
+  const sold = await soldOf(current._id);
+  emitChange('product', { before, after: current.toObject(), ...eventsWith(sold) });
+  res.json({ item: admProduct(current, undefined, sold) });
 }));
 
 r.delete('/:id', asyncH(async (req, res) => {

@@ -398,6 +398,12 @@ dialog.drawer[open] { animation: slide .24s cubic-bezier(.22, 1, .36, 1); }
 .chip--miss { color: var(--warn); background: var(--warn-bg); }
 .steam-notes { margin: 2px 0 0; padding-left: 16px; color: var(--muted); font-size: 12.5px; display: grid; gap: 2px; }
 
+.readonly { display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: var(--r-md); background: var(--tint); border: 1px solid var(--line); font-weight: 600; font-variant-numeric: tabular-nums; }
+.merge-media { display: grid; gap: 10px; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.merge-media legend { padding: 0 6px; font-size: 13px; font-weight: 600; }
+.merge-media label { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; cursor: pointer; }
+.merge-media input { margin-top: 3px; accent-color: var(--violet); }
+.merge-media small { display: block; color: var(--muted); font-size: 12px; }
 .from-steam { font-style: normal; font-weight: 600; font-size: 11.5px; color: var(--ok); background: var(--ok-bg); padding: 1px 8px; border-radius: 99px; margin-left: 6px; white-space: nowrap; }
 
 @media (max-width: 560px) {

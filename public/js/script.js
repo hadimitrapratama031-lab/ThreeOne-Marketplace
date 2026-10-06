@@ -122,6 +122,12 @@ function stockInfo(stock) {
   return stock ? (stock <= 10 ? ['stock--low', 'Stok terbatas'] : ['', 'Tersedia']) : ['stock--out', 'Habis'];
 }
 
+// Jumlah terjual dari order berstatus SUCCESS (dihitung server). Disembunyikan bila belum ada penjualan.
+function soldInfo(sold) {
+  const n = Math.floor(Number(sold));
+  return n > 0 ? `<span class="sold">Terjual <b>${n.toLocaleString('id-ID')}</b></span>` : '';
+}
+
 function productCard(p) {
   const [stockClass, stockLabel] = stockInfo(p.stock);
 
@@ -139,7 +145,10 @@ function productCard(p) {
         <div class="card__body">
           <h4><a class="card__link" href="product.html?id=${p.id}">${esc(p.name)}</a></h4>
           <p>${esc(p.description)}</p>
-          <span class="stock ${stockClass}">${stockLabel}</span>
+          <div class="card__meta">
+            <span class="stock ${stockClass}">${stockLabel}</span>
+            ${soldInfo(p.sold)}
+          </div>
           <div class="card__foot">
             <span class="price">${formatRupiah(p.price)}</span>
             <button class="buy-btn" type="button" data-id="${p.id}"${p.stock ? '' : ' disabled'}>${p.stock ? 'Beli' : 'Habis'}</button>

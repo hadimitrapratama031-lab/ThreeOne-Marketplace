@@ -10,6 +10,7 @@ import { getAllSettings, publicSetting, SETTING_KEYS } from '../services/setting
 import { recordImageError } from '../services/imageErrors.js';
 import { withLiveStats, withLiveProductPage } from '../services/stats.js';
 import { summarize, listPublic, createFromCustomer } from '../services/reviews.js';
+import { soldByProduct, soldOf } from '../services/sales.js';
 import { publicLimiter, telemetryLimiter, reviewSubmitLimiter, originGuard } from '../middleware/security.js';
 
 const r = Router();
@@ -22,7 +23,8 @@ async function visibleProducts() {
   const cats = await Category.find({ active: true }).sort({ order: 1, _id: 1 }).lean();
   const names = new Map(cats.map((c) => [String(c._id), c.name]));
   const products = await Product.find({ active: true, category: { $in: cats.map((c) => c._id) } }).sort({ productId: -1 }).limit(MAX_PRODUCTS).lean();
-  return { cats, products: products.map((p) => pubProductCard(p, names.get(String(p.category)))) };
+  const sold = await soldByProduct(products.map((p) => p._id));   // satu agregasi untuk seluruh grid
+  return { cats, products: products.map((p) => pubProductCard(p, names.get(String(p.category)), sold.get(String(p._id)) ?? 0)) };
 }
 
 /** Satu permintaan untuk memuat seluruh Marketplace; dipakai juga untuk sinkron ulang setelah reconnect. */
@@ -98,7 +100,7 @@ r.post('/reviews', originGuard, reviewSubmitLimiter, receiveReview, asyncH(async
 
 r.get('/products/:id', asyncH(async (req, res) => {
   const p = await findVisible(req.params.id);
-  res.json({ product: pubProductDetail(p, p.category?.name), reviews: await reviewSummary(p.productId) });
+  res.json({ product: pubProductDetail(p, p.category?.name, await soldOf(p._id)), reviews: await reviewSummary(p.productId) });
 }));
 
 const reviewQuery = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(20).default(3) });

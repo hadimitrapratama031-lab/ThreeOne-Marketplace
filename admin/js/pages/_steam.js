@@ -1,6 +1,8 @@
-/* Mode "Otomatis (Steam App ID)" pada form Tambah produk.
+/* Mode "Otomatis (Steam App ID)" pada form Tambah produk DAN Ubah produk (satu modul, satu integrasi Steam).
    Alur: App ID -> Search (backend) -> isi formulir -> admin review/edit -> Simpan (alur produk yang sudah ada).
-   Modul ini hanya mengisi kolom formulir yang sama dengan mode Manual; tidak ada form kedua. */
+   Modul ini hanya mengisi kolom formulir yang sama dengan mode Manual; tidak ada form kedua.
+   Mode Ubah (editing): data yang sudah tersimpan diperlakukan sebagai data admin. Tidak ada yang ditimpa tanpa konfirmasi,
+   data yang tidak disediakan Steam tidak pernah menghapus data lama, dan menutup dialog berarti tidak ada yang berubah. */
 import { $, html, mount, icon, dialog, busy, esc } from '../ui.js';
 import { api } from '../api.js';
 
@@ -12,6 +14,7 @@ const MSG = {
   partialBoth: 'Game ditemukan, beberapa media dan metadata tidak tersedia.',
   invalid: 'Steam App ID tidak valid.',
   noVideo: 'Video tidak tersedia, silakan upload manual.',
+  cancelled: 'Dibatalkan. Data produk tidak diubah.',
 };
 const BADGE = '✓ Data from Steam';
 const MEDIA_FIELDS = new Set(['image', 'screenshots', 'video']);
@@ -29,7 +32,7 @@ const TEXT_FIELDS = [
   ['gameInfo.metacritic', 'Metacritic', (i) => (i.info.metacritic == null ? '' : String(i.info.metacritic))],
 ];
 
-export const steamSourceBlock = () => html`
+export const steamSourceBlock = ({ editing = false, appId = '' } = {}) => html`
   <div class="fieldset">
     <h3>Sumber produk</h3>
     <div class="seg" role="group" aria-label="Sumber produk">
@@ -38,9 +41,10 @@ export const steamSourceBlock = () => html`
     </div>
     <div class="steam" data-steam hidden>
       <div class="steam__row">
-        <label class="field"><span>Steam App ID</span><input data-steam-id inputmode="numeric" maxlength="10" autocomplete="off" placeholder="mis. 1245620" aria-describedby="steam-status"></label>
+        <label class="field"><span>Steam App ID</span><input data-steam-id inputmode="numeric" maxlength="10" autocomplete="off" placeholder="mis. 1245620" value="${appId}" aria-describedby="steam-status"></label>
         <button type="button" class="btn btn--primary" data-steam-search>${icon('search')}Search</button>
       </div>
+      ${editing ? html`<p class="hint muted">Data produk yang sudah ada tidak diganti tanpa konfirmasi, dan data yang tidak disediakan Steam tidak dihapus. Harga, stok, status, dan jumlah terjual tidak disentuh.</p>` : ''}
       <p class="steam__status" id="steam-status" role="status" aria-live="polite" data-steam-status></p>
       <div data-steam-card></div>
     </div>
@@ -64,12 +68,43 @@ function askOverwrite(fields) {
   });
 }
 
+/** Dialog mode Ubah. Mengembalikan { overwrite, media: 'keep'|'append'|'replace' }, atau null bila admin menutup dialog (tidak ada yang diubah). */
+function askEdit({ fields, gallery }) {
+  return new Promise((resolve) => {
+    const d = dialog({
+      title: 'Terapkan data Steam ke produk ini?',
+      body: html`
+        ${fields.length ? html`<p>Kolom berikut sudah berisi data: <b>${fields.join(', ')}</b>.</p>` : ''}
+        ${gallery ? html`
+          <fieldset class="merge-media">
+            <legend>Galeri sudah berisi ${gallery} media</legend>
+            <label><input type="radio" name="media" value="keep" checked><span>Biarkan galeri seperti sekarang</span></label>
+            <label><input type="radio" name="media" value="append"><span>Tambahkan media Steam di belakang <small>Gambar utama tidak berubah.</small></span></label>
+            <label><input type="radio" name="media" value="replace"><span>Ganti seluruh galeri dengan media Steam <small>File lama baru dilepas saat Anda menekan Simpan perubahan.</small></span></label>
+          </fieldset>` : ''}
+        <p class="muted">Hasil Steam masih bisa Anda ubah sebelum disimpan. Menutup dialog ini tidak mengubah apa pun.</p>`,
+      foot: fields.length
+        ? html`<button type="button" class="btn" data-keep>Isi yang kosong saja</button><button type="button" class="btn btn--primary" data-over>Timpa dengan data Steam</button>`
+        : html`<button type="button" class="btn" data-close>Batal</button><button type="button" class="btn btn--primary" data-keep>Terapkan</button>`,
+    });
+    let result = null;
+    const pick = (overwrite) => {
+      result = { overwrite, media: d.form.querySelector('input[name="media"]:checked')?.value || 'keep' };
+      d.close();
+    };
+    $('[data-keep]', d.el).addEventListener('click', () => pick(false));
+    $('[data-over]', d.el)?.addEventListener('click', () => pick(true));
+    d.closed.then(() => resolve(result));
+    $('[data-keep]', d.el).focus();
+  });
+}
+
 /**
  * @param {HTMLFormElement} f  form produk
  * @param {{ media, setSpecRows(kind, rows), readSpecs(kind), onCount() }} deps
  * Semua screenshot & semua video yang disediakan Steam masuk galeri; tidak ada batas jumlah.
  */
-export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
+export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing = false }) {
   const panel = $('[data-steam]', f);
   const input = $('[data-steam-id]', f);
   const searchBtn = $('[data-steam-search]', f);
@@ -125,7 +160,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
   function refreshStatus() {
     if (!view) return;
     const { item } = view;
-    const mediaGap = view.videoFailed || item.warnings.some((w) => MEDIA_FIELDS.has(w.field) && (w.field !== 'video' || !item.video.available));
+    const mediaGap = !view.mediaKept && (view.videoFailed || item.warnings.some((w) => MEDIA_FIELDS.has(w.field) && (w.field !== 'video' || !item.video.available)));
     const metaGap = item.warnings.some((w) => !MEDIA_FIELDS.has(w.field));
     const text = mediaGap && metaGap ? MSG.partialBoth : mediaGap ? MSG.partialMedia : metaGap ? MSG.partialMeta : MSG.found;
     setStatus(mediaGap || metaGap ? 'warn' : 'ok', text, item.name);
@@ -138,7 +173,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
     const { item } = view;
     const items = media.items();
     const mine = items.filter((m) => steamKeys.has(m.key));
-    const hero = mine.find((m) => m.key === heroKey);
+    const hero = mine.find((m) => m.key === heroKey) || (view.mediaKept ? item.image : null);   // galeri dibiarkan: tetap tampilkan pratinjau gambar Steam
     const shots = mine.filter((m) => m.type === 'image' && m.key !== heroKey);
     const vids = view.videoKeys.map((k) => items.find((m) => m.key === k)).filter(Boolean);
     const vidTotal = item.video.count;
@@ -149,6 +184,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
       ? `Kategori diisi “${item.categoryMatch.name}” (cocok dengan genre ${item.categoryMatch.via}).`
       : item.info.genres.length ? `Genre Steam: ${item.info.genres.join(', ')}. Tidak ada kategori toko dengan nama yang sama; pilih kategori secara manual.` : '';
     if (cat) notes.push(cat);
+    if (view.mediaKept) notes.unshift('Galeri produk tidak diubah, media Steam tidak dipakai.');
 
     mount(cardEl, html`
       <div class="steam-card">
@@ -157,7 +193,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
           <b>${item.name || 'Tanpa nama'}</b>
           <small>App ID ${item.appId}, <a href="${item.storeUrl}" target="_blank" rel="noopener noreferrer">buka di Steam</a></small>
           <ul class="chips">
-            ${chip(Boolean(hero), 'Gambar utama')}${chip(shots.length > 0, `Screenshot (${shots.length})`)}${chip(vids.length > 0 || videoLoading, vidLabel)}
+            ${view.mediaKept ? '' : html`${chip(Boolean(hero), 'Gambar utama')}${chip(shots.length > 0, `Screenshot (${shots.length})`)}${chip(vids.length > 0 || videoLoading, vidLabel)}`}
             ${chip(Boolean(item.about || item.description), 'Deskripsi')}${chip(item.specs.min.length > 0, 'Spek minimum')}${chip(item.specs.rec.length > 0, 'Spek disarankan')}
           </ul>
           ${notes.length ? html`<ul class="steam-notes">${notes.map((m) => html`<li>${m}</li>`)}</ul>` : ''}
@@ -190,7 +226,8 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
     for (const [name, lab, get] of TEXT_FIELDS) { cur[name] = f.elements[name].value.trim(); next[name] = get(item); label[name] = lab; }
     cur.min = readSpecs('min'); next.min = item.specs.min; label.min = 'Persyaratan minimum';
     cur.rec = readSpecs('rec'); next.rec = item.specs.rec; label.rec = 'Persyaratan disarankan';
-    cur.category = categoryEl.dataset.touched ? categoryEl.value : ''; next.category = item.categoryMatch?.id || ''; label.category = 'Kategori';
+    // Tambah: kategori default (opsi pertama) bukan data admin. Ubah: kategori yang tersimpan adalah data yang ada.
+    cur.category = editing || categoryEl.dataset.touched ? categoryEl.value : ''; next.category = item.categoryMatch?.id || ''; label.category = 'Kategori';
 
     const isEmpty = (v) => (Array.isArray(v) ? v.length === 0 : !v);
     const same = (k) => (Array.isArray(next[k]) ? sameRows(cur[k], next[k]) : cur[k] === next[k]);
@@ -198,7 +235,23 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
     const conflicts = Object.keys(next).filter((k) => hasNew(k) && !isEmpty(cur[k]) && !same(k));
 
     // Hanya kolom yang datang dari Steam yang disentuh; kolom lain (harga, stok, dst.) tidak pernah diubah di sini.
-    overwriteAll = conflicts.length ? await askOverwrite(conflicts.map((k) => label[k])) : false;
+    const steamHasMedia = Boolean(item.image || item.screenshots.length || item.video.available);
+    const galleryCount = editing ? media.items().length : 0;
+    let mediaMode = 'fill';   // fill = perilaku Tambah produk (Steam di depan, file manual tetap di belakang)
+    if (editing) {
+      const askGallery = galleryCount > 0 && steamHasMedia;
+      if (conflicts.length || askGallery) {
+        const choice = await askEdit({ fields: conflicts.map((k) => label[k]), gallery: askGallery ? galleryCount : 0 });
+        if (!choice) return false;   // dialog ditutup: tidak ada yang diubah
+        overwriteAll = choice.overwrite;
+        if (askGallery) mediaMode = choice.media;   // galeri kosong: tetap 'fill' (tidak ada yang bisa hilang)
+      } else {
+        overwriteAll = false;
+      }
+      if (galleryCount > 0 && !askGallery) mediaMode = 'keep';
+    } else {
+      overwriteAll = conflicts.length ? await askOverwrite(conflicts.map((k) => label[k])) : false;
+    }
     const can = (k) => hasNew(k) && (overwriteAll || isEmpty(cur[k]) || same(k));
 
     for (const [name] of TEXT_FIELDS) if (can(name)) { f.elements[name].value = next[name]; mark(name); }
@@ -206,19 +259,36 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
     onCount();
     for (const k of ['min', 'rec']) if (can(k)) { setSpecRows(k, next[k]); mark(k); }
     if ((can('min') || can('rec')) && (overwriteAll || !f.elements.source.value.trim())) f.elements.source.value = item.specs.source;
-    applyMedia(item);
+    return applyMedia(item, mediaMode);
   }
 
   /** Gambar utama + SEMUA screenshot Steam masuk galeri (gambar utama = urutan pertama, screenshot menyusul sesuai urutan Steam).
-   *  File manual tidak disentuh dan tetap di belakangnya; hasil Steam dari pencarian sebelumnya (termasuk video) diganti. */
-  function applyMedia(item) {
-    const manual = media.items().filter((m) => !steamKeys.has(m.key));
-    steamKeys.clear(); heroKey = null;
+   *  Mode:
+   *   fill    : Tambah produk / galeri kosong. File manual tidak disentuh dan tetap di belakang; hasil Steam sebelumnya diganti.
+   *   keep    : (Ubah) galeri tidak disentuh sama sekali.
+   *   append  : (Ubah) media Steam ditambahkan di belakang; urutan dan gambar utama yang ada tidak berubah.
+   *   replace : (Ubah) galeri diganti media Steam. Hanya bila ada gambar Steam yang berhasil disiapkan, supaya galeri tidak pernah dikosongkan.
+   *  Mengembalikan mode yang benar-benar dipakai. */
+  function applyMedia(item, mode = 'fill') {
     const take = [...(item.image ? [item.image] : []), ...item.screenshots];
-    for (const m of take) steamKeys.add(m.key);
-    if (item.image) heroKey = item.image.key;
-    media.set([...take, ...manual]);
+    if (mode === 'replace' && !take.length) mode = 'append';
+    if (mode === 'keep') return 'keep';
+
+    if (mode === 'append') {
+      const have = new Set(media.items().map((m) => m.key));
+      const fresh = take.filter((m) => !have.has(m.key));   // Search ulang memakai aset temp yang sama: jangan dobel
+      for (const m of fresh) steamKeys.add(m.key);
+      if (item.image) heroKey = item.image.key;
+      if (fresh.length) media.set([...media.items(), ...fresh]);
+    } else {
+      const manual = mode === 'replace' ? [] : media.items().filter((m) => !steamKeys.has(m.key));
+      steamKeys.clear(); heroKey = null;
+      for (const m of take) steamKeys.add(m.key);
+      if (item.image) heroKey = item.image.key;
+      media.set([...take, ...manual]);
+    }
     if (steamKeys.size) mark('media'); else unmark(labelOf.media());
+    return mode;
   }
 
   /** Unduh SEMUA video Steam satu per satu (urutan Steam; trailer utama lebih dulu). Tiap video yang selesai langsung
@@ -231,7 +301,8 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
       try { res = await api.post(`/steam/${item.appId}/video`, { movie }); } catch (e) { err = e.message || ''; }
       if (mySeq !== seq) return;   // sudah ada pencarian baru: hasil ini dibuang (aset 'temp' dibersihkan sweeper)
       if (res?.video) {
-        media.set([...media.items(), res.video]);
+        // Search ulang memakai aset 'temp' yang sama (key identik): jangan masukkan dua kali (server menolak key ganda)
+        if (!media.items().some((m) => m.key === res.video.key)) media.set([...media.items(), res.video]);
         steamKeys.add(res.video.key);
         view.videoKeys.push(res.video.key);
         view.videoLoaded++;
@@ -264,11 +335,15 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount }) {
         const { item } = await api.get(`/steam/${id}`);
         if (mySeq !== seq) return;
         videoLoading = false;
-        view = { item, videoKeys: [], videoMsg: item.video.available ? '' : MSG.noVideo, videoFailed: false, videoLoaded: 0, videoMissed: 0, videoReason: '' };
-        await apply(item);
+        view = { item, videoKeys: [], videoMsg: item.video.available ? '' : MSG.noVideo, videoFailed: false, videoLoaded: 0, videoMissed: 0, videoReason: '', mediaKept: false };
+        const mode = await apply(item);
+        if (mySeq !== seq) return;
+        if (mode === false) { view = null; setStatus('warn', MSG.cancelled); renderCard(); return; }   // mode Ubah: dialog ditutup
+        view.mediaKept = mode === 'keep';
+        if (view.mediaKept) view.videoMsg = '';
         refreshStatus();
         renderCard();
-        if (item.video.available) loadVideos(item, mySeq);   // sengaja tanpa await: Search tidak menunggu unduhan video
+        if (item.video.available && !view.mediaKept) loadVideos(item, mySeq);   // sengaja tanpa await: Search tidak menunggu unduhan video
       });
     } catch (err) {
       // Gagal: isian formulir TIDAK disentuh (tidak ada data manual yang hilang)

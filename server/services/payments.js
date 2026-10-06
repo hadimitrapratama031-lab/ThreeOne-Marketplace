@@ -9,6 +9,7 @@ import { publicUrl } from '../lib/r2.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler } from '../lib/realtime.js';
 import { getPaymentConfig, getCredentials } from './paymentSettings.js';
+import { soldOf } from './sales.js';
 import * as klikqris from './klikqris.js';
 
 /**
@@ -180,20 +181,34 @@ export async function createCheckout(input, { requestBase }) {
 }
 
 /* ---------- Transisi status (atomik & idempoten) ---------- */
+const productVisible = (p) => p.active && p.category?.active !== false;
+
 async function adjustStock(order) {
   // Stok berkurang SEKALI, hanya oleh pemenang transisi PENDING/EXPIRED -> SUCCESS.
-  const before = await Product.findOneAndUpdate({ _id: order.product.ref, stock: { $gt: 0 } }, { $inc: { stock: -1, sold: 1 } }, { new: false }).populate('category');
-  if (!before) {
-    await Order.updateOne({ _id: order._id }, { $set: { stockNote: 'short' }, $push: { events: push(log('stock_short', 'stok habis saat pembayaran masuk')) } });
-    return;
+  const hit = await Product.findOneAndUpdate({ _id: order.product.ref, stock: { $gt: 0 } }, { $inc: { stock: -1, sold: 1 } }, { new: false });
+  if (!hit) await Order.updateOne({ _id: order._id }, { $set: { stockNote: 'short' }, $push: { events: push(log('stock_short', 'stok habis saat pembayaran masuk')) } });
+}
+
+/**
+ * Setelah order SUCCESS tersimpan: siarkan stok + jumlah "Terjual" terbaru produk itu lewat Socket.IO yang sudah ada
+ * (event publik product:update -> kartu di Marketplace; event admin product:update -> tabel Produk).
+ * Tetap dikirim walau stok sudah 0 (pembayaran masuk saat stok habis): penjualan tetap tercatat dan angkanya berubah.
+ * Kegagalan di sini TIDAK boleh membatalkan alur pembayaran (order sudah SUCCESS), jadi hanya dicatat.
+ */
+async function publishProductSale(order) {
+  try {
+    if (!order.product?.ref) return;
+    const p = await Product.findById(order.product.ref).populate('category');
+    if (!p) return;   // produk sudah dihapus
+    const sold = await soldOf(p._id);
+    emitChange('product', {
+      before: p, after: p, visible: productVisible,
+      adm: (x) => admProduct(x, undefined, sold), pub: (x) => pubProductCard(x, x.category?.name, sold),
+      id: (x) => x.productId, admDel: (x) => ({ id: String(x._id), productId: x.productId }), pubDel: (x) => ({ id: x.productId }),
+    });
+  } catch (err) {
+    console.error(`[payment] gagal menyiarkan penjualan untuk ${order.orderNo}: ${err.message}`);
   }
-  const after = await Product.findById(before._id).populate('category');
-  const visible = (p) => p.active && p.category?.active !== false;
-  emitChange('product', {
-    before, after, visible,
-    adm: (p) => admProduct(p), pub: (p) => pubProductCard(p, p.category?.name),
-    id: (p) => p.productId, admDel: (p) => ({ id: String(p._id), productId: p.productId }), pubDel: (p) => ({ id: p.productId }),
-  });
 }
 
 async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) {
@@ -212,6 +227,7 @@ async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) 
   );
   if (!won) return null;
   await adjustStock(won);
+  await publishProductSale(won);
   const fresh = (await Order.findById(won._id)) || won;
   await emitOrder(fresh);
   queueOrderEvent(fresh, 'paymentSuccess');   // hanya pemenang transisi yang sampai di sini: callback ganda tidak mengirim ulang
