@@ -3,11 +3,12 @@ import { Order, Product } from '../models/index.js';
 import { HttpError } from '../lib/http.js';
 import { safeEqual } from '../lib/secrets.js';
 import { config } from '../config/env.js';
-import { tokenFor, tokenOk } from '../lib/orderToken.js';
+import { tokenFor, tokenOk, watchTokenFor, watchTokenOk } from '../lib/orderToken.js';
+import { ORDER_NO_RE } from '../lib/schemas.js';
 import { queueOrderEvent } from './notifications.js';
 import { publicUrl } from '../lib/r2.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
-import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler } from '../lib/realtime.js';
+import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler, setTrackJoinHandler } from '../lib/realtime.js';
 import { getPaymentConfig, getCredentials } from './paymentSettings.js';
 import { soldOf } from './sales.js';
 import * as klikqris from './klikqris.js';
@@ -84,6 +85,48 @@ export function admOrder(o) {
   };
 }
 
+/* ---------- Cek Pesanan: tampilan publik ber-masking ----------
+   Pencarian hanya butuh ID atau email, jadi siapa pun yang tahu salah satunya bisa melihat hasilnya. Karena itu data pribadi
+   TIDAK dikirim utuh: nama/email/WhatsApp disamarkan (cukup untuk dikenali pemiliknya), dan tidak ada QRIS, token,
+   signature, URL laporan, status gateway, atau catatan internal. Data utuh hanya di halaman Payment (token pelanggan). */
+const DOT = '•';
+const maskWord = (w) => {
+  const keep = w.length <= 2 ? 1 : 2;
+  return w.slice(0, keep) + DOT.repeat(Math.max(1, Math.min(w.length - keep, 4)));
+};
+export const maskName = (name) => String(name || '').trim().split(/\s+/).filter(Boolean).map(maskWord).join(' ');
+export function maskEmail(email) {
+  const [local = '', domain = ''] = String(email || '').split('@');
+  return `${local.slice(0, 2)}${DOT.repeat(Math.max(2, Math.min(local.length - 2, 5)))}@${domain}`;
+}
+export function maskWhatsapp(wa) {
+  const d = String(wa || '').replace(/\D/g, '');
+  if (d.length < 8) return '';
+  return `+${d.slice(0, 2)} ${DOT.repeat(Math.max(3, d.length - 6))} ${d.slice(-4)}`;
+}
+
+export function pubTrack(o) {
+  const pending = o.status === 'PENDING';
+  const unique = o.totalAmount != null ? Math.max(0, Math.round((o.totalAmount - o.amount) * 100) / 100) : 0;
+  return {
+    orderNo: o.orderNo,
+    status: o.status,
+    rev: o.rev,
+    createdAt: iso(o.createdAt),
+    expiresAt: pending ? iso(o.expiresAt) : null,
+    paidAt: iso(o.payment?.paidAt),
+    mode: o.payment?.mode || 'sandbox',
+    method: 'QRIS',
+    product: { id: o.product.productId, name: o.product.name, category: o.product.category, imageUrl: o.product.imageKey ? publicUrl(o.product.imageKey) : null },
+    quantity: 1,   // satu produk per order (stok berkurang 1 saat SUCCESS)
+    customer: { name: maskName(o.customer.name), email: maskEmail(o.customer.email), whatsapp: maskWhatsapp(o.customer.whatsapp) },
+    amount: o.amount,
+    uniqueAmount: unique,
+    totalAmount: o.totalAmount,
+    failureReason: o.status === 'FAILED' ? PUBLIC_FAIL : null,
+  };
+}
+
 const log = (type, detail = '') => ({ at: new Date(), type, detail: String(detail).slice(0, 300) });
 const push = (...events) => ({ $each: events, $slice: -30 });
 
@@ -91,6 +134,7 @@ const push = (...events) => ({ $each: events, $slice: -30 });
 async function emitOrder(o) {
   const { waAdmin } = await getPaymentConfig();
   emitToRoom(`order:${o.orderNo}`, 'order:update', pubOrder(o, { waAdmin }));
+  emitToRoom(`track:${o.orderNo}`, 'track:update', pubTrack(o));   // halaman Cek Pesanan (ber-masking)
   emitAdmin('order:update', admOrder(o));
 }
 
@@ -365,6 +409,35 @@ export async function getOrderForCustomer(orderNo, token) {
 }
 
 setOrderJoinHandler(getOrderForCustomer);
+
+/* ---------- Cek Pesanan (pencarian publik) ---------- */
+const TRACK_LIMIT = 10;
+
+/** Cari berdasarkan ID transaksi ATAU email (input sudah divalidasi zod: string murni, bukan operator query). */
+export async function trackOrders({ by, q }) {
+  let docs;
+  if (by === 'order') {
+    const one = await Order.findOne({ orderNo: q });
+    docs = one ? [one] : [];
+  } else {
+    docs = await Order.find({ 'customer.email': q }).sort({ createdAt: -1 }).limit(TRACK_LIMIT);   // memakai indeks customer.email
+  }
+  // Order yang sudah lewat batas bayar dituntaskan dulu (cek KlikQRIS), sama seperti halaman Payment: status tidak pernah usang
+  docs = await Promise.all(docs.map((d) => settleIfDue(d)));
+  const { waAdmin } = await getPaymentConfig();
+  return { orders: docs.map((d) => ({ ...pubTrack(d), watch: watchTokenFor(d.orderNo) })), waAdmin };
+}
+
+/** Pembacaan satu order untuk halaman Cek Pesanan lewat token pantau (join Socket.IO & polling cadangan). */
+export async function getTrackForWatch(orderNo, watch) {
+  if (typeof orderNo !== 'string' || !ORDER_NO_RE.test(orderNo) || !watchTokenOk(orderNo, watch)) return null;
+  let order = await Order.findOne({ orderNo });
+  if (!order) return null;
+  order = await settleIfDue(order);
+  return pubTrack(order);
+}
+
+setTrackJoinHandler(getTrackForWatch);
 
 /* ---------- Worker latar belakang ---------- */
 let worker;

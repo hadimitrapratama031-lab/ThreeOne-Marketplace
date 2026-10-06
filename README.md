@@ -49,6 +49,18 @@ python test/e2e/browser.py  # opsional, 30 pemeriksaan di browser nyata (butuh: 
 ```
 `npm test` memakai R2 tiruan lokal dan membuat/menghapus database sementara sendiri (`TEST_MONGODB_URI` opsional).
 
+## Cek Pesanan
+
+Halaman `/track.html` (tombol **Cek Pesanan** di header). Satu form, dua metode: **ID Transaksi** atau **Email** (cukup salah satu). Memakai Order, Payment, MongoDB, dan Socket.IO yang sudah ada; tidak ada koleksi atau status baru.
+
+| Bagian | Detail |
+|---|---|
+| `POST /api/orders/track` | Body `{ by: "order" \| "email", q }`. Rate limit `trackLimiter`. 404 bila tidak ada, 422 bila format salah. |
+| `GET /api/orders/track/:orderNo` | Satu pesanan (polling cadangan), header `x-watch-token`. |
+| Socket.IO | Klien emit `track:join { orderNo, watch }` (ack = keadaan terkini) dan `track:leave`; server emit `track:update` ke room `track:<orderNo>` dari `emitOrder` yang sama dengan `order:update`. Dedup di klien lewat `rev`. |
+| Keamanan | Data pembeli disamarkan (nama, email, WhatsApp). Tidak ada QRIS, token pembayaran, signature, URL laporan, status gateway, atau catatan internal. Token pantau (`watchTokenFor`) berbeda dari token pembayaran dan hanya membuka tampilan ber-masking. |
+| WhatsApp Admin | Dari Admin Web → Pengaturan Payment (`waAdmin`), dikirim lewat `/api/orders/config`, hasil pencarian, dan event `payment:settings`. |
+
 ## Struktur
 
 ```

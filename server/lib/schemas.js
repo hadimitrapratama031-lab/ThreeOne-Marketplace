@@ -137,6 +137,23 @@ export const checkoutInput = z.object({
   clientKey: z.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
 });
 
+/* ---------- Cek Pesanan (pencarian publik) ---------- */
+export const ORDER_NO_RE = /^MP-\d{6}-[A-Z0-9]{6}$/;
+const orderNoField = z.string({ required_error: 'ID transaksi wajib diisi' }).trim()
+  .min(1, 'ID transaksi wajib diisi').max(30, 'ID transaksi terlalu panjang')
+  .transform((v) => {
+    const t = v.toUpperCase().replace(/[\s_]+/g, '');
+    const m = /^MP-?(\d{6})-?([A-Z0-9]{6})$/.exec(t);   // toleransi: tanpa tanda hubung / spasi
+    return m ? `MP-${m[1]}-${m[2]}` : t;
+  })
+  .refine((v) => ORDER_NO_RE.test(v), 'Format ID transaksi belum benar (contoh: MP-260506-AB3CD4)');
+const trackEmailField = z.string({ required_error: 'Email wajib diisi' }).trim().toLowerCase()
+  .min(1, 'Email wajib diisi').max(120, 'Email maksimal 120 karakter').email('Format email belum benar');
+export const trackInput = z.discriminatedUnion('by', [
+  z.object({ by: z.literal('order'), q: orderNoField }),
+  z.object({ by: z.literal('email'), q: trackEmailField }),
+]);
+
 const credSet = z.object({
   merchantId: z.string().trim().max(120).optional().default(''),
   apiKey: z.string().trim().max(400).optional().default(''),

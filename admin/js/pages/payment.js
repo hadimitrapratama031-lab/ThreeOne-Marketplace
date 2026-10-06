@@ -46,7 +46,7 @@ export default {
 
           <section class="card"><div class="card__head"><h3>WhatsApp Admin</h3></div>
             <div class="card__body stack">
-              <label class="field"><span>Nomor WhatsApp Admin</span><input name="waAdmin" inputmode="tel" value="${s.waAdmin ? '+' + s.waAdmin : ''}" maxlength="25" placeholder="0812 3456 7890"><small>Dipakai tombol “Hubungi Admin via WhatsApp” di halaman Payment Success. Format 08… otomatis menjadi +62….</small></label>
+              <label class="field"><span>Nomor WhatsApp Admin</span><input name="waAdmin" inputmode="tel" value="${s.waAdmin ? '+' + s.waAdmin : ''}" maxlength="25" placeholder="0812 3456 7890"><small>Dipakai tombol “Hubungi Admin via WhatsApp” di halaman Payment dan tombol “Butuh bantuan?” di halaman Cek Pesanan (ID Transaksi ikut terisi otomatis). Format 08… otomatis menjadi +62….</small></label>
               <div class="actions"><button class="btn btn--primary" type="submit">Simpan pengaturan</button></div>
             </div></section>
         </form>`);

@@ -83,6 +83,11 @@ export const orderReadLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 240,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak permintaan. Coba lagi sebentar.')),
 });
+// Cek Pesanan: pencarian tanpa login, jadi dibatasi ketat agar ID/email tidak bisa ditebak beruntun
+export const trackLimiter = rateLimit({
+  ...limiterOpts, windowMs: 10 * 60_000, limit: config.isProd ? 30 : 300,
+  handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak pencarian. Coba lagi beberapa menit lagi.')),
+});
 // Webhook server-ke-server dari KlikQRIS (dengan percobaan ulang) — batas longgar, tanpa originGuard
 export const webhookLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 600,

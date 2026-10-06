@@ -9,6 +9,8 @@ import { Admin } from '../models/index.js';
  *  - namespace "/"      : Marketplace (publik, hanya menerima data publik).
  *                         Halaman Payment bergabung ke room "order:<orderNo>" (butuh token pelanggan) dan hanya
  *                         menerima event order:update miliknya sendiri; data order tidak pernah di-broadcast.
+ *                         Halaman Cek Pesanan memakai room terpisah "track:<orderNo>" (butuh token pantau, BUKAN token pembayaran)
+ *                         dan hanya menerima event track:update berisi data ber-masking.
  *  - namespace "/admin" : Admin Web (wajib login; cookie sesi dicek saat handshake)
  * Daftar event publik:  <entity>:create|update|delete|reorder
  */
@@ -19,6 +21,9 @@ let orderJoin = null;   // diisi services/payments.js: (orderNo, token) => tampi
 
 /** Didaftarkan oleh modul pembayaran supaya realtime.js tidak bergantung pada layer service. */
 export const setOrderJoinHandler = (fn) => { orderJoin = fn; };
+
+let trackJoin = null;   // diisi services/payments.js: (orderNo, watchToken) => tampilan Cek Pesanan ber-masking | null
+export const setTrackJoinHandler = (fn) => { trackJoin = fn; };
 
 let changeHook = null;
 /** Dipasang services/stats.js: dipanggil setiap ada perubahan entitas (untuk menyiarkan ulang statistik). */
@@ -88,6 +93,32 @@ export function initRealtime(httpServer) {
       } catch {
         reply({ ok: false });
       }
+    });
+  });
+
+  io.of('/').on('connection', (socket) => {
+    // Halaman Cek Pesanan: gabung ke room track:<orderNo> setelah token pantau diverifikasi, balas dengan keadaan terkini (ack)
+    socket.on('track:join', async (msg, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const orderNo = msg?.orderNo;
+        const joined = (socket.data.tracks ||= new Set());
+        if (!trackJoin || typeof orderNo !== 'string' || typeof msg?.watch !== 'string') return reply({ ok: false });
+        if (joined.size >= 12 && !joined.has(orderNo)) return reply({ ok: false });
+        const order = await trackJoin(orderNo, msg.watch);
+        if (!order) return reply({ ok: false });
+        socket.join(`track:${orderNo}`);   // join ulang pada room yang sama tidak menggandakan event
+        joined.add(orderNo);
+        reply({ ok: true, order });
+      } catch {
+        reply({ ok: false });
+      }
+    });
+    socket.on('track:leave', (msg) => {
+      const orderNo = msg?.orderNo;
+      if (typeof orderNo !== 'string' || !socket.data.tracks?.has(orderNo)) return;
+      socket.leave(`track:${orderNo}`);
+      socket.data.tracks.delete(orderNo);
     });
   });
 

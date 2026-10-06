@@ -1,0 +1,187 @@
+/* ==========================================================================
+   track.css — Cek Pesanan (track.html)
+   Dipasang SETELAH pay.css dan memakai komponennya (.panel, .field, .chip, .notice,
+   .sum-rows, .state, .btn). Di sini hanya yang khusus halaman ini.
+   Daftar isi:
+   1. Form pencarian & tab metode
+   2. Panduan (keadaan awal)
+   3. Daftar pesanan (hasil lebih dari satu)
+   4. Detail pesanan
+   5. Responsif
+   6. Reduced motion
+   ========================================================================== */
+
+.btn--ghost[aria-current="page"] {
+  color: var(--lavender);
+  border-color: rgba(167, 139, 250, .55);
+  background: var(--purple-soft);
+}
+
+.result-icon--wait { --chip-c: var(--lavender); --chip-b: rgba(167, 139, 250, .45); --chip-bg: var(--purple-soft); }
+.state h2 { font-size: clamp(24px, 2.6vw, 32px); font-weight: 600; letter-spacing: -.02em; }
+
+.trk-out { margin-top: var(--p-gap); }
+
+/* 1. Form pencarian & tab metode
+   -------------------------------------------------------------------------- */
+.trk-search { padding: clamp(24px, 3.4vw, 40px); }
+
+.trk-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: clamp(20px, 2.4vw, 28px);
+  border: 1px solid var(--p-line-2);
+  border-radius: 99px;
+  background: var(--p-surface-2);
+}
+.trk-tab {
+  height: 40px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  font: 500 14.5px Inter, system-ui, sans-serif;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .2s, background .2s;
+}
+.trk-tab:hover { color: var(--ink); }
+.trk-tab[aria-selected="true"] {
+  color: var(--on-purple);
+  font-weight: 600;
+  background: var(--purple-text);
+}
+
+.trk-search .field > label { font-size: 15px; }
+.trk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+.trk-row .btn { height: 54px; padding-inline: 30px; }
+.trk-search[data-mode="order"] .field__input { text-transform: uppercase; letter-spacing: .03em; }
+.trk-search[data-mode="order"] .field__input::placeholder { text-transform: none; letter-spacing: 0; }
+
+/* 2. Panduan (keadaan awal)
+   -------------------------------------------------------------------------- */
+.trk-tips__list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(16px, 2.4vw, 32px); margin: 20px 0 0; }
+.trk-tips__list div { padding-top: 16px; border-top: 1px solid var(--p-line); }
+.trk-tips__list dt { font-size: 15px; font-weight: 600; color: var(--ink); }
+.trk-tips__list dd { margin: 6px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--muted); }
+
+.trk-help {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+  margin-top: clamp(22px, 2.6vw, 30px);
+  padding-top: clamp(18px, 2.2vw, 24px);
+  border-top: 1px solid var(--p-line);
+  font-size: 14.5px;
+  color: var(--muted);
+}
+.trk-help p { max-width: 52ch; line-height: 1.6; }
+
+/* 3. Daftar pesanan (hasil lebih dari satu)
+   -------------------------------------------------------------------------- */
+.trk-layout { display: grid; gap: var(--p-gap); align-items: start; }
+.trk-layout.has-list { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); }
+
+.trk-listwrap { position: sticky; top: calc(var(--header-h) + 20px); }
+.trk-count { margin-bottom: 12px; font-size: 14px; color: var(--muted); }
+.trk-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.trk-item {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--p-line);
+  border-radius: var(--p-r-sm);
+  background: var(--p-surface);
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.trk-item:hover { border-color: rgba(167, 139, 250, .45); }
+.trk-item[aria-current="true"] { border-color: var(--purple); background: var(--purple-soft); }
+.trk-item__name { font-size: 15px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.trk-item__meta { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); }
+.trk-item__meta span:first-child { overflow-wrap: anywhere; }
+.trk-item__foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.trk-item__total { font-size: 14px; font-weight: 600; }
+.trk-item .chip { padding: 4px 10px; font-size: 12.5px; gap: 7px; }
+.trk-item .chip i { width: 7px; height: 7px; }
+
+/* 4. Detail pesanan
+   -------------------------------------------------------------------------- */
+.trk-order { padding: clamp(24px, 3.2vw, 40px); }
+
+.trk-hero { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 20px; align-items: start; }
+.trk-hero .result-icon { margin: 0; width: 56px; height: 56px; }
+.trk-hero .result-icon svg { width: 26px; height: 26px; }
+.trk-id { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 14px; font-weight: 500; letter-spacing: .02em; color: var(--muted); }
+.trk-id .copy-inline { margin-left: 4px; }
+.trk-st { margin-top: 6px; font-size: clamp(26px, 3vw, 34px); font-weight: 600; line-height: 1.2; letter-spacing: -.025em; text-wrap: balance; }
+.trk-say { margin-top: 10px; max-width: 62ch; font-size: 15.5px; line-height: 1.7; color: var(--muted); }
+.trk-say b { color: var(--ink); font-weight: 600; }
+
+.trk-live { display: inline-flex; align-items: center; gap: 8px; margin: 4px 0 0; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.trk-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.trk-live[data-on="true"] i { background: var(--ok); }
+
+.trk-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px 32px;
+  margin-top: clamp(24px, 3vw, 34px);
+  padding-block: clamp(20px, 2.6vw, 28px);
+  border-block: 1px solid var(--p-line);
+}
+.trk-prod { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 16px; align-items: center; min-width: 0; flex: 1 1 280px; }
+.trk-prod .sum-thumb { width: 72px; }
+.trk-total { display: grid; gap: 4px; text-align: right; }
+.trk-total span { font-size: 14px; color: var(--muted); }
+.trk-total strong { font-size: clamp(28px, 3.4vw, 38px); font-weight: 700; line-height: 1.1; letter-spacing: -.03em; }
+.trk-total small { font-size: 13px; color: var(--muted); }
+
+.trk-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 clamp(24px, 4vw, 56px); margin-top: 4px; }
+.trk-cols .sum-group__title { margin-top: clamp(20px, 2.4vw, 26px); }
+.trk-cols .sum-rows { margin-top: 8px; }
+.trk-cols .sum-rows > div:first-child { border-top: 0; }
+.trk-cols .sum-rows dd.is-strong { font-weight: 600; }
+.trk-note { margin-top: 10px; }
+
+.trk-order .notice { margin-top: clamp(20px, 2.4vw, 26px); }
+.trk-order .result-actions { margin-top: clamp(22px, 2.8vw, 30px); }
+
+/* 5. Responsif
+   -------------------------------------------------------------------------- */
+@media (max-width: 920px) {
+  .trk-layout.has-list { grid-template-columns: minmax(0, 1fr); }
+  .trk-listwrap { position: static; }
+  .trk-tips__list { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .trk-tips__list div { padding-block: 14px; }
+  .trk-hero { grid-template-columns: auto minmax(0, 1fr); }
+  .trk-live { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .trk-tabs { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .trk-tab { padding-inline: 12px; }
+  .trk-row { grid-template-columns: minmax(0, 1fr); }
+  .trk-row .btn { width: 100%; }
+  .trk-hero { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .trk-hero .result-icon { width: 48px; height: 48px; }
+  .trk-cols { grid-template-columns: minmax(0, 1fr); }
+  .trk-total { text-align: left; }
+  .trk-body { align-items: flex-start; }
+  .trk-help .btn { width: 100%; }
+}
+
+/* 6. Reduced motion
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .trk-tab, .trk-item { transition: none; }
+}
