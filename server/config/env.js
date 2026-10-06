@@ -32,6 +32,8 @@ export const config = {
   // Pembayaran (KlikQRIS). Kredensial diatur di Admin Web, bukan di env. Base URL hanya untuk uji otomatis.
   klikqrisBase: trimSlash(e.KLIKQRIS_BASE_URL) || 'https://klikqris.com/api',
   publicBaseUrl: trimSlash(e.PUBLIC_BASE_URL),
+  // Sistem Code: kunci untuk sistem redeem eksternal memanggil POST /api/redeem/consume. Kosong = endpoint mati.
+  redeemApiKey: clean(e.REDEEM_API_KEY),
   // Provider notifikasi. Kredensial diatur di Admin Web; nilai env hanya cadangan (sama seperti project lama) dan base URL untuk uji.
   fonnteBase: trimSlash(e.FONNTE_BASE_URL) || 'https://api.fonnte.com',
   resendBase: trimSlash(e.RESEND_BASE_URL) || 'https://api.resend.com',
@@ -69,6 +71,7 @@ export function checkConfig() {
     if (isProd && !/^https:\/\//i.test(pub)) fatal.push('R2_PUBLIC_URL harus https di production.');
     if (isProd && /localhost|127\.0\.0\.1|\.railway\.internal/i.test(pub)) fatal.push('R2_PUBLIC_URL tidak boleh localhost / URL internal di production.');
   }
+  if (config.redeemApiKey && config.redeemApiKey.length < 24) warn.push('REDEEM_API_KEY kurang dari 24 karakter: endpoint /api/redeem/consume tetap dimatikan.');
   if (isProd && (!config.admin.email || config.admin.password.length < 10)) {
     warn.push('ADMIN_EMAIL / ADMIN_PASSWORD (min 10 karakter) dipakai untuk membuat admin pertama. Abaikan bila admin sudah ada.');
   }

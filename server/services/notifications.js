@@ -11,6 +11,7 @@ import * as fonnte from './fonnte.js';
 import * as resend from './resend.js';
 import { embedContextImages } from './emailImages.js';
 import * as T from './notificationTemplates.js';
+import { codeOfOrder } from './codes.js';
 
 /**
  * Notification Service — satu-satunya jalur keluar untuk WhatsApp (Fonnte) dan Email (Resend).
@@ -124,12 +125,14 @@ async function loadContextInputs(order) {
     imageKey = (live?.media || []).find((m) => m.type === 'image')?.key || '';
   }
   const origin = [pay.publicBaseUrl, order.origin, config.publicBaseUrl].find((u) => u && isPublicBase(u)) || '';
-  return { branding, pay, discordHref: httpUrl(discord?.href), imageKey, origin: origin.replace(/\/+$/, '') };
+  // Sistem Code: code dibaca dari database saat pesan dibangun (bukan disalin ke log). Hanya dipakai event paymentSuccess.
+  const redeemCode = order.product?.kind === 'code' ? await codeOfOrder(order._id) : '';
+  return { branding, pay, discordHref: httpUrl(discord?.href), imageKey, redeemCode, origin: origin.replace(/\/+$/, '') };
 }
 
 /** Data mentah (Order + pengaturan) -> satu objek datar untuk WhatsApp dan Email. Semua nilai dari database. */
 export function buildContext({ event, order, inputs }) {
-  const { branding, pay, discordHref, imageKey, origin } = inputs;
+  const { branding, pay, discordHref, imageKey, origin, redeemCode = '' } = inputs;
   const copy = T.EVENT_COPY[event];
   const logoRaw = branding.logo?.url || '';
   const productRaw = imageKey ? publicUrl(imageKey) : '';
@@ -152,6 +155,7 @@ export function buildContext({ event, order, inputs }) {
     // Yang ditagihkan gateway adalah total_amount (bisa memuat kode unik): angka di notifikasi = angka yang dibayar
     total: T.formatIDR(order.totalAmount || order.amount),
     paymentMethod: 'QRIS',
+    redeemCode: event === 'paymentSuccess' ? redeemCode : '',   // kosong untuk event lain dan untuk produk biasa
     storeUrl: origin,
     statusLabel: copy ? copy.statusLabel : order.status,
     orderedAt: T.formatDateTime(order.createdAt),

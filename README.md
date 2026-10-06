@@ -61,6 +61,21 @@ Halaman `/track.html` (tombol **Cek Pesanan** di header). Satu form, dua metode:
 | Keamanan | Data pembeli disamarkan (nama, email, WhatsApp). Tidak ada QRIS, token pembayaran, signature, URL laporan, status gateway, atau catatan internal. Token pantau (`watchTokenFor`) berbeda dari token pembayaran dan hanya membuka tampilan ber-masking. |
 | WhatsApp Admin | Dari Admin Web → Pengaturan Payment (`waAdmin`), dikirim lewat `/api/orders/config`, hasil pencarian, dan event `payment:settings`. |
 
+## Sistem Code (Order Code Redeem)
+
+Produk berjenis **Sistem Code**: setelah pembayaran SUCCESS, pembeli otomatis menerima 1 code unik di halaman Payment Success. Memakai Order, Payment (KlikQRIS), notifikasi, MongoDB, dan Socket.IO yang sudah ada.
+
+| Bagian | Detail |
+|---|---|
+| Koleksi | `redeemcodes` (status `available → sold → redeemed`, hanya maju). `codeKey` unik global; index unik parsial pada `order` = satu order tidak bisa memegang dua code. Field baru: `Product.kind/redeemTutorial`, `Order.product.kind/codeState`. |
+| Pemberian code | `assignCode()` di `services/codes.js`, dipanggil `markPaid()` setelah status SUCCESS tersimpan. Satu `findOneAndUpdate` atomic; idempoten terhadap webhook ganda, refresh, reconnect. Dipulihkan otomatis oleh halaman Payment dan worker bila proses mati di tengah jalan. |
+| Stok habis saat dibayar | Order ditandai `codeState: waiting`; diberi code otomatis (FIFO) begitu Admin menambah stok. |
+| Admin API | `POST /api/admin/code-products`, `PUT /:id`, `POST /:id/codes`; `GET /api/admin/codes` (+ `/stats`, `/:id/reveal`, `POST /:id/redeem`). Semua di belakang `requireAdmin`. Code `available` disamarkan di daftar. |
+| Redeem otomatis | `POST /api/redeem/consume` (header `x-redeem-key`, env `REDEEM_API_KEY`, mati bila kosong) menandai code Redeemed dari sistem redeem Anda. |
+| Socket.IO | admin: `code:update`, `code:stats`, `code:refresh`; pelanggan: `order:update` (room per-order, butuh token) membawa `redeem`; stok Marketplace lewat `product:update` yang sudah ada. |
+| Keamanan | Code tidak ada di API publik, Cek Pesanan, atau log. Hanya pemilik order (token pelanggan) dan Admin yang bisa membacanya. |
+| Notifikasi | Code ikut di WhatsApp/Email `paymentSuccess` (slot `NotificationLog` mencegah kirim ganda); placeholder `{{redeem_code}}` untuk template custom. |
+
 ## Struktur
 
 ```

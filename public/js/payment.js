@@ -94,6 +94,7 @@
           ${unique ? `<div><dt>Kode unik</dt><dd>${rp(o.uniqueAmount)}</dd></div>` : ''}
           <div><dt>Metode pembayaran</dt><dd>QRIS</dd></div>
           ${paid ? `<div><dt>Dibayar pada</dt><dd>${when(o.paidAt)}</dd></div>` : ''}
+          ${paid && o.redeem?.code ? `<div class="is-mono"><dt>Code Redeem</dt><dd>${esc(o.redeem.code)}${copyBtn(o.redeem.code)}</dd></div>` : ''}
           <div class="is-total"><dt>${paid ? 'Total dibayar' : 'Total bayar'}</dt><dd>${rp(total)}</dd></div>
         </dl>
         <div class="sum-group">
@@ -181,17 +182,60 @@
       </div>`;
   }
 
+  /* Sistem Code: kartu code + tutorial. Semua isi dari backend (MongoDB); tutorial berasal dari Admin Web, tidak ada teks contoh. */
+  function redeemHTML(o) {
+    const r = o.redeem;
+    if (r.state === 'waiting') {
+      return `
+        <section class="redeem redeem--wait" aria-labelledby="rd-h" aria-live="polite">
+          <h2 class="redeem__title" id="rd-h">Code Redeem</h2>
+          <div class="notice notice--warn">${I.info}<p><b>Pembayaran Anda sudah kami terima, tetapi stok code sedang habis.</b> Code akan muncul otomatis di halaman ini begitu stok ditambah; Anda tidak perlu membayar lagi. Simpan Order ID <b>${esc(o.orderNo)}</b> dan hubungi admin bila perlu.</p></div>
+        </section>`;
+    }
+    const used = r.status === 'redeemed';
+    const steps = Array.isArray(r.tutorial) ? r.tutorial : [];
+    return `
+      <section class="redeem" aria-labelledby="rd-h">
+        <div class="redeem__top">
+          <h2 class="redeem__title" id="rd-h">Code Redeem Anda</h2>
+          <span class="chip ${used ? 'chip--warn' : 'chip--ok'}"><i></i>${used ? 'Sudah digunakan' : 'Belum digunakan'}</span>
+        </div>
+        <div class="redeem__plate">
+          <code class="redeem__code" id="redeem-code" aria-label="Code redeem">${esc(r.code)}</code>
+          <button class="btn btn--primary btn--sm" type="button" data-copy="${esc(r.code)}" aria-label="Salin code redeem">${I.copy}<span>Salin code</span></button>
+        </div>
+        <p class="redeem__once">${I.info}<span>Code hanya dapat digunakan <b>1 kali</b> dan khusus untuk pesanan ini. Jangan dibagikan ke siapa pun.</span></p>
+
+        <div class="redeem__how">
+          <h3 id="how-redeem">Cara Menggunakan Code Redeem</h3>
+          ${steps.length
+            ? `<ol class="howto" aria-labelledby="how-redeem">${steps.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>`
+            : `<p class="redeem__nohow">Panduan penggunaan untuk produk ini belum ditambahkan oleh admin. Hubungi admin lewat tombol WhatsApp di bawah dan sebutkan Order ID <b>${esc(o.orderNo)}</b>.</p>`}
+        </div>
+      </section>`;
+  }
+
   /* Keadaan: sukses */
   function successHTML(o) {
-    const msg = `Halo Admin, saya sudah membayar pesanan ${o.orderNo} (${o.product.name}) sebesar ${rp(o.totalAmount ?? o.amount)}. Mohon diproses. Terima kasih.`;
+    const isCode = Boolean(o.redeem);
+    const msg = isCode
+      ? `Halo Admin, saya butuh bantuan untuk code redeem pesanan ${o.orderNo} (${o.product.name}).`
+      : `Halo Admin, saya sudah membayar pesanan ${o.orderNo} (${o.product.name}) sebesar ${rp(o.totalAmount ?? o.amount)}. Mohon diproses. Terima kasih.`;
     const link = waLink(msg);
+    const first = esc(o.customer.name.split(' ')[0]);
     return `
       ${head({ title: 'Pembayaran berhasil', lead: '', step: 3, back: false })}
       <div class="pay-grid">
         <section class="panel swap" aria-labelledby="pay-h" style="padding-block:clamp(28px,4vw,48px)">
           <span class="result-icon result-icon--ok"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></span>
-          <h2 class="result-title">Terima kasih, ${esc(o.customer.name.split(' ')[0])}. Pembayaran Anda sudah kami terima.</h2>
-          <p class="result-text">Langkah terakhir: <b>hubungi Admin lewat WhatsApp</b> agar pesanan Anda segera diproses. Sebutkan Order ID <b>${esc(o.orderNo)}</b>; pesan di tombol sudah terisi otomatis.</p>
+          ${isCode
+            ? `<h2 class="result-title">Terima kasih, ${first}. Pembayaran berhasil.</h2>
+               <p class="result-text">Pembayaran untuk <b>${esc(o.product.name)}</b> sudah kami terima. Code redeem Anda ada di bawah; salin lalu ikuti langkah penggunaannya. Halaman ini bisa dibuka kembali kapan saja lewat tautan yang sama.</p>
+               ${o.redeem.state === 'assigned' ? `<p class="redeem__line"><code>${esc(o.redeem.code)}</code> : ${esc(o.product.name)}</p>` : ''}`
+            : `<h2 class="result-title">Terima kasih, ${first}. Pembayaran Anda sudah kami terima.</h2>
+               <p class="result-text">Langkah terakhir: <b>hubungi Admin lewat WhatsApp</b> agar pesanan Anda segera diproses. Sebutkan Order ID <b>${esc(o.orderNo)}</b>; pesan di tombol sudah terisi otomatis.</p>`}
+
+          ${isCode ? redeemHTML(o) : ''}
 
           <div class="result-actions">
             ${link
@@ -202,14 +246,14 @@
           ${link ? '' : `<div class="notice notice--warn">${I.info}<p>Nomor WhatsApp admin belum diatur. Simpan Order ID <b>${esc(o.orderNo)}</b> dan hubungi admin lewat kontak di beranda.</p></div>`}
           ${sandboxNotice(o)}
 
-          <div class="next">
+          ${isCode ? '' : `<div class="next">
             <h2>Setelah ini</h2>
             <ol class="howto">
               <li>Klik <b>Hubungi Admin via WhatsApp</b>, lalu kirim pesan yang sudah terisi.</li>
               <li>Admin memeriksa pesanan Anda dan menyiapkan produk.</li>
               <li>Ikuti arahan admin sampai produk Anda diterima.</li>
             </ol>
-          </div>
+          </div>`}
         </section>
         <aside class="pay-side">${summaryPanel(o, { paid: true })}</aside>
       </div>`;
@@ -288,7 +332,7 @@
 
   function render() {
     const ph = phase();
-    const key = `${ph}|${order?.waAdmin || ''}`;
+    const key = `${ph}|${order?.waAdmin || ''}|${order?.redeem ? `${order.redeem.state}:${order.redeem.status || ''}:${(order.redeem.tutorial || []).length}` : ''}`;
     if (key === renderedKey) return;
     const prev = renderedKey.split('|')[0];
     renderedKey = key;
@@ -354,8 +398,12 @@
   /* Polling cadangan: lambat saat socket tersambung (hanya penyembuh event yang terlewat), rapat saat tidak */
   function schedulePoll() {
     clearTimeout(pollTimer);
-    if (!order || !['PENDING', 'EXPIRED'].includes(order.status)) return;   // EXPIRED: pembayaran terlambat masih bisa terkonfirmasi
     const socketOk = Live.socket?.connected && joined;
+    if (order?.status === 'SUCCESS' && order.redeem?.state === 'waiting') {   // sudah dibayar, menunggu stok code: cadangan bila event terlewat
+      pollTimer = setTimeout(async () => { await fetchOrder(); schedulePoll(); }, socketOk ? 15_000 : 6000);
+      return;
+    }
+    if (!order || !['PENDING', 'EXPIRED'].includes(order.status)) return;   // EXPIRED: pembayaran terlambat masih bisa terkonfirmasi
     const delay = order.status === 'EXPIRED' ? (socketOk ? 60_000 : 30_000) : phase() === 'checking' ? 1500 : socketOk ? 20_000 : 4000;
     pollTimer = setTimeout(async () => { await fetchOrder(); schedulePoll(); }, delay);
   }
@@ -420,7 +468,7 @@
     } else if (img.dataset.seed && img.closest('.sum-thumb')) img.outerHTML = artwork(+img.dataset.seed);
   }, true);
 
-  const watching = () => !order || ['PENDING', 'EXPIRED'].includes(order.status);
+  const watching = () => !order || ['PENDING', 'EXPIRED'].includes(order.status) || order.redeem?.state === 'waiting';
   document.addEventListener('visibilitychange', () => { if (!document.hidden && watching()) fetchOrder(); });
   addEventListener('online', () => { if (watching()) fetchOrder(); });
 

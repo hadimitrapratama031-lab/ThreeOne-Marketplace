@@ -105,7 +105,7 @@ export default {
         </div>
       </form>
       <form class="card" data-form="templates" novalidate>
-        <div class="card__head"><h3>Template pesan</h3></div><p class="card__intro">Template bawaan dari Marketplace lama dipakai selama kolom kosong. Isi hanya bila ingin menggantinya. Placeholder: {{customer_name}} {{order_code}} {{product_name}} {{total}} {{payment_status}} {{payment_method}} {{store_name}} {{ordered_at}} {{paid_at}} {{expired_at}} {{pay_url}} {{wa_admin_url}}</p>
+        <div class="card__head"><h3>Template pesan</h3></div><p class="card__intro">Template bawaan dari Marketplace lama dipakai selama kolom kosong. Isi hanya bila ingin menggantinya. Placeholder: {{customer_name}} {{order_code}} {{product_name}} {{total}} {{payment_status}} {{payment_method}} {{store_name}} {{ordered_at}} {{paid_at}} {{expired_at}} {{pay_url}} {{wa_admin_url}} {{redeem_code}} (kosong untuk produk biasa)</p>
         <div class="card__body stack">
           ${EVENTS.map(tplCard)}
           <div class="form-actions">

@@ -93,3 +93,9 @@ export const webhookLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 600,
   handler: (_req, res) => res.status(429).json({ ok: false, error: 'terlalu banyak permintaan' }),
 });
+
+// Sistem redeem eksternal (server-ke-server, kunci API): dibatasi agar kunci/code tidak bisa ditebak beruntun
+export const redeemLimiter = rateLimit({
+  ...limiterOpts, windowMs: 60_000, limit: 120,
+  handler: (_req, res) => res.status(429).json({ error: { message: 'Terlalu banyak permintaan.' } }),
+});

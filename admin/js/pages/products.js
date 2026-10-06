@@ -2,6 +2,7 @@ import { $, $$, html, raw, mount, icon, rp, num, dateShort, stockPill, pagerHTML
 import { api } from '../api.js';
 import { mediaManager } from './_media.js';
 import { steamSourceBlock, initSteam } from './_steam.js';
+import { chooseProductType, openCodeProductForm } from './_codeProduct.js';
 
 const SORTS = [['newest', 'Terbaru'], ['oldest', 'Terlama'], ['updated', 'Terakhir diubah'], ['name', 'Nama A–Z'], ['price_asc', 'Harga terendah'], ['price_desc', 'Harga tertinggi'], ['stock_asc', 'Stok tersedikit'], ['stock_desc', 'Stok terbanyak']];
 
@@ -51,7 +52,7 @@ export default {
           <thead><tr><th>Produk</th><th>Kategori</th><th class="num">Harga</th><th>Stok</th><th class="num">Terjual</th><th>Tampil</th><th>Diubah</th><th></th></tr></thead>
           <tbody>${res.items.map((p) => html`
             <tr data-id="${p.id}">
-              <td><div class="cell-product">${thumb(p)}<div><b><a href="#/products?edit=${p.id}" data-edit="${p.id}">${p.name}</a></b><small>ID ${p.productId}${p.media.length ? ` · ${p.media.length} media` : ' · tanpa gambar'}</small></div></div></td>
+              <td><div class="cell-product">${thumb(p)}<div><b><a href="#/products?edit=${p.id}" data-edit="${p.id}">${p.name}</a></b><small>ID ${p.productId}${p.media.length ? ` · ${p.media.length} media` : ' · tanpa gambar'}${p.kind === 'code' ? raw(' · <span class="pill pill--code">Sistem Code</span>') : ''}</small></div></div></td>
               <td>${p.category.name}${p.category.active ? '' : raw(' <span class="pill pill--mute">nonaktif</span>')}</td>
               <td class="num">${rp(p.price)}${p.oldPrice ? html`<br><small class="faint"><s>${rp(p.oldPrice)}</s></small>` : ''}</td>
               <td>${stockPill(p.stock)}</td>
@@ -75,11 +76,11 @@ export default {
     }
 
     root.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-add]')) { openForm(); return; }
+      if (e.target.closest('[data-add]')) { addProduct(); return; }
       const pg = e.target.closest('[data-page]');
       if (pg && !pg.disabled) { q.page = +pg.dataset.page; load(); return; }
       const edit = e.target.closest('[data-edit]');
-      if (edit) { e.preventDefault(); openForm(root.__items.get(edit.dataset.edit)); return; }
+      if (edit) { e.preventDefault(); editProduct(root.__items.get(edit.dataset.edit)); return; }
       const del = e.target.closest('[data-del]');
       if (del) remove(root.__items.get(del.dataset.del));
     });
@@ -105,7 +106,20 @@ export default {
       catch (err) { toastError(err, 'Gagal menghapus'); }
     }
 
-    /* ---------- Form tambah / ubah ---------- */
+    /* ---------- Tambah / ubah: pilih jenis dulu ---------- */
+    async function addProduct() {
+      const kind = await chooseProductType();
+      if (kind === 'normal') openForm();                                   // Sistem Biasa: form yang sudah ada, tidak diubah
+      else if (kind === 'code') openCodeProductForm({ ctx, categories, onSaved: load });
+    }
+    async function editProduct(p) {
+      if (!p) return;
+      if (p.kind !== 'code') return openForm(p);
+      try { openCodeProductForm({ ctx, categories, product: (await api.get(`/code-products/${p.id}`)).item, onSaved: load }); }
+      catch (err) { toastError(err, 'Produk code gagal dimuat'); }
+    }
+
+    /* ---------- Form tambah / ubah (Sistem Biasa) ---------- */
     const specRowHTML = (kind, i, r = {}) => html`
       <div class="spec-row" data-spec-row>
         <input name="specs.${kind}.${i}.label" value="${r.label ?? ''}" placeholder="OS" maxlength="60" aria-label="Nama spesifikasi">
@@ -233,14 +247,14 @@ export default {
     const editId = new URLSearchParams(location.hash.split('?')[1] || '').get('edit');
     await load();
     if (editId) {
-      try { openForm((await api.get(`/products/${editId}`)).item); } catch { /* produk sudah tidak ada */ }
+      try { const item = (await api.get(`/products/${editId}`)).item; await editProduct(item); } catch { /* produk sudah tidak ada */ }
       history.replaceState(null, '', '#/products');
     }
 
     return {
       destroy() { alive = false; loadDebounced.cancel(); },
       onLive(evt) {
-        if (/^(product|category):/.test(evt) || evt === 'resync') {
+        if (/^(product|category):/.test(evt) || evt === 'resync' || evt === 'code:stats') {
           if (/^category:/.test(evt) || evt === 'resync') api.get('/categories').then((r) => { categories = r.items; }).catch(() => {});
           loadDebounced();
         }

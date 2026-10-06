@@ -471,3 +471,56 @@ textarea.mono { font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace
 .preview pre { margin: 0; padding: 16px; border-radius: var(--r-md); background: var(--tint-2); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.6 inherit; }
 .preview iframe { width: 100%; height: 480px; border: 1px solid var(--line); border-radius: var(--r-md); background: #f4f3f7; }
 @media (max-width: 640px) { .testrow { grid-template-columns: 1fr; } .prov { grid-template-columns: auto 1fr; } .prov > :nth-child(3) { grid-column: 2; justify-self: start; } .setting { flex-direction: column; gap: 12px; } }
+
+/* ---------- Sistem Code: pilihan jenis produk, form, Laporan Code ---------- */
+input[type="date"] { width: 100%; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); min-height: 40px; }
+input[type="date"]:hover { border-color: var(--lavender); }
+input[type="date"]:focus { outline: none; border-color: var(--purple); box-shadow: var(--focus); }
+textarea.code-input { min-height: 180px; letter-spacing: .02em; white-space: pre; overflow: auto; }
+.pill--code { background: var(--tint); color: var(--violet); padding: 1px 8px; font-size: 11.5px; }
+
+/* Popup "Tambah produk": dua pilihan berdampingan, tanpa dekorasi tambahan */
+.type-pick { display: grid; gap: 10px; }
+.type-pick__opt { display: flex; align-items: flex-start; gap: 14px; width: 100%; padding: 16px; text-align: left; border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--surface); transition: border-color .15s, background .15s; }
+.type-pick__opt:hover { border-color: var(--purple); background: var(--tint-2); }
+.type-pick__opt:focus-visible { outline: none; border-color: var(--purple); box-shadow: var(--focus); }
+.type-pick__icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; background: var(--tint); color: var(--violet); }
+.type-pick__icon .i { width: 20px; height: 20px; }
+.type-pick__text { display: grid; gap: 3px; min-width: 0; }
+.type-pick__text b { font-size: 15px; }
+.type-pick__text small { color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+/* Jumlah code per status di form ubah produk */
+.code-counts { display: flex; flex-wrap: wrap; gap: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--tint-2); }
+.code-counts > div { flex: 1 1 110px; display: grid; gap: 2px; padding: 12px 16px; border-left: 1px solid var(--line); }
+.code-counts > div:first-child { border-left: 0; }
+.code-counts b { font-size: 22px; letter-spacing: -.02em; line-height: 1.2; }
+.code-counts span { color: var(--muted); font-size: 12.5px; }
+.code-counts .is-warn b { color: var(--warn); }
+
+/* Ringkasan Laporan Code: satu panel, empat angka, dipisah garis tipis */
+.code-sum__row { display: grid; grid-template-columns: repeat(4, 1fr); }
+.code-sum__item { display: grid; gap: 4px; padding: 18px 22px; border-left: 1px solid var(--line); }
+.code-sum__item:first-child { border-left: 0; }
+.code-sum__item span { color: var(--muted); font-weight: 600; }
+.code-sum__item b { font-size: 30px; letter-spacing: -.03em; line-height: 1.1; }
+.code-sum__item.is-ok b { color: var(--ok); }
+.code-sum__item.is-mute b { color: var(--muted); }
+.code-sum__alert { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 12px 22px; border-top: 1px solid var(--line); background: var(--warn-bg); color: var(--warn); border-radius: 0 0 var(--r-lg) var(--r-lg); line-height: 1.5; }
+.code-sum__alert .i { margin-top: 2px; }
+
+.code-filters .datefield { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.code-filters .datefield input { width: auto; min-width: 140px; }
+.code-cell { display: flex; align-items: center; gap: 4px; min-width: 210px; }
+.code-chip { font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; padding: 3px 8px; border-radius: 7px; background: var(--tint-2); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.code-chip.is-masked { color: var(--muted); }
+tr.row-flash td { animation: flash 1.4s ease-out; }
+@keyframes flash { from { background: var(--tint); } to { background: transparent; } }
+
+@media (max-width: 760px) {
+  .code-sum__row { grid-template-columns: 1fr 1fr; }
+  .code-sum__item:nth-child(3) { border-left: 0; }
+  .code-sum__item:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .code-filters .datefield { flex: 1 1 100%; }
+  .code-filters .datefield input { flex: 1; }
+}

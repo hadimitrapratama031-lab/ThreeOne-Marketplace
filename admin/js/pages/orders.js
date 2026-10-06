@@ -30,9 +30,9 @@ export default {
           <tbody>${res.items.map((o) => html`<tr>
             <td><b>${o.orderNo}</b>${o.mode === 'sandbox' ? html`<br><small class="faint">Sandbox</small>` : ''}</td>
             <td>${o.customer.name}<br><small class="faint">${o.customer.email} · +${o.customer.whatsapp}</small></td>
-            <td>${o.product.name}</td>
+            <td>${o.product.name}${o.product.kind === 'code' ? html`<br><small class="faint">Sistem Code${o.codeState === 'assigned' ? ' · code diberikan' : ''}</small>` : ''}</td>
             <td class="num">${rp(o.totalAmount ?? o.amount)}</td>
-            <td>${pill(o.status)}${o.latePayment ? html`<br><small class="faint">Dibayar terlambat</small>` : ''}${o.stockNote === 'short' ? html`<br><small class="faint">Stok habis saat dibayar</small>` : ''}</td>
+            <td>${pill(o.status)}${o.latePayment ? html`<br><small class="faint">Dibayar terlambat</small>` : ''}${o.codeState === 'waiting' ? html`<br><small class="faint">Menunggu code (stok habis)</small>` : o.stockNote === 'short' ? html`<br><small class="faint">Stok habis saat dibayar</small>` : ''}</td>
             <td class="muted">${dateTime(o.createdAt)}</td>
             <td><div class="row-actions"><button class="btn btn--sm" type="button" data-open="${o.id}">Detail</button></div></td>
           </tr>`)}</tbody></table>` : emptyState(q.q || q.status ? 'Tidak ada pesanan yang cocok' : 'Belum ada pesanan', q.q || q.status ? 'Ubah kata kunci atau filter.' : 'Pesanan muncul di sini begitu pelanggan checkout.', 'receipt')).s;

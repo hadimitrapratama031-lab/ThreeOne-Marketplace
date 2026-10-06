@@ -6,6 +6,7 @@ import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
 import { soldByProduct, soldOf } from '../services/sales.js';
+import { releaseProductCodes, deleteProductCodes } from '../services/codes.js';
 
 const r = Router();
 const LOW_STOCK = 10; // sama dengan batas "Stok terbatas" di Marketplace
@@ -91,6 +92,7 @@ r.post('/', asyncH(async (req, res) => {
 
 r.put('/:id', asyncH(async (req, res) => {
   const current = await loadProduct(req.params.id);
+  if (current.kind === 'code') throw new HttpError(409, 'Produk ini memakai Sistem Code. Ubah lewat form Produk Code (stok dikelola dari daftar code).');
   const before = current.toObject();
   const data = parse(productInput, req.body);
   const cat = await checkCategory(data.category);
@@ -122,11 +124,13 @@ r.patch('/:id/status', asyncH(async (req, res) => {
 
 r.delete('/:id', asyncH(async (req, res) => {
   const doc = await loadProduct(req.params.id);
+  if (doc.kind === 'code') await releaseProductCodes(doc);   // ditolak (409) bila ada code terjual/digunakan atau pesanan menunggu code
   const before = doc.toObject();
   const reviews = await Review.find({ product: doc._id }).select('_id').lean();
 
   await Product.deleteOne({ _id: doc._id }); // data dulu, file R2 sesudahnya (kalau gagal -> ditandai orphan dan dicoba ulang)
   await Review.deleteMany({ product: doc._id });
+  if (doc.kind === 'code') await deleteProductCodes(doc);
   for (const rv of reviews) await assets.releaseOwner({ type: 'review', id: rv._id });
   await assets.releaseOwner(owner(doc._id));
 

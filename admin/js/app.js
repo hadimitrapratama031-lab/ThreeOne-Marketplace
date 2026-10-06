@@ -8,6 +8,7 @@ const ROUTES = [
   { group: 'Marketplace', path: 'categories', title: 'Kategori', icon: 'tag', load: () => import('./pages/categories.js') },
   { group: 'Marketplace', path: 'reviews', title: 'Rating & Ulasan', icon: 'star', load: () => import('./pages/reviews.js') },
   { group: 'Penjualan', path: 'orders', title: 'Pesanan', icon: 'receipt', load: () => import('./pages/orders.js') },
+  { group: 'Penjualan', path: 'codes', title: 'Laporan Code', icon: 'key', load: () => import('./pages/codes.js') },
   { group: 'Penjualan', path: 'payment', title: 'Pembayaran', icon: 'wallet', load: () => import('./pages/payment.js') },
   { group: 'Integrasi', path: 'integrations', title: 'Email & WhatsApp', icon: 'plug', load: () => import('./pages/integrations.js') },
   { group: 'Integrasi', path: 'notifications', title: 'Log Notifikasi', icon: 'bell', load: () => import('./pages/notifications.js') },
@@ -29,6 +30,7 @@ const LIVE_EVENTS = [
   'media:error',
   'order:update', 'payment-settings:update',
   'integrations:update', 'notification:log',
+  'code:update', 'code:stats', 'code:refresh',
 ];
 
 const ctx = { admin: null, meta: null, online: 0, go: (path) => { location.hash = `#/${path}`; } };

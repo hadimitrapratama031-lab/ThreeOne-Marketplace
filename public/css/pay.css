@@ -518,6 +518,46 @@
   .pay-main__top { flex-direction: column; align-items: flex-start; }
 }
 
+/* 10. Sistem Code: Code Redeem di halaman sukses
+   Satu-satunya permukaan terang = pelat code (sama bahasanya dengan pelat QRIS di langkah bayar). Selebihnya mengikuti panel. */
+.redeem { margin-top: clamp(26px, 3vw, 36px); padding-top: clamp(22px, 2.6vw, 28px); border-top: 1px solid var(--p-line); display: grid; gap: 18px; }
+.redeem__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.redeem__title { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.redeem__plate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 20px;
+  flex-wrap: wrap;
+  padding: clamp(18px, 2.4vw, 26px);
+  border-radius: 20px;
+  background: #fff;
+  color: #1a1530;
+  box-shadow: 0 24px 50px -30px #000;
+}
+.redeem__code {
+  flex: 1 1 260px;
+  min-width: 0;
+  font: 700 clamp(20px, 3vw, 30px)/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .06em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.redeem__once { display: flex; gap: 10px; margin: 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.redeem__once svg { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--lavender); }
+.redeem__once b { color: var(--ink); font-weight: 600; }
+.redeem__how { padding-top: 6px; }
+.redeem__how h3 { font-size: 16px; font-weight: 600; }
+.redeem__nohow { margin: 12px 0 0; font-size: 14.5px; line-height: 1.7; color: var(--muted); }
+.redeem__nohow b { color: var(--ink); font-weight: 600; }
+.redeem__line { margin: 14px 0 0; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.redeem__line code { font: 600 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .04em; color: var(--ink); }
+.redeem--wait { gap: 0; }
+.redeem--wait .notice { margin-top: 14px; }
+@media (max-width: 640px) {
+  .redeem__plate .btn { width: 100%; }
+}
+
 /* 9. Reduced motion
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {

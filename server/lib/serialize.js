@@ -79,6 +79,8 @@ export function admProduct(p, cat, sold = null) {
     stock: p.stock,
     sold,
     active: p.active,
+    kind: p.kind || 'normal',
+    redeemTutorial: p.kind === 'code' ? (p.redeemTutorial || '') : '',   // hanya Admin; Marketplace publik tidak pernah menerimanya
     description: p.description,
     about: p.about,
     specs: { min: p.specs?.min || [], rec: p.specs?.rec || [], source: p.specs?.source || '' },

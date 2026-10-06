@@ -80,7 +80,9 @@ export const EVENT_COPY = {
     subtitle: "Dana sudah kami terima dan pesanan sedang diproses.",
     subject: (ctx) => `Pembayaran Berhasil — ${ctx.storeName} (${ctx.orderCode})`,
     lead: (ctx) =>
-      `Pembayaran untuk ${ctx.productName} sudah kami terima. Pesanan Anda sedang kami proses dan akan dikirimkan melalui kontak yang Anda daftarkan.`,
+      ctx.redeemCode
+        ? `Pembayaran untuk ${ctx.productName} sudah kami terima. Code redeem Anda ada di bawah ini; code hanya dapat digunakan 1 kali.`
+        : `Pembayaran untuk ${ctx.productName} sudah kami terima. Pesanan Anda sedang kami proses dan akan dikirimkan melalui kontak yang Anda daftarkan.`,
     statusLabel: "Berhasil",
     accent: "#0f7a52",
     accentSoft: "#e6f4ee",
@@ -126,6 +128,7 @@ export function placeholders(ctx) {
     ordered_at: ctx.orderedAt,
     paid_at: ctx.paidAt,
     expired_at: ctx.expiredAt,
+    redeem_code: ctx.redeemCode,
     pay_url: ctx.payUrl,
     wa_admin_url: ctx.waHref,
     discord_url: ctx.discordHref,
@@ -215,8 +218,12 @@ function buildOrderSuccessWhatsApp(ctx) {
     ].filter(Boolean),
   ];
 
+  if (ctx.redeemCode) {
+    lines.push("", "*Code Redeem Anda*", ctx.redeemCode, "Code hanya dapat digunakan 1x. Jangan dibagikan ke siapa pun.");
+  }
+
   if (ctx.invoiceUrl) {
-    lines.push("", "Silakan cek invoice melalui:", ctx.invoiceUrl);
+    lines.push("", ctx.redeemCode ? "Cara redeem dan invoice ada di:" : "Silakan cek invoice melalui:", ctx.invoiceUrl);
   }
   if (ctx.waAdminChatUrl) {
     lines.push("", "Silakan Chat Admin langsung di sini:", ctx.waAdminChatUrl);
@@ -316,6 +323,15 @@ export function buildEmailHtml(ctx) {
 </td></tr>`
       : "";
 
+  const codeBlock = ctx.redeemCode
+    ? `<tr><td class="pad" style="padding:0 32px 24px;">
+<p style="margin:0 0 8px;font-family:${FONT};font-size:12px;font-weight:700;color:${MUTED};letter-spacing:0.04em;">Code redeem Anda</p>
+<div style="border:1px dashed ${ctx.accent};border-radius:12px;background:#ffffff;padding:16px 18px;font-family:'SFMono-Regular',Consolas,Menlo,monospace;font-size:18px;font-weight:700;letter-spacing:0.04em;color:${INK};word-break:break-all;">${escapeHTML(ctx.redeemCode)}</div>
+<p style="margin:10px 0 0;font-family:${FONT};font-size:13px;line-height:1.6;color:${MUTED};">Code hanya dapat digunakan 1 kali. Jangan dibagikan ke siapa pun.${ctx.payUrl ? ' Cara menggunakan code ada di halaman pesanan Anda.' : ''}</p>
+${ctx.payUrl ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;"><tr><td style="border-radius:10px;background:${ctx.accent};"><a href="${escapeHTML(ctx.payUrl)}" target="_blank" rel="noopener" style="display:block;padding:12px 24px;font-family:${FONT};font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">Buka halaman pesanan</a></td></tr></table>` : ''}
+</td></tr>`
+    : "";
+
   const contactButtons =
     (ctx.waEnabled ? contactButton(ctx.waHref, "Hubungi admin", ctx.waIcon, "WA", "#25d366") : "") +
     (ctx.discordEnabled ? contactButton(ctx.discordHref, "Discord", ctx.discordIcon, "DC", "#5865f2") : "");
@@ -388,6 +404,7 @@ ${productThumb}${rows}
 </td></tr>
 
 <tr><td style="height:24px;font-size:0;line-height:0;">&nbsp;</td></tr>
+${codeBlock}
 ${payBlock}
 ${helpBlock}
 <tr><td style="height:30px;font-size:0;line-height:0;">&nbsp;</td></tr>
@@ -450,6 +467,13 @@ export function buildEmailText(ctx) {
     textLine("Total", ctx.total),
   ].filter(Boolean);
   lines.push(...details);
+
+  if (ctx.redeemCode) {
+    lines.push("");
+    lines.push(`Code redeem Anda: ${ctx.redeemCode}`);
+    lines.push("Code hanya dapat digunakan 1 kali. Jangan dibagikan ke siapa pun.");
+    if (ctx.payUrl) lines.push(`Cara menggunakan code: ${ctx.payUrl}`);
+  }
 
   if (ctx.event === "orderCreated" && ctx.payUrl) {
     lines.push("");

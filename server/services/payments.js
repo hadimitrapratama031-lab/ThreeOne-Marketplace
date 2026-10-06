@@ -11,6 +11,7 @@ import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler, setTrackJoinHandler } from '../lib/realtime.js';
 import { getPaymentConfig, getCredentials } from './paymentSettings.js';
 import { soldOf } from './sales.js';
+import { assignCode, redeemViewFor } from './codes.js';
 import * as klikqris from './klikqris.js';
 
 /**
@@ -37,7 +38,8 @@ function newOrderNo() {
 const iso = (d) => (d ? new Date(d).toISOString() : null);
 const PUBLIC_FAIL = 'Transaksi pembayaran tidak dapat dibuat. Tidak ada dana yang ditagihkan.';
 
-export function pubOrder(o, { waAdmin = '' } = {}) {
+/** `redeem` (dari redeemViewFor) hanya diisi di jalur yang sudah memverifikasi token pelanggan; Cek Pesanan (pubTrack) tidak pernah memuatnya. */
+export function pubOrder(o, { waAdmin = '', redeem = null } = {}) {
   const pending = o.status === 'PENDING';
   const unique = o.totalAmount != null ? Math.max(0, Math.round((o.totalAmount - o.amount) * 100) / 100) : 0;
   return {
@@ -58,6 +60,7 @@ export function pubOrder(o, { waAdmin = '' } = {}) {
     qrisUrl: pending ? (o.payment?.qrisUrl || null) : null,
     failureReason: o.status === 'FAILED' ? PUBLIC_FAIL : null,
     waAdmin,
+    ...(redeem ? { redeem } : {}),
   };
 }
 
@@ -67,7 +70,8 @@ export function admOrder(o) {
     orderNo: o.orderNo,
     status: o.status,
     customer: o.customer,
-    product: { id: o.product.productId, name: o.product.name },
+    product: { id: o.product.productId, name: o.product.name, kind: o.product.kind || 'normal' },
+    codeState: o.codeState || '',
     amount: o.amount,
     totalAmount: o.totalAmount,
     mode: o.payment?.mode || 'sandbox',
@@ -131,9 +135,10 @@ const log = (type, detail = '') => ({ at: new Date(), type, detail: String(detai
 const push = (...events) => ({ $each: events, $slice: -30 });
 
 /** Kirim perubahan ke halaman Payment (room khusus order) dan ke Admin Web. */
-async function emitOrder(o) {
+export async function emitOrder(o) {
   const { waAdmin } = await getPaymentConfig();
-  emitToRoom(`order:${o.orderNo}`, 'order:update', pubOrder(o, { waAdmin }));
+  const redeem = await redeemViewFor(o);   // code hanya ke room order:<id> (anggota room sudah lolos verifikasi token); admin lewat laporan Code
+  emitToRoom(`order:${o.orderNo}`, 'order:update', pubOrder(o, { waAdmin, redeem }));
   emitToRoom(`track:${o.orderNo}`, 'track:update', pubTrack(o));   // halaman Cek Pesanan (ber-masking)
   emitAdmin('order:update', admOrder(o));
 }
@@ -168,7 +173,7 @@ export async function createCheckout(input, { requestBase }) {
         orderNo: newOrderNo(),
         clientKey: input.clientKey,
         customer: { name: input.name, email: input.email, whatsapp: input.whatsapp },
-        product: { ref: product._id, productId: product.productId, name: product.name, category: product.category?.name || '', imageKey: (product.media || []).find((m) => m.type === 'image')?.key || '' },
+        product: { ref: product._id, productId: product.productId, name: product.name, category: product.category?.name || '', imageKey: (product.media || []).find((m) => m.type === 'image')?.key || '', kind: product.kind || 'normal' },
         amount: product.price,
         payment: { mode: cfg.mode },
         origin: cfg.publicBaseUrl || requestBase,   // dipakai tautan di notifikasi (tanpa request)
@@ -228,6 +233,8 @@ export async function createCheckout(input, { requestBase }) {
 const productVisible = (p) => p.active && p.category?.active !== false;
 
 async function adjustStock(order) {
+  // Produk Sistem Code: stok = jumlah code available, dikurangi oleh assignCode (bukan di sini).
+  if (order.product?.kind === 'code') return;
   // Stok berkurang SEKALI, hanya oleh pemenang transisi PENDING/EXPIRED -> SUCCESS.
   const hit = await Product.findOneAndUpdate({ _id: order.product.ref, stock: { $gt: 0 } }, { $inc: { stock: -1, sold: 1 } }, { new: false });
   if (!hit) await Order.updateOne({ _id: order._id }, { $set: { stockNote: 'short' }, $push: { events: push(log('stock_short', 'stok habis saat pembayaran masuk')) } });
@@ -271,6 +278,9 @@ async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) 
   );
   if (!won) return null;
   await adjustStock(won);
+  // Sistem Code: code diberikan SETELAH status SUCCESS tersimpan dan SEBELUM disiarkan, jadi satu event membawa code-nya.
+  // Gagal di sini tidak membatalkan pembayaran: order tetap SUCCESS dan dipulihkan oleh ensureOrderCode (halaman Payment / worker).
+  try { await assignCode(won); } catch (err) { console.error(`[payment] gagal memberi code untuk ${won.orderNo}: ${err.message}`); }
   await publishProductSale(won);
   const fresh = (await Order.findById(won._id)) || won;
   await emitOrder(fresh);
@@ -398,14 +408,34 @@ function scheduleExpiry(order) {
   timers.set(order.orderNo, t);
 }
 
+/* ---------- Sistem Code: pemulihan & pemenuhan ---------- */
+/**
+ * Pastikan order SUCCESS produk code memegang code (idempoten). Dipakai halaman Payment, worker, dan pemenuhan antrean.
+ * Menyiarkan order bila ada perubahan. Mengembalikan order terbaru.
+ */
+export async function ensureOrderCode(order) {
+  if (order?.product?.kind !== 'code' || order.status !== 'SUCCESS' || order.codeState === 'assigned') return order;
+  try {
+    const r = await assignCode(order);
+    if (!r.changed) return order;
+    const fresh = (await Order.findById(order._id)) || order;
+    await emitOrder(fresh);
+    return fresh;
+  } catch (err) {
+    console.error(`[payment] pemulihan code ${order.orderNo} gagal: ${err.message}`);
+    return order;
+  }
+}
+
 /* ---------- Pembacaan oleh pelanggan ---------- */
 export async function getOrderForCustomer(orderNo, token) {
   if (typeof orderNo !== 'string' || !/^MP-\d{6}-[A-Z0-9]{6}$/.test(orderNo) || !tokenOk(orderNo, token)) return null;   // 404 untuk semuanya: tidak membocorkan keberadaan order
   let order = await Order.findOne({ orderNo });
   if (!order) return null;
   order = await settleIfDue(order);
+  order = await ensureOrderCode(order);   // membuka ulang halaman sukses tidak pernah membuat code kedua: assignCode idempoten
   const { waAdmin } = await getPaymentConfig();
-  return pubOrder(order, { waAdmin });
+  return pubOrder(order, { waAdmin, redeem: await redeemViewFor(order) });
 }
 
 setOrderJoinHandler(getOrderForCustomer);
@@ -449,6 +479,8 @@ async function tick() {
     const now = new Date();
     for (const o of await Order.find({ status: 'PENDING', expiresAt: { $lte: now } }).limit(25)) await settleIfDue(o);
     for (const o of await Order.find({ status: 'PENDING', expiresAt: null, createdAt: { $lte: new Date(Date.now() - ORPHAN_MS) } }).limit(25)) await settleIfDue(o);
+    // Sistem Code: order yang sudah SUCCESS tapi belum sempat diberi code (proses mati di tengah jalan) dipulihkan di sini
+    for (const o of await Order.find({ 'product.kind': 'code', status: 'SUCCESS', codeState: '', updatedAt: { $lte: new Date(Date.now() - 20_000) } }).limit(25)) await ensureOrderCode(o);
     // Fallback bila webhook terlambat/tidak sampai (mis. localhost tanpa tunnel): cek status ke KlikQRIS secara berkala
     const stale = await Order.find({
       status: 'PENDING', expiresAt: { $gt: now },

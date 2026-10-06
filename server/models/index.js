@@ -50,6 +50,10 @@ const productSchema = new Schema({
   stock: { ...int, required: true, min: 0, default: 0 },
   sold: { ...int, min: 0, default: 0 },
   active: { type: Boolean, default: true },
+  // 'code' = Sistem Code: stok = jumlah RedeemCode berstatus available (dijaga services/codes.js), bukan angka manual.
+  kind: { type: String, enum: ['normal', 'code'], default: 'normal' },
+  // Cara redeem, satu langkah per baris. Ditulis Admin; tampil HANYA di halaman Payment Success pembeli.
+  redeemTutorial: { type: String, default: '', maxlength: 4000 },
   description: { type: String, default: '', maxlength: 300 },
   about: { type: String, default: '', maxlength: 4000 },
   specs: {
@@ -75,6 +79,7 @@ productSchema.index({ updatedAt: -1 });
 productSchema.index({ name: 1 });
 productSchema.index({ price: 1 });
 productSchema.index({ stock: 1 });
+productSchema.index({ kind: 1 });
 export const Product = mongoose.model('Product', productSchema);
 
 /* Review (rating & ulasan per produk) */
@@ -172,6 +177,7 @@ const orderSchema = new Schema({
     name: { type: String, required: true },
     category: { type: String, default: '' },
     imageKey: { type: String, default: '' },
+    kind: { type: String, enum: ['normal', 'code'], default: 'normal' },  // snapshot saat checkout: order lama / produk yang berubah tidak memengaruhi
   },
   amount: { ...int, required: true, min: 1 },                          // harga produk (snapshot saat checkout)
   totalAmount: { type: Number, default: null },                        // total_amount dari KlikQRIS (bisa memuat kode unik)
@@ -195,6 +201,9 @@ const orderSchema = new Schema({
   },
   latePayment: { type: Boolean, default: false },                      // dana masuk setelah order dinyatakan kedaluwarsa
   stockNote: { type: String, default: '' },                            // 'short' = stok sudah habis saat pembayaran masuk
+  // Produk Sistem Code: '' = belum diproses, 'assigned' = code sudah diberikan, 'waiting' = sudah dibayar tapi stok code habis
+  // (diberikan otomatis begitu Admin menambah stok). Sumber kebenaran relasinya tetap RedeemCode.order.
+  codeState: { type: String, enum: ['', 'waiting', 'assigned'], default: '' },
   failureReason: { type: String, default: '', maxlength: 300 },
   origin: { type: String, default: '', maxlength: 200 },               // origin toko saat checkout (untuk tautan di notifikasi)
   events: { type: [orderEvent], default: [] },
@@ -203,6 +212,8 @@ orderSchema.index({ status: 1, expiresAt: 1 });
 orderSchema.index({ status: 1, 'product.ref': 1 });                  // hitung "Terjual" per produk (services/sales.js)
 orderSchema.index({ clientKey: 1 }, { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } });
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ 'product.kind': 1, status: 1, codeState: 1 });                       // pemulihan order code yang belum diproses
+orderSchema.index({ 'product.ref': 1, createdAt: 1 }, { partialFilterExpression: { codeState: 'waiting' } });   // antrean order menunggu code (FIFO)
 orderSchema.index({ 'customer.email': 1 });
 export const Order = mongoose.model('Order', orderSchema);
 
@@ -237,7 +248,40 @@ notificationLogSchema.index({ status: 1 });
 notificationLogSchema.index({ resendMessageId: 1 }, { sparse: true });
 export const NotificationLog = mongoose.model('NotificationLog', notificationLogSchema);
 
-export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order, NotificationLog];
+
+/* RedeemCode — satu dokumen per code. Status hanya bergerak maju: available -> sold -> redeemed.
+   - codeKey (huruf besar) unik GLOBAL: code yang sama tidak bisa dimasukkan dua kali, di produk mana pun.
+   - index unik parsial pada `order`: satu order tidak pernah bisa memegang dua code, walau dua proses berebut secara bersamaan.
+   - Code mentah tidak pernah masuk ke API publik; hanya Admin (API admin) dan pemilik order (token pelanggan) yang membacanya. */
+export const CODE_STATUSES = ['available', 'sold', 'redeemed'];
+const redeemCodeSchema = new Schema({
+  product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+  productId: { ...int, required: true },
+  code: { type: String, required: true, trim: true, maxlength: 100 },
+  codeKey: { type: String, required: true },
+  status: { type: String, enum: CODE_STATUSES, default: 'available' },
+  order: { type: Schema.Types.ObjectId, ref: 'Order', default: null },
+  orderNo: { type: String, default: '' },
+  customer: {                                    // snapshot saat code diberikan (laporan tetap benar walau data order berubah)
+    name: { type: String, default: '' },
+    email: { type: String, default: '' },
+    whatsapp: { type: String, default: '' },
+  },
+  assignedAt: { type: Date, default: null },
+  redeemedAt: { type: Date, default: null },
+  redeemSource: { type: String, enum: ['', 'admin', 'api'], default: '' },
+}, { timestamps: true });
+redeemCodeSchema.index({ codeKey: 1 }, { unique: true });
+redeemCodeSchema.index({ order: 1 }, { unique: true, partialFilterExpression: { order: { $type: 'objectId' } } });
+redeemCodeSchema.index({ product: 1, status: 1, _id: 1 });                    // mengambil code available berikutnya (FIFO)
+redeemCodeSchema.index({ status: 1, assignedAt: -1 });
+redeemCodeSchema.index({ assignedAt: -1 });
+redeemCodeSchema.index({ updatedAt: -1 });
+redeemCodeSchema.index({ orderNo: 1 });
+redeemCodeSchema.index({ 'customer.email': 1 });
+export const RedeemCode = mongoose.model('RedeemCode', redeemCodeSchema);
+
+export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order, NotificationLog, RedeemCode];
 
 export async function syncAllIndexes() {
   for (const m of ALL_MODELS) await m.syncIndexes();

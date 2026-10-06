@@ -50,6 +50,38 @@ export const productListQuery = z.object({
   sort: z.enum(['newest', 'oldest', 'updated', 'name', 'price_asc', 'price_desc', 'stock_asc', 'stock_desc']).default('newest'),
 });
 
+/* ---------- Sistem Code ---------- */
+// Stok TIDAK dikirim dari form: stok produk code = jumlah code available di database.
+export const codeProductInput = z.object({
+  name: str(2, 120),
+  category: objectIdStr,
+  price: int(1, 1_000_000_000),
+  active: z.boolean().optional().default(true),
+  description: z.string().trim().max(300).optional().default(''),
+  about: z.string().trim().max(4000).optional().default(''),
+  redeemTutorial: z.string().trim().max(4000).optional().default(''),
+  media: z.array(mediaRef).optional().default([]),
+  codes: z.string().max(400_000).optional().default(''),   // satu code per baris (hanya saat membuat produk)
+});
+export const codeProductUpdateInput = codeProductInput.omit({ codes: true });
+export const addCodesInput = z.object({ codes: z.string({ required_error: 'Masukkan minimal satu code' }).max(400_000) });
+
+const codeStatus = z.enum(['available', 'sold', 'redeemed', 'delivered']);   // delivered = sudah diberikan ke pelanggan (sold + redeemed)
+export const codeListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  productId: z.coerce.number().int().min(1).optional(),
+  status: codeStatus.optional(),
+  order: z.string().trim().max(40).optional().default(''),
+  email: z.string().trim().max(120).optional().default(''),
+  customer: z.string().trim().max(60).optional().default(''),
+  code: z.string().trim().max(100).optional().default(''),
+  from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal harus YYYY-MM-DD').optional().or(z.literal('')).default(''),
+  to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal harus YYYY-MM-DD').optional().or(z.literal('')).default(''),
+  sort: z.enum(['newest', 'oldest']).default('newest'),
+});
+export const consumeCodeInput = z.object({ code: z.string().trim().min(4).max(100) });
+
 export const categoryInput = z.object({ name: str(2, 40), active: z.boolean().optional().default(true) });
 export const faqInput = z.object({ question: str(3, 200), answer: str(1, 2000), active: z.boolean().optional().default(true) });
 export const contactInput = z.object({
