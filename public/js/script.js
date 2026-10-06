@@ -234,7 +234,7 @@ function renderStats(settle) {
   const s = DATA.settings.stats;
   const stats = [{ label: 'Total Produk', value: PRODUCTS.length, suffix: '' }];
   if (s.orders > 0) stats.push({ label: 'Pesanan Selesai', value: s.orders, suffix: '' });
-  stats.push({ label: 'Rating', text: `${s.rating > 0 ? Number(s.rating).toFixed(1) : 0}/5` });   // dari ulasan di database; 0/5 bila belum ada
+  stats.push({ label: 'Rating', text: `${Number((+s.rating || 0).toFixed(1))}/5` });   // dari ulasan di database; 0/5 bila belum ada
   if (s.support) stats.push({ label: 'Support', text: s.support });
 
   root.style.setProperty('--cols', stats.length);

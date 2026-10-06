@@ -36,7 +36,7 @@ export default {
           <div class="card__body stack">
             <p class="muted">“Total Produk” dihitung otomatis dari database. “Pesanan Selesai” (jumlah terjual) dan “Rating” (rata-rata ulasan) juga dihitung otomatis dari database. Di sini hanya teks Support yang bisa diatur.</p>
             <div class="grid-3">
-              <label class="field"><span>Rating (otomatis)</span><input type="text" value="${s.stats.rating > 0 ? Number(s.stats.rating).toFixed(1) : 0}/5 · ${Number(s.stats.ratingCount || 0).toLocaleString('id-ID')} ulasan" disabled></label>
+              <label class="field"><span>Rating (otomatis)</span><input type="text" value="${Number((+s.stats.rating || 0).toFixed(1))}/5 · ${Number(s.stats.ratingCount || 0).toLocaleString('id-ID')} ulasan" disabled></label>
               <label class="field"><span>Pesanan selesai (otomatis)</span><input type="text" value="${Number(s.stats.orders || 0).toLocaleString('id-ID')}" disabled></label>
               <label class="field"><span>Support</span><input name="support" value="${s.stats.support}" maxlength="20" placeholder="24/7"></label>
             </div>
