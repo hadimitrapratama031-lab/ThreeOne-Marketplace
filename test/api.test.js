@@ -285,8 +285,13 @@ test('konten: hero, FAQ, kontak, pengaturan tersimpan dan tervalidasi', async ()
   assert.equal(badContact.status, 422);
   assert.equal((await a.post('/contacts', { label: 'WA', value: '+62', href: 'https://wa.me/62', icon: 'whatsapp' })).status, 201);
 
-  const stats = await a.put('/settings/stats', { customers: -1, orders: 5, support: '24/7' });
+  const stats = await a.put('/settings/stats', { support: 'x'.repeat(21) });
   assert.equal(stats.status, 422);
+  // angka pelanggan/pesanan tidak bisa diisi manual: nilai kiriman diabaikan, hasilnya dari database order
+  const manual = await a.put('/settings/stats', { customers: 999, orders: 999, support: '24/7' });
+  assert.equal(manual.status, 200);
+  assert.equal(manual.body.value.customers, 0);
+  assert.equal(manual.body.value.orders, 0);
 });
 
 test('keamanan: tidak ada rahasia di respons publik/admin, image-error hanya untuk URL R2', async () => {

@@ -197,7 +197,7 @@
     const options = (first) => `<option value="">${first}</option>` + list.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
     const has = (v) => list.some((p) => String(p.id) === String(v));
     const chosen = el.product.value;
-    el.product.innerHTML = options('Pilih produk yang diulas');
+    el.product.innerHTML = options('Tanpa produk tertentu');
     el.product.value = has(chosen) ? chosen : '';
     if (q.productId && !has(q.productId)) q.productId = '';
     el.fProduct.innerHTML = options('Semua produk');
@@ -233,7 +233,6 @@
 
   function validate() {
     const e = {};
-    if (!el.product.value) e.productId = 'Pilih produk yang diulas';
     if (!checkedStars()) e.stars = 'Pilih rating 1 sampai 5 bintang';
     const name = el.name.value.trim();
     if (name.length < 2) e.name = name ? 'Nama minimal 2 karakter' : 'Nama wajib diisi';
@@ -378,7 +377,7 @@
     if (Object.keys(errors).length) { focusFirst(errors); return; }
 
     const fd = new FormData();
-    fd.append('productId', el.product.value);
+    if (el.product.value) fd.append('productId', el.product.value);
     fd.append('stars', String(checkedStars()));
     fd.append('name', el.name.value.trim());
     fd.append('text', el.text.value.trim());

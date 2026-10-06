@@ -56,7 +56,7 @@ export async function summarize(match) {
 export async function listPublic({ page, limit, productId, stars, sort }) {
   const visible = await visibleProducts();
   const ids = [...visible.keys()];
-  const scope = { status: 'published', productId: { $in: ids } };
+  const scope = { status: 'published', productId: { $in: [...ids, null] } };   // null = ulasan umum tanpa produk
   if (productId !== undefined) scope.productId = ids.includes(productId) ? productId : -1;
 
   const filter = stars ? { ...scope, stars } : scope;
@@ -74,9 +74,13 @@ export async function listPublic({ page, limit, productId, stars, sort }) {
  * data setengah jadi: ulasan dibatalkan dan foto yang sudah terunggah dihapus dari R2.
  */
 export async function createFromCustomer({ productId, name, stars, text, files }) {
-  const product = await Product.findOne({ productId, active: true }).populate('category').lean();
-  if (!product || product.category?.active === false) {
-    throw new HttpError(422, 'Produk tidak ditemukan.', { fields: { productId: 'Produk tidak tersedia' } });
+  // Produk opsional: tanpa productId, ulasan disimpan sebagai ulasan umum
+  let product = null;
+  if (productId != null) {
+    product = await Product.findOne({ productId, active: true }).populate('category').lean();
+    if (!product || product.category?.active === false) {
+      throw new HttpError(422, 'Produk tidak ditemukan.', { fields: { productId: 'Produk tidak tersedia' } });
+    }
   }
 
   const uploaded = [];
@@ -87,7 +91,7 @@ export async function createFromCustomer({ productId, name, stars, text, files }
     }
     const keys = uploaded.map((a) => a.key);
     doc = await Review.create({
-      product: product._id, productId: product.productId, name, stars, text,
+      product: product?._id ?? null, productId: product?.productId ?? null, name, stars, text,
       date: new Date(), status: 'published', images: uploaded.map((a) => ({ key: a.key, url: a.url })),
     });
     await assets.attach(reviewOwner(doc._id), keys);

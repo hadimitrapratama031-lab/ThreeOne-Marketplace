@@ -106,7 +106,7 @@ export function admReview(r, product) {
   return {
     id: idStr(r),
     productId: r.productId,
-    productName: product?.name ?? '(produk dihapus)',
+    productName: r.productId == null ? 'Umum (tanpa produk)' : (product?.name ?? '(produk dihapus)'),
     name: r.name, stars: r.stars, text: r.text, date: iso(r.date), status: r.status,
     images: (r.images || []).map((i) => ({ key: i.key, url: mediaUrl(i) })),
     createdAt: iso(r.createdAt), updatedAt: iso(r.updatedAt),

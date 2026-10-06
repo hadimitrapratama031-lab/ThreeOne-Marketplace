@@ -67,8 +67,8 @@ test('Admin -> Marketplace: kategori, hero, FAQ, kontak, pengaturan, ulasan', as
   await a.put('/settings/hero', { ...hero, title: 'Judul RT', covers: [null, null, null] });
   assert.equal((await pub.wait('hero:update')).payload.title, 'Judul RT');
 
-  await a.put('/settings/stats', { customers: 5, orders: 6, support: '24/7' });
-  assert.deepEqual((await pub.wait('settings:update', (x) => x.key === 'stats')).payload.value.customers, 5);
+  await a.put('/settings/stats', { support: '09-17' });
+  assert.equal((await pub.wait('settings:update', (x) => x.key === 'stats')).payload.value.support, '09-17');
 
   const f = (await a.post('/faq', { question: 'Tanya RT?', answer: 'Jawab' })).body.item;
   await pub.wait('faq:create', (x) => x.q === 'Tanya RT?');

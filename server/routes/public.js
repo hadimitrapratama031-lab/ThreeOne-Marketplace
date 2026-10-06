@@ -8,6 +8,7 @@ import { publicReviewInput, publicReviewListQuery } from '../lib/schemas.js';
 import { config, r2Configured } from '../config/env.js';
 import { getAllSettings, publicSetting, SETTING_KEYS } from '../services/settings.js';
 import { recordImageError } from '../services/imageErrors.js';
+import { withLiveStats } from '../services/stats.js';
 import { summarize, listPublic, createFromCustomer } from '../services/reviews.js';
 import { publicLimiter, telemetryLimiter, reviewSubmitLimiter, originGuard } from '../middleware/security.js';
 
@@ -34,6 +35,7 @@ r.get('/bootstrap', asyncH(async (_req, res) => {
   ]);
   const pub = {};
   for (const k of SETTING_KEYS) pub[k] = publicSetting(k, settings[k]);
+  pub.stats = await withLiveStats(pub.stats);   // pelanggan & pesanan dihitung dari database order
   res.json({
     settings: pub,
     categories: cats.map(pubCategory),
@@ -66,7 +68,7 @@ r.get('/reviews', asyncH(async (req, res) => {
   res.json({ items: docs.map((d) => pubReview(d, visible.get(d.productId))), summary, ...pageMeta(q.page, q.limit, total) });
 }));
 
-// Kirim ulasan (multipart: productId, name, stars, text, images[]). Langsung tampil, tanpa persetujuan.
+// Kirim ulasan (multipart: productId (opsional), name, stars, text, images[]). Langsung tampil, tanpa persetujuan.
 const reviewUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.limits.imageBytes, files: 3, fields: 8, parts: 12 },

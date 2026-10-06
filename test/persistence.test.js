@@ -25,13 +25,13 @@ test('persistensi: data dan gambar tetap ada setelah server restart', async () =
   const cat = (await a.get('/categories')).body.items[0];
   const img = (await a.upload()).body.asset;
   const p = (await a.post('/products', { name: 'Tahan Restart', category: cat.id, price: 777, stock: 3, media: [{ key: img.key }] })).body.item;
-  await a.put('/settings/stats', { customers: 99, orders: 88, support: '24/7' });
+  await a.put('/settings/stats', { support: 'Senin-Jumat' });
   await t.restart();
   a = await t.admin();
   const got = (await a.get(`/products/${p.id}`)).body.item;
   assert.equal(got.name, 'Tahan Restart');
   assert.equal(got.media[0].key, img.key);
-  assert.equal((await t.req('/api/public/bootstrap')).body.settings.stats.customers, 99);
+  assert.equal((await t.req('/api/public/bootstrap')).body.settings.stats.support, 'Senin-Jumat');
   assert.equal((await fetch(got.media[0].url)).status, 200, 'gambar tetap bisa diakses di URL publik');
   // id produk berikutnya melanjutkan, tidak mengulang
   const next = (await a.post('/products', { name: 'Berikutnya', category: cat.id, price: 1, stock: 1 })).body.item;

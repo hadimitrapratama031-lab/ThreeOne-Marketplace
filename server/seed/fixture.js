@@ -60,7 +60,7 @@ export const contacts = [
 ];
 
 export const settings = {
-  stats: { customers: 12400, orders: 48200, support: '24/7' },
+  stats: { support: '24/7' },
   productPage: {
     notes: [
       'Pesanan diproses otomatis setelah pembayaran terkonfirmasi. Detail produk dikirim lewat halaman pesanan dan email, biasanya dalam hitungan menit.',

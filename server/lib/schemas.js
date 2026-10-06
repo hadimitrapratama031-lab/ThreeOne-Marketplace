@@ -64,7 +64,7 @@ export const statusInput = z.object({ active: z.boolean() });
 export const reorderInput = z.object({ ids: z.array(objectIdStr).min(1).max(500) });
 
 export const reviewInput = z.object({
-  productId: int(1, 1_000_000_000),
+  productId: int(1, 1_000_000_000).nullish().transform((v) => v ?? null),
   name: str(1, 60),
   stars: int(1, 5),
   text: str(1, 1000),
@@ -74,7 +74,10 @@ export const reviewInput = z.object({
 });
 // Form ulasan dari pelanggan (multipart/form-data, jadi semua nilai datang sebagai string)
 export const publicReviewInput = z.object({
-  productId: z.coerce.number({ invalid_type_error: 'Pilih produk', required_error: 'Pilih produk' }).int('Pilih produk').min(1, 'Pilih produk').max(1_000_000_000, 'Pilih produk'),
+  // Produk opsional: kosong = ulasan umum (tanpa produk tertentu)
+  productId: z.preprocess((v) => (v === '' || v == null ? undefined : v),
+    z.coerce.number({ invalid_type_error: 'Produk tidak valid' }).int('Produk tidak valid').min(1, 'Produk tidak valid').max(1_000_000_000, 'Produk tidak valid').optional())
+    .transform((v) => v ?? null),
   name: z.string({ required_error: 'Nama wajib diisi' }).trim().min(2, 'Nama minimal 2 karakter').max(60, 'Nama maksimal 60 karakter'),
   stars: z.coerce.number({ invalid_type_error: 'Pilih rating 1 sampai 5', required_error: 'Pilih rating 1 sampai 5' }).int('Pilih rating 1 sampai 5').min(1, 'Pilih rating 1 sampai 5').max(5, 'Pilih rating 1 sampai 5'),
   text: z.string({ required_error: 'Ulasan wajib diisi' }).trim().min(5, 'Ulasan minimal 5 karakter').max(1000, 'Ulasan maksimal 1000 karakter'),
@@ -108,7 +111,7 @@ export const settingSchemas = {
     chips: z.array(str(1, 40)).max(2),
     covers: z.array(mediaRef.nullable()).length(3),
   }),
-  stats: z.object({ customers: int(0, 1_000_000_000), orders: int(0, 1_000_000_000), support: z.string().trim().max(20) }),
+  stats: z.object({ support: z.string().trim().max(20) }),   // pelanggan & pesanan dihitung dari database order
   sections: z.object({
     products: z.object({ title: str(1, 80), subtitle: z.string().trim().max(200) }),
     faq: z.object({ title: str(1, 80) }),

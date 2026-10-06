@@ -18,6 +18,7 @@ async function loadReview(rawId) {
   return doc;
 }
 async function productByPid(productId) {
+  if (productId == null) return null;   // ulasan umum tanpa produk
   const p = await Product.findOne({ productId }).select('_id productId name').lean();
   if (!p) throw new HttpError(422, 'Produk tidak ditemukan.', { fields: { productId: 'Produk tidak ditemukan' } });
   return p;
@@ -47,7 +48,7 @@ r.post('/', asyncH(async (req, res) => {
   const keys = data.images.map((i) => i.key);
   const found = await resolveImages(keys, owner('new'));
   const doc = await Review.create({
-    product: product._id, productId: product.productId, name: data.name, stars: data.stars, text: data.text,
+    product: product?._id ?? null, productId: product?.productId ?? null, name: data.name, stars: data.stars, text: data.text,
     date: data.date || new Date(), status: data.status, images: found.map((a) => ({ key: a.key, url: a.url })),
   });
   await assets.attach(owner(doc._id), keys);
@@ -63,12 +64,12 @@ r.put('/:id', asyncH(async (req, res) => {
   const keys = data.images.map((i) => i.key);
   const found = await resolveImages(keys, owner(current._id));
   const updated = await Review.findOneAndUpdate({ _id: current._id }, {
-    $set: { product: product._id, productId: product.productId, name: data.name, stars: data.stars, text: data.text, date: data.date || current.date, status: data.status, images: found.map((a) => ({ key: a.key, url: a.url })) },
+    $set: { product: product?._id ?? null, productId: product?.productId ?? null, name: data.name, stars: data.stars, text: data.text, date: data.date || current.date, status: data.status, images: found.map((a) => ({ key: a.key, url: a.url })) },
   }, { new: true });
   await assets.attach(owner(current._id), keys);
   emitChange('review', { before, after: updated.toObject(), ...events });
   // Bila ulasan dipindah ke produk lain, halaman produk lama perlu menghapusnya
-  if (before.productId !== updated.productId && visible(before)) emitPublic('review:delete', events.pubDel(before));
+  if (before.productId != null && before.productId !== updated.productId && visible(before)) emitPublic('review:delete', events.pubDel(before));
   res.json({ item: admReview(updated, product) });
 }));
 
@@ -79,7 +80,7 @@ r.patch('/:id/status', asyncH(async (req, res) => {
   doc.status = active ? 'published' : 'hidden';
   await doc.save();
   emitChange('review', { before, after: doc.toObject(), ...events });
-  const product = await Product.findOne({ productId: doc.productId }).select('productId name').lean();
+  const product = doc.productId == null ? null : await Product.findOne({ productId: doc.productId }).select('productId name').lean();
   res.json({ item: admReview(doc, product) });
 }));
 

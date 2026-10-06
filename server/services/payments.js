@@ -7,6 +7,8 @@ import { tokenFor, tokenOk } from '../lib/orderToken.js';
 import { queueOrderEvent } from './notifications.js';
 import { publicUrl } from '../lib/r2.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
+import { broadcastStats } from './stats.js';
+import { getSetting } from './settings.js';
 import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler } from '../lib/realtime.js';
 import { getPaymentConfig, getCredentials } from './paymentSettings.js';
 import * as klikqris from './klikqris.js';
@@ -214,6 +216,7 @@ async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) 
   await adjustStock(won);
   const fresh = (await Order.findById(won._id)) || won;
   await emitOrder(fresh);
+  broadcastStats(await getSetting('stats').catch(() => ({})));   // Pelanggan & Total Pesanan di beranda ikut naik
   queueOrderEvent(fresh, 'paymentSuccess');   // hanya pemenang transisi yang sampai di sini: callback ganda tidak mengirim ulang
   return fresh;
 }

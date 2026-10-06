@@ -79,15 +79,17 @@ export const Product = mongoose.model('Product', productSchema);
 
 /* Review (rating & ulasan per produk) */
 const reviewSchema = new Schema({
-  product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
-  productId: { ...int, required: true },
+  product: { type: Schema.Types.ObjectId, ref: 'Product', default: null },   // opsional: ulasan umum tanpa produk
+  productId: { ...int, default: null },
   name: { type: String, required: true, trim: true, maxlength: 60 },
   stars: { ...int, required: true, min: 1, max: 5 },
   text: { type: String, required: true, trim: true, maxlength: 1000 },
   date: { type: Date, default: Date.now },
   images: { type: [new Schema({ key: String, url: String }, { _id: false })], default: [] },
   status: { type: String, enum: ['published', 'hidden'], default: 'published' },
+  legacyId: { type: String },                                        // id rating di project lama (hanya terisi oleh script migrasi; kunci anti-dobel)
 }, { timestamps: true });
+reviewSchema.index({ legacyId: 1 }, { unique: true, partialFilterExpression: { legacyId: { $type: 'string' } } });
 reviewSchema.index({ product: 1, status: 1, date: -1 });
 reviewSchema.index({ status: 1, date: -1 });
 reviewSchema.index({ stars: 1 });

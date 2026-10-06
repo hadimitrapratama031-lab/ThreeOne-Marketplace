@@ -16,7 +16,7 @@ export const DEFAULTS = {
     chips: ['Pembayaran aman', 'Proses cepat'],
     covers: [null, null, null],
   },
-  stats: { customers: 0, orders: 0, support: '24/7' },
+  stats: { support: '24/7' },
   sections: {
     products: { title: 'Produk Tersedia', subtitle: 'Pilih game, akun, dan tools digital. Stok dan harga diperbarui langsung.' },
     faq: { title: 'Pertanyaan Umum' },

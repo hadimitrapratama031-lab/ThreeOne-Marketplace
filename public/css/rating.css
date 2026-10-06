@@ -486,7 +486,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.rv-label em {
+.rv-label em,
+.rv-field label em {
   color: var(--dim);
   font-style: normal;
   font-weight: 400;

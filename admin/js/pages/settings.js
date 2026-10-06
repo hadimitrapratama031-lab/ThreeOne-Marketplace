@@ -34,10 +34,10 @@ export default {
         <form class="card" data-card="stats" novalidate>
           <div class="card__head"><h3>Statistik di beranda</h3></div>
           <div class="card__body stack">
-            <p class="muted">“Total Produk” dihitung otomatis dari database. Angka di bawah diisi manual sampai modul pesanan dan pelanggan aktif; isi 0 untuk menyembunyikan.</p>
+            <p class="muted">“Total Produk” dihitung otomatis dari database. “Pelanggan” dan “Total Pesanan” juga dihitung otomatis dari pesanan yang sudah dibayar. Di sini hanya teks Support yang bisa diatur.</p>
             <div class="grid-3">
-              <label class="field"><span>Pelanggan</span><input name="customers" type="number" min="0" step="1" value="${s.stats.customers}"></label>
-              <label class="field"><span>Total pesanan</span><input name="orders" type="number" min="0" step="1" value="${s.stats.orders}"></label>
+              <label class="field"><span>Pelanggan (otomatis)</span><input type="text" value="${Number(s.stats.customers || 0).toLocaleString('id-ID')}" disabled></label>
+              <label class="field"><span>Total pesanan (otomatis)</span><input type="text" value="${Number(s.stats.orders || 0).toLocaleString('id-ID')}" disabled></label>
               <label class="field"><span>Support</span><input name="support" value="${s.stats.support}" maxlength="20" placeholder="24/7"></label>
             </div>
             <div class="actions"><button class="btn btn--primary" type="submit">Simpan statistik</button></div>
@@ -87,7 +87,7 @@ export default {
 
     const BODIES = {
       branding: (f) => ({ name: f.name.value, siteTitle: f.siteTitle.value, logo: logo.get()[0] ?? null }),
-      stats: (f) => ({ customers: Number(f.customers.value || 0), orders: Number(f.orders.value || 0), support: f.support.value }),
+      stats: (f) => ({ support: f.support.value }),
       sections: (f) => ({
         products: { title: f.productsTitle.value, subtitle: f.productsSub.value },
         faq: { title: f.faqTitle.value },
