@@ -1,13 +1,21 @@
 /** Pemetaan murni (tanpa database) dari data project lama ke bentuk project baru. Diuji terpisah. */
 export const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export const mapOrderStatus = (o) => {
-  const s = String(o?.paymentStatus || o?.status || '').toUpperCase();
-  const st = String(o?.status || '').toUpperCase();
-  if (['SUCCESS', 'PAID', 'COMPLETED'].includes(s) || ['PAID', 'COMPLETED'].includes(st)) return 'SUCCESS';
-  if (['FAILED', 'CANCELLED'].includes(s) || ['FAILED', 'CANCELLED'].includes(st)) return 'FAILED';
+// Status "selesai/dibayar" di project lama bisa bermacam-macam (order.status, order.paymentStatus, atau status transaksi).
+// Dulu hanya SUCCESS/PAID/COMPLETED yang dikenali, sisanya jatuh ke EXPIRED sehingga pesanan selesai terhitung kurang.
+const PAID_WORDS = new Set(['SUCCESS', 'SUCCEEDED', 'PAID', 'COMPLETED', 'COMPLETE', 'DONE', 'SETTLED', 'SETTLEMENT', 'DELIVERED', 'FINISHED', 'SELESAI', 'LUNAS', 'PROCESSED', 'PROCESSING', 'FULFILLED']);
+const FAIL_WORDS = new Set(['FAILED', 'FAILURE', 'CANCELLED', 'CANCELED', 'REJECTED', 'REFUNDED']);
+const up = (v) => String(v ?? '').trim().toUpperCase();
+
+/** `t` = transaksi pembayaran lama milik order (opsional): status/paidAt-nya ikut jadi bukti bahwa order sudah dibayar. */
+export const mapOrderStatus = (o, t) => {
+  const vals = [o?.paymentStatus, o?.status, t?.status].map(up);
+  if (vals.some((v) => PAID_WORDS.has(v)) || o?.paidAt || t?.paidAt) return 'SUCCESS';
+  if (vals.some((v) => FAIL_WORDS.has(v))) return 'FAILED';
   return 'EXPIRED';   // PENDING/EXPIRED lama: tidak pernah diimpor sebagai PENDING agar worker pembayaran tidak memprosesnya
 };
+/** Label status lama (untuk laporan migrasi): order.status/paymentStatus/transaksi. */
+export const legacyStatusLabel = (o, t) => `${up(o?.status) || '-'}/${up(o?.paymentStatus) || '-'}/${up(t?.status) || '-'}`;
 export const mapReviewStatus = (s) => (String(s) === 'approved' ? 'published' : 'hidden');   // approved → tayang; hidden & pending → tersembunyi
 
 export const cleanName = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);

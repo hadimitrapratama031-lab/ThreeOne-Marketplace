@@ -21,3 +21,6 @@ Opsi: `--include-content`, `--include-settings`, `--include-admins`, `--keep-ima
 
 Migrasi: kategori, produk (nama, harga, stok, terjual, status), pesanan + data pembeli, rating. Deskripsi/gambar produk tidak diambil dari project lama.
 Opsi: `--skip-orders`, `--skip-reviews`, `--verbose`. Aman dijalankan berulang.
+
+Pesanan lama yang sudah terlanjur diimpor dengan status salah (mis. selesai tapi tercatat EXPIRED) ikut diperbaiki saat migrasi dijalankan ulang dengan `--apply`.
+Laporan migrasi menampilkan jumlah pesanan lama, rincian status lama → status baru, dan pesanan yang dilewati beserta alasannya. Angka "Pesanan Selesai" di Marketplace = jumlah pesanan berstatus SUCCESS.

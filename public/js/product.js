@@ -175,7 +175,7 @@
       `<span>${esc(p.category)}</span>`,
       p.sold > 0 ? `<span>${p.sold.toLocaleString('id-ID')}+ terjual</span>` : '',
     ].join('');
-    const trustTitle = pp.completedOrders > 0 ? `${pp.completedOrders.toLocaleString('id-ID')}+ pesanan selesai` : summary.total ? `${summary.avg.toFixed(1)} dari 5` : '';
+    const trustTitle = pp.completedOrders > 0 ? `${pp.completedOrders.toLocaleString('id-ID')} pesanan selesai` : summary.total ? `${summary.avg.toFixed(1)} dari 5` : '';
 
     document.title = `${p.name} — ${DATA.brand}`;
     root.innerHTML = `

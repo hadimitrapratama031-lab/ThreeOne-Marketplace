@@ -233,8 +233,8 @@ function renderStats(settle) {
   if (!root) return;
   const s = DATA.settings.stats;
   const stats = [{ label: 'Total Produk', value: PRODUCTS.length, suffix: '' }];
-  if (s.customers > 0) stats.push({ label: 'Pelanggan', value: s.customers, suffix: '+' });
-  if (s.orders > 0) stats.push({ label: 'Total Pesanan', value: s.orders, suffix: '+' });
+  if (s.customers > 0) stats.push({ label: 'Pelanggan', value: s.customers, suffix: '' });
+  if (s.orders > 0) stats.push({ label: 'Pesanan Selesai', value: s.orders, suffix: '' });
   if (s.support) stats.push({ label: 'Support', text: s.support });
 
   root.style.setProperty('--cols', stats.length);

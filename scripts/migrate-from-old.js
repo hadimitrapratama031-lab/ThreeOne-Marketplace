@@ -19,7 +19,7 @@ import { config } from '../server/config/env.js';
 import { Product, Category, Review, Order, nextSeq } from '../server/models/index.js';
 import { normalizeWhatsapp } from '../server/lib/phone.js';
 import { parseArgs, line, rowOut, hostOf } from './_common.js';
-import { escapeRegex, mapOrderStatus, mapReviewStatus, cleanName, toInt, normalizeWa, sameDb } from './legacyMap.js';
+import { escapeRegex, legacyStatusLabel, mapOrderStatus, mapReviewStatus, cleanName, toInt, normalizeWa, sameDb } from './legacyMap.js';
 
 const { flags, values } = parseArgs();
 const APPLY = flags.has('apply');
@@ -35,7 +35,7 @@ await mongoose.connect(config.mongoUri, { serverSelectionTimeoutMS: 10_000 });
 const old = await mongoose.createConnection(oldUri, { serverSelectionTimeoutMS: 10_000 }).asPromise();
 const read = (name, sort = { _id: 1 }) => old.db.collection(name).find({}).sort(sort).toArray();
 
-const rep = { cat: { created: 0, existing: 0, skipped: [] }, prod: { created: 0, updated: 0, skipped: [] }, ord: { created: 0, existing: 0, skipped: [], buyers: new Set(), byStatus: {} }, rev: { created: 0, existing: 0, skipped: [] } };
+const rep = { cat: { created: 0, existing: 0, skipped: [] }, prod: { created: 0, updated: 0, skipped: [] }, ord: { created: 0, existing: 0, repaired: 0, total: 0, skipped: [], buyers: new Set(), byStatus: {}, legacy: {} }, rev: { created: 0, existing: 0, skipped: [] } };
 
 /* ---- Kategori ---- */
 const catMap = new Map();
@@ -80,15 +80,28 @@ if (!flags.has('skip-orders')) {
   const tx = new Map((await read('transactions')).map((t) => [String(t.orderId), t]));
   for (const o of await read('orders', { createdAt: 1 })) {
     const code = String(o.orderCode || '').trim();
+    rep.ord.total += 1;
     if (!code) { rep.ord.skipped.push('(pesanan tanpa kode)'); continue; }
-    if (await Order.exists({ orderNo: code })) { rep.ord.existing += 1; continue; }
+    const t0 = tx.get(String(o._id));
+    const label = legacyStatusLabel(o, t0); const mapped = mapOrderStatus(o, t0);
+    (rep.ord.legacy[label] ||= { n: 0, to: mapped }).n += 1;
+    const already = await Order.findOne({ orderNo: code }).select('status payment.source payment.paidAt');
+    if (already) {
+      rep.ord.existing += 1;
+      // Pesanan hasil impor sebelumnya yang statusnya salah baca (mis. selesai tapi tercatat EXPIRED) diperbaiki di sini
+      if (already.payment?.source === 'import' && already.status !== mapped) {
+        rep.ord.repaired += 1; rep.ord.byStatus[mapped] = (rep.ord.byStatus[mapped] || 0) + 1;
+        if (APPLY) await Order.collection.updateOne({ _id: already._id }, { $set: { status: mapped, ...(mapped === 'SUCCESS' ? { 'payment.paidAt': t0?.paidAt ? new Date(t0.paidAt) : (o.updatedAt ? new Date(o.updatedAt) : new Date()) } : {}) } });
+      }
+      continue;
+    }
     const entry = prodMap.get(String(o.product?.productId)) || prodByName.get(cleanName(o.product?.name, 120).toLowerCase());
     const email = String(o.customer?.email || '').trim().toLowerCase().slice(0, 120);
     const total = toInt(o.total ?? (Number(o.product?.price) * Number(o.quantity || 1)), 1);
     if (!entry) { rep.ord.skipped.push(`${code} (produk tidak ditemukan)`); continue; }
     if (!email || !Number.isFinite(total)) { rep.ord.skipped.push(`${code} (email/nominal tidak valid)`); continue; }
     const t = tx.get(String(o._id));
-    const status = mapOrderStatus(o);
+    const status = mapped;
     const wa = normalizeWa(o.customer?.whatsapp, normalizeWhatsapp);
     const createdAt = o.createdAt ? new Date(o.createdAt) : new Date(); const updatedAt = o.updatedAt ? new Date(o.updatedAt) : createdAt;
     const totalAmount = Number.isFinite(Number(t?.totalAmount)) ? Number(t.totalAmount) : null;
@@ -129,9 +142,13 @@ line('='); console.log(APPLY ? 'MIGRASI SELESAI (data ditulis)' : 'DRY-RUN MIGRA
 rowOut('Database lama', `${hostOf(oldUri)} / ${oldDbName}`); rowOut('Database baru', `${hostOf(config.mongoUri)} / ${mongoose.connection.name}`); line();
 rowOut('Kategori baru / sudah ada', `${rep.cat.created} / ${rep.cat.existing}`);
 rowOut('Produk baru / diperbarui', `${rep.prod.created} / ${rep.prod.updated}`);
-rowOut('Total terjual (dari produk lama)', [...prodMap.values()].reduce((n, p) => n + p.sold, 0));
 if (!flags.has('skip-orders')) {
+  rowOut('Pesanan di database lama', rep.ord.total);
   rowOut('Pesanan diimpor / sudah ada', `${rep.ord.created} / ${rep.ord.existing}`);
+  rowOut('Pesanan lama yang diperbaiki statusnya', rep.ord.repaired);
+  rowOut('Status lama (order/pembayaran/transaksi)', '');
+  for (const [k, v] of Object.entries(rep.ord.legacy)) rowOut(`  ${k}`, `${v.n} → ${v.to}`);
+  rowOut('Total terjual (dari produk lama)', [...prodMap.values()].reduce((n, p) => n + p.sold, 0));
   rowOut('  per status', Object.entries(rep.ord.byStatus).map(([k, v]) => `${k} ${v}`).join(' · ') || '-');
   rowOut('Pembeli unik (dari pesanan)', `${rep.ord.buyers.size}  (tabel pelanggan lama: ${oldCustomers})`);
 }
