@@ -107,7 +107,9 @@ export function createApp() {
   app.use('/api/admin', admin);
   app.use('/api', notFoundApi);
 
-  const html = { setHeaders: (res, p) => { if (p.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); } };
+  // HTML, JS, dan CSS selalu divalidasi ulang (ETag): setelah deploy, Admin/Marketplace langsung memakai kode terbaru
+  // dan tidak tertahan di cache browser selama 1 jam. File lain (gambar, font) tetap memakai maxAge.
+  const html = { setHeaders: (res, p) => { if (/\.(html|js|css)$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); } };
   app.use('/admin', express.static(ADMIN_DIR, { index: 'index.html', maxAge: config.isProd ? '1h' : 0, ...html }));
   app.use(express.static(PUBLIC_DIR, { maxAge: config.isProd ? '1h' : 0, ...html }));
 
