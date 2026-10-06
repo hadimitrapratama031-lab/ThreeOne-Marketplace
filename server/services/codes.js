@@ -17,7 +17,7 @@ import { soldOf } from './sales.js';
  *  - Mengambil code = SATU findOneAndUpdate {status:'available'} -> 'sold'. Dua order tidak mungkin mendapat code yang sama.
  *  - Index unik parsial pada RedeemCode.order: satu order tidak mungkin memegang dua code, walau webhook, polling,
  *    refresh, dan reconnect memanggil assignCode bersamaan (yang kalah mendapat E11000 dan membaca code yang sudah ada).
- *  - Status hanya bergerak maju (available -> sold -> redeemed); filter status pada setiap update menjaganya.
+ *  - Status hanya bergerak maju (available -> sold). Redeem terjadi di aplikasi lain (mis. Rockstar), jadi tidak dilacak di sini.
  */
 
 const iso = (d) => (d ? new Date(d).toISOString() : null);
@@ -38,8 +38,6 @@ export function admCode(c, { reveal = false } = {}) {
     orderNo: c.orderNo || '',
     customer: { name: c.customer?.name || '', email: c.customer?.email || '', whatsapp: c.customer?.whatsapp || '' },
     assignedAt: iso(c.assignedAt),
-    redeemedAt: iso(c.redeemedAt),
-    redeemSource: c.redeemSource || '',
     createdAt: iso(c.createdAt),
   };
 }
@@ -54,7 +52,7 @@ export async function redeemViewFor(o) {
   ]);
   const tutorial = tutorialSteps(prod?.redeemTutorial);
   if (!code) return { enabled: true, state: 'waiting', tutorial };
-  return { enabled: true, state: 'assigned', code: code.code, status: code.status, assignedAt: iso(code.assignedAt), redeemedAt: iso(code.redeemedAt), tutorial };
+  return { enabled: true, state: 'assigned', code: code.code, assignedAt: iso(code.assignedAt), tutorial };
 }
 
 /** Untuk notifikasi (WhatsApp/Email): code milik order ini, atau '' bila belum ada. */
@@ -73,16 +71,16 @@ export async function codeStats() {
     Product.find({ kind: 'code' }).select('productId name active price').sort({ productId: -1 }).lean(),
   ]);
   const per = new Map();
-  const slot = (id) => { const k = String(id); if (!per.has(k)) per.set(k, { available: 0, sold: 0, redeemed: 0, waiting: 0 }); return per.get(k); };
+  const slot = (id) => { const k = String(id); if (!per.has(k)) per.set(k, { available: 0, sold: 0, waiting: 0 }); return per.get(k); };
   for (const r of rows) slot(r._id.p)[r._id.s] = r.n;
   for (const r of waitingRows) slot(r._id).waiting = r.n;
-  const total = { available: 0, sold: 0, redeemed: 0, waiting: 0 };
+  const total = { available: 0, sold: 0, waiting: 0 };
   const list = products.map((p) => {
     const c = slot(p._id);
     for (const k of Object.keys(total)) total[k] += c[k];
-    return { id: String(p._id), productId: p.productId, name: p.name, active: p.active, price: p.price, ...c, total: c.available + c.sold + c.redeemed };
+    return { id: String(p._id), productId: p.productId, name: p.name, active: p.active, price: p.price, ...c, total: c.available + c.sold };
   });
-  return { total: total.available + total.sold + total.redeemed, ...total, products: list, at: new Date().toISOString() };
+  return { total: total.available + total.sold, ...total, products: list, at: new Date().toISOString() };
 }
 
 let statsTimer;
@@ -159,7 +157,7 @@ export async function addCodes(product, text) {
     const ops = part.map((c) => ({
       updateOne: {
         filter: { codeKey: c.codeKey },
-        update: { $setOnInsert: { product: product._id, productId: product.productId, code: c.code, status: 'available', order: null, orderNo: '', customer: { name: '', email: '', whatsapp: '' }, assignedAt: null, redeemedAt: null, redeemSource: '' } },
+        update: { $setOnInsert: { product: product._id, productId: product.productId, code: c.code, status: 'available', order: null, orderNo: '', customer: { name: '', email: '', whatsapp: '' }, assignedAt: null } },
         upsert: true,
       },
     }));
@@ -183,13 +181,12 @@ export async function addCodes(product, text) {
 
 /** Jumlah per status untuk satu produk (form Ubah produk code). */
 export async function productCounts(ref) {
-  const [available, sold, redeemed, waiting] = await Promise.all([
+  const [available, sold, waiting] = await Promise.all([
     RedeemCode.countDocuments({ product: ref, status: 'available' }),
     RedeemCode.countDocuments({ product: ref, status: 'sold' }),
-    RedeemCode.countDocuments({ product: ref, status: 'redeemed' }),
     Order.countDocuments({ 'product.ref': ref, status: 'SUCCESS', codeState: 'waiting' }),
   ]);
-  return { available, sold, redeemed, waiting, total: available + sold + redeemed };
+  return { available, sold, waiting, total: available + sold };
 }
 
 /* ------------------------------------------------------------------ pemberian code ke order */
@@ -242,27 +239,6 @@ export async function assignCode(order) {
 export const waitingOrders = (productRef, limit = 100) =>
   Order.find({ 'product.ref': productRef, 'product.kind': 'code', status: 'SUCCESS', codeState: 'waiting' }).sort({ createdAt: 1 }).limit(limit);
 
-/* ------------------------------------------------------------------ redeem */
-
-/**
- * sold -> redeemed secara atomic. Code yang sudah redeemed tidak bisa dipakai lagi; code available (belum dijual) ditolak.
- * @param {{ id?: string, code?: string }} by
- * @param {'admin'|'api'} source
- */
-export async function markRedeemed(by, source) {
-  const filter = by.id ? { _id: by.id } : { codeKey: codeKeyOf(by.code) };
-  const doc = await RedeemCode.findOneAndUpdate(
-    { ...filter, status: 'sold' },
-    { $set: { status: 'redeemed', redeemedAt: new Date(), redeemSource: source } },
-    { new: true },
-  ).populate('product', 'name');
-  if (doc) { await broadcastCode(doc); return doc; }
-  const cur = await RedeemCode.findOne(filter).select('status');
-  if (!cur) throw new HttpError(404, 'Code tidak ditemukan.');
-  if (cur.status === 'redeemed') throw new HttpError(409, 'Code ini sudah digunakan.');
-  throw new HttpError(409, 'Code ini belum terjual, jadi belum bisa ditandai sebagai digunakan.');
-}
-
 /* ------------------------------------------------------------------ laporan (Admin) */
 
 const rxStart = (s) => new RegExp(`^${escapeRegex(s)}`, 'i');
@@ -275,7 +251,7 @@ const wibDay = (ymd, endOfDay = false) => {
 export function buildCodeFilter(q) {
   const f = {};
   if (q.productId) f.productId = q.productId;
-  if (q.status) f.status = q.status === 'delivered' ? { $in: ['sold', 'redeemed'] } : q.status;
+  if (q.status) f.status = q.status;
   if (q.order) f.orderNo = rxStart(q.order);
   if (q.email) f['customer.email'] = rxStart(q.email);
   if (q.customer) f['customer.name'] = new RegExp(escapeRegex(q.customer), 'i');
@@ -302,10 +278,10 @@ export async function revealCode(id) {
   return admCode(c, { reveal: true });
 }
 
-/** Menghapus produk code: ditolak bila sudah ada code terjual/digunakan (riwayat penjualan tidak boleh hilang). */
+/** Menghapus produk code: ditolak bila sudah ada code terjual (riwayat penjualan tidak boleh hilang). */
 export async function releaseProductCodes(product) {
-  const used = await RedeemCode.countDocuments({ product: product._id, status: { $ne: 'available' } });
-  if (used) throw new HttpError(409, `Produk ini sudah punya ${used} code terjual/digunakan, jadi tidak bisa dihapus. Nonaktifkan saja agar tidak tampil di Marketplace.`);
+  const used = await RedeemCode.countDocuments({ product: product._id, status: 'sold' });
+  if (used) throw new HttpError(409, `Produk ini sudah punya ${used} code terjual, jadi tidak bisa dihapus. Nonaktifkan saja agar tidak tampil di Marketplace.`);
   const waiting = await Order.countDocuments({ 'product.ref': product._id, codeState: 'waiting', status: 'SUCCESS' });
   if (waiting) throw new HttpError(409, `Ada ${waiting} pesanan yang sudah dibayar dan menunggu code untuk produk ini. Tambah stok code dulu agar pesanan terpenuhi.`);
 }

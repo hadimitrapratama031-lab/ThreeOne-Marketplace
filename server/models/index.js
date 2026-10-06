@@ -249,11 +249,11 @@ notificationLogSchema.index({ resendMessageId: 1 }, { sparse: true });
 export const NotificationLog = mongoose.model('NotificationLog', notificationLogSchema);
 
 
-/* RedeemCode — satu dokumen per code. Status hanya bergerak maju: available -> sold -> redeemed.
+/* RedeemCode — satu dokumen per code. Status hanya bergerak maju: available -> sold. (Redeem terjadi di aplikasi lain, jadi tidak dilacak.)
    - codeKey (huruf besar) unik GLOBAL: code yang sama tidak bisa dimasukkan dua kali, di produk mana pun.
    - index unik parsial pada `order`: satu order tidak pernah bisa memegang dua code, walau dua proses berebut secara bersamaan.
    - Code mentah tidak pernah masuk ke API publik; hanya Admin (API admin) dan pemilik order (token pelanggan) yang membacanya. */
-export const CODE_STATUSES = ['available', 'sold', 'redeemed'];
+export const CODE_STATUSES = ['available', 'sold'];
 const redeemCodeSchema = new Schema({
   product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
   productId: { ...int, required: true },
@@ -268,8 +268,6 @@ const redeemCodeSchema = new Schema({
     whatsapp: { type: String, default: '' },
   },
   assignedAt: { type: Date, default: null },
-  redeemedAt: { type: Date, default: null },
-  redeemSource: { type: String, enum: ['', 'admin', 'api'], default: '' },
 }, { timestamps: true });
 redeemCodeSchema.index({ codeKey: 1 }, { unique: true });
 redeemCodeSchema.index({ order: 1 }, { unique: true, partialFilterExpression: { order: { $type: 'objectId' } } });

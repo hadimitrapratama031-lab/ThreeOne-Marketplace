@@ -192,13 +192,11 @@
           <div class="notice notice--warn">${I.info}<p><b>Pembayaran Anda sudah kami terima, tetapi stok code sedang habis.</b> Code akan muncul otomatis di halaman ini begitu stok ditambah; Anda tidak perlu membayar lagi. Simpan Order ID <b>${esc(o.orderNo)}</b> dan hubungi admin bila perlu.</p></div>
         </section>`;
     }
-    const used = r.status === 'redeemed';
     const steps = Array.isArray(r.tutorial) ? r.tutorial : [];
     return `
       <section class="redeem" aria-labelledby="rd-h">
         <div class="redeem__top">
           <h2 class="redeem__title" id="rd-h">Code Redeem Anda</h2>
-          <span class="chip ${used ? 'chip--warn' : 'chip--ok'}"><i></i>${used ? 'Sudah digunakan' : 'Belum digunakan'}</span>
         </div>
         <div class="redeem__plate">
           <code class="redeem__code" id="redeem-code" aria-label="Code redeem">${esc(r.code)}</code>
@@ -332,7 +330,7 @@
 
   function render() {
     const ph = phase();
-    const key = `${ph}|${order?.waAdmin || ''}|${order?.redeem ? `${order.redeem.state}:${order.redeem.status || ''}:${(order.redeem.tutorial || []).length}` : ''}`;
+    const key = `${ph}|${order?.waAdmin || ''}|${order?.redeem ? `${order.redeem.state}:${(order.redeem.tutorial || []).length}` : ''}`;
     if (key === renderedKey) return;
     const prev = renderedKey.split('|')[0];
     renderedKey = key;

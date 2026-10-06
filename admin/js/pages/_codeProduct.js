@@ -95,7 +95,6 @@ export function openCodeProductForm({ ctx, categories, product: p, onSaved }) {
           <div class="code-counts" aria-label="Jumlah code per status">
             <div><b>${num(c.available)}</b><span>Tersedia</span></div>
             <div><b>${num(c.sold)}</b><span>Terjual</span></div>
-            <div><b>${num(c.redeemed)}</b><span>Digunakan</span></div>
             ${c.waiting ? html`<div class="is-warn"><b>${num(c.waiting)}</b><span>Menunggu code</span></div>` : ''}
           </div>
           <p class="hint muted">Stok Marketplace = jumlah code tersedia. Untuk menambah stok, tempel code baru di bawah lalu klik “Tambah ke stok”; code lama tidak berubah.</p>` : html`

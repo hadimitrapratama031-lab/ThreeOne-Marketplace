@@ -66,7 +66,7 @@ export const codeProductInput = z.object({
 export const codeProductUpdateInput = codeProductInput.omit({ codes: true });
 export const addCodesInput = z.object({ codes: z.string({ required_error: 'Masukkan minimal satu code' }).max(400_000) });
 
-const codeStatus = z.enum(['available', 'sold', 'redeemed', 'delivered']);   // delivered = sudah diberikan ke pelanggan (sold + redeemed)
+const codeStatus = z.enum(['available', 'sold']);   // sold = sudah diberikan ke pelanggan
 export const codeListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -80,7 +80,6 @@ export const codeListQuery = z.object({
   to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal harus YYYY-MM-DD').optional().or(z.literal('')).default(''),
   sort: z.enum(['newest', 'oldest']).default('newest'),
 });
-export const consumeCodeInput = z.object({ code: z.string().trim().min(4).max(100) });
 
 export const categoryInput = z.object({ name: str(2, 40), active: z.boolean().optional().default(true) });
 export const faqInput = z.object({ question: str(3, 200), answer: str(1, 2000), active: z.boolean().optional().default(true) });

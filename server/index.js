@@ -33,7 +33,7 @@ import { startPaymentWorker, stopPaymentWorker } from './services/payments.js';
 import { integrationsRouter, notificationsRouter } from './routes/integrations.js';
 import webhooksRouter from './routes/webhooks.js';
 import { categoriesRouter, faqRouter, contactsRouter } from './routes/content.js';
-import { codeProductsRouter, codesRouter, redeemApiRouter } from './routes/codes.js';
+import { codeProductsRouter, codesRouter } from './routes/codes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -81,7 +81,6 @@ export function createApp() {
   app.use('/api/public', publicRouter);
   app.use('/api/orders', ordersRouter);                              // checkout + status order (token pelanggan)
   app.use('/api/payments/klikqris/webhook', webhookRouter);
-  app.use('/api/redeem', redeemApiRouter);                          // server-ke-server dari sistem redeem (kunci API, mati bila REDEEM_API_KEY kosong)
   app.use('/api/webhooks', webhooksRouter);                          // webhook status pengiriman email (Resend)          // callback server-ke-server dari KlikQRIS
 
   app.use('/api/admin/auth', originGuard, authRouter);

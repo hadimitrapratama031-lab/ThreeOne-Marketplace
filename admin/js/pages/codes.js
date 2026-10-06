@@ -1,11 +1,10 @@
-import { $, $$, html, mount, icon, num, rp, dateTime, pagerHTML, emptyState, skeletonRows, debounce, toast, toastError, dialog, confirmDialog, busy, fieldErrors } from '../ui.js';
+import { $, $$, html, mount, icon, num, rp, dateTime, pagerHTML, emptyState, skeletonRows, debounce, toast, toastError, dialog, busy, fieldErrors } from '../ui.js';
 import { api } from '../api.js';
 import { tallyCodes } from './_codeProduct.js';
 
 const STATUS = {
   available: ['Tersedia', 'pill--ok'],
   sold: ['Terjual', ''],
-  redeemed: ['Digunakan', 'pill--mute'],
 };
 const pill = (s) => html`<span class="pill ${(STATUS[s] || ['', ''])[1]}">${(STATUS[s] || [s])[0]}</span>`;
 
@@ -26,7 +25,7 @@ export default {
 
     mount(root, html`
       <div class="page-head">
-        <div><h2>Laporan Code</h2><p>Stok code, code yang sudah dikirim ke pelanggan, dan yang sudah digunakan. Berubah otomatis tanpa refresh.</p></div>
+        <div><h2>Laporan Code</h2><p>Stok code dan code yang sudah dikirim ke pelanggan. Berubah otomatis tanpa refresh.</p></div>
       </div>
 
       <section class="card code-sum" id="sum" aria-label="Ringkasan code">${skeletonRows(4, 1)}</section>
@@ -43,9 +42,7 @@ export default {
           <select id="f-status" aria-label="Status code">
             <option value="">Semua status</option>
             <option value="available">Tersedia</option>
-            <option value="delivered">Sudah dikirim (terjual + digunakan)</option>
-            <option value="sold">Terjual, belum digunakan</option>
-            <option value="redeemed">Sudah digunakan</option>
+            <option value="sold">Terjual (sudah dikirim)</option>
           </select>
           <label class="search"><span class="sr-only">Cari code</span>${icon('key')}<input id="f-code" type="search" placeholder="Code" autocomplete="off" spellcheck="false"></label>
           <label class="search"><span class="sr-only">Order ID</span>${icon('receipt')}<input id="f-order" type="search" placeholder="Order ID / ID transaksi" autocomplete="off"></label>
@@ -65,7 +62,7 @@ export default {
       const cell = (label, n, cls = '') => html`<div class="code-sum__item ${cls}"><span>${label}</span><b>${num(n)}</b></div>`;
       $('#sum', root).innerHTML = html`
         <div class="code-sum__row">
-          ${cell('Total code', stats.total)}${cell('Tersedia', stats.available, 'is-ok')}${cell('Terjual', stats.sold)}${cell('Digunakan', stats.redeemed, 'is-mute')}
+          ${cell('Total code', stats.total)}${cell('Tersedia', stats.available, 'is-ok')}${cell('Terjual', stats.sold)}
         </div>
         ${stats.waiting ? html`<p class="code-sum__alert" role="status">${icon('alert')}<span><b>${num(stats.waiting)} pesanan</b> sudah dibayar tetapi belum mendapat code karena stok habis. Tambah stok di tabel di bawah; pesanan dipenuhi otomatis, yang terlama lebih dulu.</span></p>` : ''}`.s;
 
@@ -76,12 +73,12 @@ export default {
 
       $('#per-product', root).innerHTML = (stats.products.length ? html`
         <table>
-          <thead><tr><th>Produk</th><th class="num">Harga</th><th class="num">Tersedia</th><th class="num">Terjual</th><th class="num">Digunakan</th><th class="num">Total</th><th></th></tr></thead>
+          <thead><tr><th>Produk</th><th class="num">Harga</th><th class="num">Tersedia</th><th class="num">Terjual</th><th class="num">Total</th><th></th></tr></thead>
           <tbody>${stats.products.map((p) => html`<tr data-pid="${p.productId}">
             <td><b><a href="#/codes" data-filter-product="${p.productId}">${p.name}</a></b>${p.active ? '' : html` <span class="pill pill--mute">nonaktif</span>`}${p.waiting ? html`<br><small class="faint">${num(p.waiting)} pesanan menunggu code</small>` : ''}</td>
             <td class="num">${rp(p.price)}</td>
             <td class="num">${p.available === 0 ? html`<span class="pill pill--danger">Habis</span>` : p.available <= 10 ? html`<span class="pill pill--warn">${num(p.available)}</span>` : html`<b>${num(p.available)}</b>`}</td>
-            <td class="num">${num(p.sold)}</td><td class="num">${num(p.redeemed)}</td><td class="num">${num(p.total)}</td>
+            <td class="num">${num(p.sold)}</td><td class="num">${num(p.total)}</td>
             <td><div class="row-actions"><button class="btn btn--sm" type="button" data-addstock="${p.id}">${icon('plus')}Tambah stok</button></div></td>
           </tr>`)}</tbody>
         </table>` : emptyState('Belum ada produk code', 'Buat lewat Produk → Tambah produk → Sistem Code.', 'key')).s;
@@ -98,10 +95,8 @@ export default {
       <td>${c.productName ?? html`<span class="faint">—</span>`}</td>
       <td>${c.orderNo ? html`<b>${c.orderNo}</b>` : html`<span class="faint">—</span>`}</td>
       <td>${c.customer.name ? html`${c.customer.name}<br><small class="faint">${c.customer.email}${c.customer.whatsapp ? ` · +${c.customer.whatsapp}` : ''}</small>` : html`<span class="faint">—</span>`}</td>
-      <td>${pill(c.status)}${c.redeemSource ? html`<br><small class="faint">via ${c.redeemSource === 'api' ? 'sistem redeem' : 'admin'}</small>` : ''}</td>
+      <td>${pill(c.status)}</td>
       <td class="muted">${dateTime(c.assignedAt)}</td>
-      <td class="muted">${dateTime(c.redeemedAt)}</td>
-      <td><div class="row-actions">${c.status === 'sold' ? html`<button class="btn btn--sm" type="button" data-redeem="${c.id}">Tandai digunakan</button>` : ''}</div></td>
     </tr>`;
 
     async function load() {
@@ -114,7 +109,7 @@ export default {
         const filtered = Object.keys(FILTERS).some((k) => q[k]);
         $('#table', root).innerHTML = (res.items.length ? html`
           <table>
-            <thead><tr><th>Code</th><th>Produk</th><th>Order ID</th><th>Customer</th><th>Status</th><th>Diberikan</th><th>Digunakan</th><th></th></tr></thead>
+            <thead><tr><th>Code</th><th>Produk</th><th>Order ID</th><th>Customer</th><th>Status</th><th>Diberikan</th></tr></thead>
             <tbody id="rows">${res.items.map(rowHTML)}</tbody>
           </table>` : emptyState(filtered ? 'Tidak ada code yang cocok' : 'Belum ada code', filtered ? 'Ubah kata kunci atau filter.' : 'Tambahkan code lewat Produk → Sistem Code.', 'key')).s;
         $('#pager', root).innerHTML = pagerHTML(res).s;
@@ -189,15 +184,6 @@ export default {
           if (tr) tr.outerHTML = rowHTML(item).s;
         } catch (err) { toastError(err, 'Code gagal ditampilkan'); }
         return;
-      }
-
-      const red = e.target.closest('[data-redeem]');
-      if (red) {
-        const c = rows.get(red.dataset.redeem);
-        const ok = await confirmDialog({ title: 'Tandai sudah digunakan?', message: `Code untuk pesanan ${c?.orderNo || ''} akan ditandai Digunakan dan tidak bisa dipakai lagi. Lakukan ini hanya bila code memang sudah diredeem.`, confirmLabel: 'Tandai digunakan' });
-        if (!ok) return;
-        try { await api.post(`/codes/${red.dataset.redeem}/redeem`); toast('Code ditandai digunakan'); }
-        catch (err) { toastError(err, 'Gagal menandai code'); }
       }
     });
 

@@ -1,16 +1,13 @@
 import { Router } from 'express';
 import { Product, Category, nextSeq } from '../models/index.js';
 import { asyncH, parse, HttpError, objectIdStr, pageMeta } from '../lib/http.js';
-import { codeProductInput, codeProductUpdateInput, addCodesInput, codeListQuery, consumeCodeInput } from '../lib/schemas.js';
+import { codeProductInput, codeProductUpdateInput, addCodesInput, codeListQuery } from '../lib/schemas.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange } from '../lib/realtime.js';
-import { config } from '../config/env.js';
-import { safeEqual } from '../lib/secrets.js';
-import { redeemLimiter } from '../middleware/security.js';
 import * as assets from '../services/assets.js';
 import { soldOf } from '../services/sales.js';
 import { addCodes, validateCodeInput, listCodes, revealCode, codeStats, productCounts, broadcastProduct } from '../services/codes.js';
-import { redeemCode, fulfillWaitingOrders } from '../services/redeem.js';
+import { fulfillWaitingOrders } from '../services/redeem.js';
 
 const owner = (id) => ({ type: 'product', id: String(id) });
 const visible = (p) => p.active && p.category?.active !== false;
@@ -111,24 +108,4 @@ codesRouter.get('/:id/reveal', asyncH(async (req, res) => {
   if (!objectIdStr.safeParse(req.params.id).success) throw new HttpError(404, 'Code tidak ditemukan.');
   res.set('Cache-Control', 'no-store');
   res.json({ item: await revealCode(req.params.id) });
-}));
-
-// Tandai manual sebagai Redeemed (sold -> redeemed)
-codesRouter.post('/:id/redeem', asyncH(async (req, res) => {
-  if (!objectIdStr.safeParse(req.params.id).success) throw new HttpError(404, 'Code tidak ditemukan.');
-  const doc = await redeemCode({ id: req.params.id }, 'admin');
-  res.json({ ok: true, status: doc.status, redeemedAt: doc.redeemedAt });
-}));
-
-/* ---------- /api/redeem  (server-ke-server dari sistem redeem; kunci API, bukan sesi Admin) ---------- */
-export const redeemApiRouter = Router();
-redeemApiRouter.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
-
-redeemApiRouter.post('/consume', redeemLimiter, asyncH(async (req, res) => {
-  const key = config.redeemApiKey;
-  if (!key || key.length < 24) throw new HttpError(404, 'Endpoint tidak ditemukan.');   // belum dikonfigurasi = tidak ada
-  if (!safeEqual(req.get('x-redeem-key') || '', key)) throw new HttpError(401, 'Kunci tidak valid.');
-  const { code } = parse(consumeCodeInput, req.body);
-  const doc = await redeemCode({ code }, 'api');
-  res.json({ ok: true, status: 'redeemed', product: { id: doc.productId, name: doc.product?.name ?? '' } });
 }));

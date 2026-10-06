@@ -124,7 +124,7 @@ r.patch('/:id/status', asyncH(async (req, res) => {
 
 r.delete('/:id', asyncH(async (req, res) => {
   const doc = await loadProduct(req.params.id);
-  if (doc.kind === 'code') await releaseProductCodes(doc);   // ditolak (409) bila ada code terjual/digunakan atau pesanan menunggu code
+  if (doc.kind === 'code') await releaseProductCodes(doc);   // ditolak (409) bila ada code terjual atau pesanan menunggu code
   const before = doc.toObject();
   const reviews = await Review.find({ product: doc._id }).select('_id').lean();
 

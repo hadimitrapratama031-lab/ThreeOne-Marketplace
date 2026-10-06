@@ -499,7 +499,7 @@ textarea.code-input { min-height: 180px; letter-spacing: .02em; white-space: pre
 .code-counts .is-warn b { color: var(--warn); }
 
 /* Ringkasan Laporan Code: satu panel, empat angka, dipisah garis tipis */
-.code-sum__row { display: grid; grid-template-columns: repeat(4, 1fr); }
+.code-sum__row { display: grid; grid-template-columns: repeat(3, 1fr); }
 .code-sum__item { display: grid; gap: 4px; padding: 18px 22px; border-left: 1px solid var(--line); }
 .code-sum__item:first-child { border-left: 0; }
 .code-sum__item span { color: var(--muted); font-weight: 600; }
@@ -518,9 +518,8 @@ tr.row-flash td { animation: flash 1.4s ease-out; }
 @keyframes flash { from { background: var(--tint); } to { background: transparent; } }
 
 @media (max-width: 760px) {
-  .code-sum__row { grid-template-columns: 1fr 1fr; }
-  .code-sum__item:nth-child(3) { border-left: 0; }
-  .code-sum__item:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .code-sum__item { padding: 14px 14px; }
+  .code-sum__item b { font-size: 24px; }
   .code-filters .datefield { flex: 1 1 100%; }
   .code-filters .datefield input { flex: 1; }
 }
