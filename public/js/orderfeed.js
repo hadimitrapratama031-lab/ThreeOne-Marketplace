@@ -1,20 +1,20 @@
 /* ==========================================================================
    orderfeed.js — Floating Order Notification (Marketplace)
    Sumber data:
-   - Awal / setelah reconnect : GET /api/public/recent-orders  (5 order SUCCESS terbaru dari MongoDB, email sudah ber-masking di server)
+   - Awal / setelah reconnect : GET /api/public/recent-orders  (semua order SUCCESS dari MongoDB, terbaru dulu, email sudah ber-masking di server)
    - Order baru               : event Socket.IO `sale:create` (lewat live.js -> script.js -> event DOM "mp:change")
    Aturan:
-   - Antrean maksimal 5, terbaru di depan. Order baru masuk ke posisi pertama, yang paling lama keluar.
+   - Antrean berisi semua order SUCCESS, terbaru di depan. Order baru masuk ke posisi pertama.
    - Satu order tampil 3 detik, hilang 1 detik, lalu order berikutnya. Setelah yang terakhir kembali ke yang terbaru.
    - Kunci unik = `id` (ID opaque dari server). Event ganda / reconnect / refresh data tidak pernah menambah order yang sama dua kali.
    - Semua teks dipasang lewat textContent (nama pelanggan berasal dari input pengguna).
    ========================================================================== */
 (() => {
-  const LIMIT = 5;            // maksimal order dalam antrean
+  const LIMIT = 500;          // maksimal order dalam antrean (samakan dengan FEED_LIMIT di server)
   const SHOW_MS = 3000;       // lama tampil
   const GAP_MS = 1000;        // jeda sebelum order berikutnya (animasi keluar terjadi di dalam jeda ini)
   const FIRST_DELAY_MS = 1200;// notifikasi pertama muncul sesudah halaman tenang
-  const KNOWN_MAX = 300;      // batas memori id yang pernah dilihat
+  const KNOWN_MAX = 2000;     // batas memori id yang pernah dilihat (harus lebih besar dari LIMIT)
   const REFETCH_GUARD_MS = 2000;
 
   const base = (typeof Live !== 'undefined' ? Live.apiBase : '') + '/api/public';

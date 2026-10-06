@@ -82,7 +82,7 @@ Toast kecil di kiri bawah Marketplace (`/`) yang menampilkan order sukses terbar
 | Bagian | Detail |
 |---|---|
 | Sumber data | Order berstatus `SUCCESS` saja (definisi yang sama dengan "Terjual"), diurutkan menurut waktu bayar. PENDING / EXPIRED / FAILED tidak pernah ikut. |
-| `GET /api/public/recent-orders` | 5 order terbaru, dipakai saat halaman dibuka dan untuk sinkron ulang setelah reconnect. |
+| `GET /api/public/recent-orders` | Semua order SUCCESS (terbaru dulu, pengaman `FEED_LIMIT` = 500), dipakai saat halaman dibuka dan untuk sinkron ulang setelah reconnect. |
 | Socket.IO | Event publik `sale:create`, disiarkan dari `markPaid()` oleh pemenang transisi ke SUCCESS (callback ganda tidak menyiarkan ulang). |
 | Payload | `id`, nama depan, email ber-masking (`rizk*****@gmail.com`), nama produk, gambar produk, waktu bayar. Masking dilakukan di server; email utuh tidak pernah dikirim. `id` adalah HMAC opaque, **bukan** `orderNo` (orderNo membuka Cek Pesanan). |
 | Klien (`public/js/orderfeed.js`) | Antrean maksimal 5, terbaru di depan. Tampil 3 detik, hilang 1 detik, lalu order berikutnya; setelah yang terakhir kembali ke yang terbaru. Order baru masuk ke posisi pertama dan menjadi yang berikutnya tampil (notifikasi yang sedang tampil tidak disela). Dedup lewat `id`. Berhenti saat tab tersembunyi dan lanjut saat kembali. |

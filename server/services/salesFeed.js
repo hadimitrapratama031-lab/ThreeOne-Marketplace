@@ -13,7 +13,8 @@ import { emitPublic } from '../lib/realtime.js';
  * Data yang boleh publik (dan hanya ini): ID opaque, nama depan, email ber-masking, nama produk, gambar produk, waktu bayar.
  * Tidak ada orderNo (orderNo membuka Cek Pesanan, termasuk code redeem), WhatsApp, nominal, token, atau data gateway.
  */
-export const FEED_LIMIT = 5;
+/** Semua order SUCCESS ikut tampil. Batas ini hanya pengaman agar respons tidak tak terbatas besarnya (500 order ≈ 100 KB). Naikkan bila perlu. */
+export const FEED_LIMIT = 500;
 
 const iso = (d) => (d ? new Date(d).toISOString() : null);
 
@@ -61,7 +62,7 @@ export function pubSale(o) {
   };
 }
 
-/** Order SUCCESS terbaru -> terlama (berdasarkan waktu bayar). Hanya field yang dibutuhkan yang dibaca dari database. */
+/** Order SUCCESS terbaru -> terlama (berdasarkan waktu bayar), sampai FEED_LIMIT. Hanya field yang dibutuhkan yang dibaca dari database. */
 export async function listRecentSales(limit = FEED_LIMIT) {
   const rows = await Order.find({ status: 'SUCCESS' })
     .sort({ 'payment.paidAt': -1, createdAt: -1, _id: -1 })

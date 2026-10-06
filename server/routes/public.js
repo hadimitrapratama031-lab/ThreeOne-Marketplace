@@ -50,7 +50,7 @@ r.get('/bootstrap', asyncH(async (_req, res) => {
   });
 }));
 
-/** Floating Order Notification: 5 order SUCCESS terbaru, sudah ber-masking di sini (email utuh tidak pernah keluar dari server).
+/** Floating Order Notification: order SUCCESS terbaru -> terlama (semua, sampai FEED_LIMIT), sudah ber-masking di sini (email utuh tidak pernah keluar dari server).
  *  Dipakai saat Marketplace dibuka dan untuk sinkron ulang setelah reconnect; order baru datang lewat Socket.IO `sale:create`. */
 r.get('/recent-orders', asyncH(async (_req, res) => {
   res.json({ items: await listRecentSales(), serverTime: new Date().toISOString() });
