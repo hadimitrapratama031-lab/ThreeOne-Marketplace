@@ -110,7 +110,12 @@
   height: 100%;
 }
 
-.pd-slide > img,
+/* Gambar utama TIDAK dipotong/dizoom: rasio apa pun (mis. header Steam 2,1:1) tampil utuh di panggung 16:9,
+   sisa ruang diisi warna panggung. Thumbnail dan .pd-shot tetap cover (hanya pratinjau kecil). */
+.pd-slide > img {
+  object-fit: contain;
+}
+
 .pd-thumb img,
 .pd-shot img {
   object-fit: cover;

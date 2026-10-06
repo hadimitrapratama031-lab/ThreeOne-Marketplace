@@ -1,21 +1,24 @@
-import { Product } from '../models/index.js';
+import { Order } from '../models/index.js';
+import { SOLD_STATUS } from './sales.js';
 import { emitPublic, emitAdmin, setChangeHook } from '../lib/realtime.js';
 import { summarize, visibleProducts } from './reviews.js';
 import { getSetting } from './settings.js';
 
 /**
  * Statistik beranda yang dihitung langsung dari database (bukan angka yang diketik manual):
- *  - orders : "Pesanan Selesai" = jumlah terjual (total `sold` seluruh produk). Bertambah otomatis setiap pembayaran berhasil.
+ *  - orders : "Pesanan Selesai" = jumlah order berstatus SUCCESS di koleksi Order (definisi yang sama dengan "Terjual" per produk
+ *             di services/sales.js, dan sama dengan daftar Pesanan di Admin Web). Bukan Product.sold (counter lama yang bisa
+ *             terisi dari seed/manual/migrasi dan tidak selalu cocok dengan order nyata).
  *  - rating : rata-rata bintang dari ulasan yang tayang (0 bila belum ada), + ratingCount.
  */
 export async function liveStats() {
-  const [sold, visible] = await Promise.all([
-    Product.aggregate([{ $group: { _id: null, n: { $sum: '$sold' } } }]),
+  const [completed, visible] = await Promise.all([
+    Order.countDocuments({ status: SOLD_STATUS }),
     visibleProducts(),
   ]);
   const ids = [...visible.keys()];
   const summary = await summarize({ status: 'published', productId: { $in: [...ids, null] } });   // sama dengan halaman Rating
-  return { orders: sold[0]?.n ?? 0, rating: summary.avg ?? 0, ratingCount: summary.total };
+  return { orders: completed, rating: summary.avg ?? 0, ratingCount: summary.total };
 }
 
 /** Gabungkan angka hidup ke pengaturan stats (sisanya, mis. `support`, tetap dari pengaturan admin). */

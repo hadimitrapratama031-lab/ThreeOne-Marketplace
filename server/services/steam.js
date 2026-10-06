@@ -143,7 +143,8 @@ async function stage(srcUrl, { kind, maxBytes, timeoutMs, name }) {
 // Hanya paralelisme yang dibatasi (bukan jumlahnya) supaya server tidak membuka puluhan koneksi sekaligus.
 const STAGE_CONCURRENCY = 6;
 
-const heroCandidates = (d) => [d.header_image, d.capsule_imagev5, d.capsule_image].filter((u) => typeof u === 'string' && cdnUrl(u));
+// capsule_imagev5 (616x353, hampir 16:9) lebih tajam & pas di galeri daripada header_image (460x215); header_image jadi cadangan.
+const heroCandidates = (d) => [d.capsule_imagev5, d.header_image, d.capsule_image].filter((u) => typeof u === 'string' && cdnUrl(u));
 
 /**
  * Screenshot Steam (`screenshots[]`) -> [{ id, urls: [path_full, path_thumbnail] }] hanya host CDN Steam, tanpa duplikat.
