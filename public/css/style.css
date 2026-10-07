@@ -548,6 +548,12 @@ h2 {
   list-style: none;
 }
 
+/* Grid produk di halaman marketplace dikecilkan 5% (hanya #product-groups; grid "produk terkait" di product.html tidak ikut berubah) */
+#product-groups .product-grid {
+  width: 95%;
+  margin-inline: auto;
+}
+
 /* Kartu produk */
 .card {
   position: relative;
