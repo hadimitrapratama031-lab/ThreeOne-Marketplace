@@ -1,5 +1,5 @@
 /* ==========================================================================
-   payment.js — Payment  (payment.html?order=MP-...&t=TOKEN)
+   payment.js — Payment  (/payment?order=MP-...&t=TOKEN)
    Satu halaman, beberapa keadaan: menunggu pembayaran -> sukses | kedaluwarsa | gagal.
    - Status, nominal (total_amount KlikQRIS) dan batas waktu SELALU dari backend/MongoDB.
      Countdown = expiresAt (jam server) dikurangi jam server; refresh tidak mereset hitungan.
@@ -72,7 +72,7 @@
   const head = ({ title, lead, step, back = true }) => `
     <header class="pay-head${first ? ' enter' : ''}"${first ? ' style="--d:.05s"' : ''}>
       <div class="pay-head__text">
-        ${back && order ? `<a class="pay-back" href="product.html?id=${order.product.id}">${I.back}<span>Kembali ke produk</span></a>` : ''}
+        ${back && order ? `<a class="pay-back" href="/product/${order.product.id}">${I.back}<span>Kembali ke produk</span></a>` : ''}
         <h1 class="pay-title" id="pay-h">${title}</h1>
         ${lead ? `<p class="pay-lead">${lead}</p>` : ''}
       </div>
@@ -248,8 +248,8 @@
           <div class="result-actions">
             ${link
               ? `<a class="btn btn--wa" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${I.wa}<span>Hubungi Admin via WhatsApp</span></a>`
-              : `<a class="btn btn--primary" href="index.html#contact">Lihat kontak admin</a>`}
-            <a class="btn btn--soft" href="index.html">Kembali ke beranda</a>
+              : `<a class="btn btn--primary" href="/#contact">Lihat kontak admin</a>`}
+            <a class="btn btn--soft" href="/">Kembali ke beranda</a>
           </div>
           ${link ? '' : `<div class="notice notice--warn">${I.info}<p>Nomor WhatsApp admin belum diatur. Simpan Order ID <b>${esc(o.orderNo)}</b> dan hubungi admin lewat kontak di beranda.</p></div>`}
           ${sandboxNotice(o)}
@@ -278,8 +278,8 @@
           <h2 class="result-title">Pesanan ini kedaluwarsa karena belum dibayar</h2>
           <p class="result-text">Pembayaran untuk pesanan <b>${esc(o.orderNo)}</b> tidak kami terima dalam 10 menit, jadi kode QRIS tidak berlaku lagi. <b>Jangan membayar dengan kode lama.</b> Buat pesanan baru untuk mendapat kode QRIS yang baru.</p>
           <div class="result-actions">
-            <a class="btn btn--primary" href="checkout.html?product=${o.product.id}">Buat pesanan baru</a>
-            ${link ? `<a class="btn btn--wa" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${I.wa}<span>Hubungi admin</span></a>` : `<a class="btn btn--soft" href="index.html#contact">Hubungi admin</a>`}
+            <a class="btn btn--primary" href="/checkout?product=${o.product.id}">Buat pesanan baru</a>
+            ${link ? `<a class="btn btn--wa" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${I.wa}<span>Hubungi admin</span></a>` : `<a class="btn btn--soft" href="/#contact">Hubungi admin</a>`}
           </div>
           <div class="notice">${I.info}<p>Sudah terlanjur membayar? Hubungi admin dan sertakan Order ID. Pembayaran yang masuk tetap kami periksa, dan halaman ini berubah otomatis bila terkonfirmasi.</p></div>
         </section>
@@ -298,8 +298,8 @@
           <h2 class="result-title">Kami belum bisa membuat kode pembayaran</h2>
           <p class="result-text">${esc(o.failureReason || 'Transaksi pembayaran tidak dapat dibuat.')} Ini bukan salah Anda; coba buat pesanan lagi. Bila masih gagal, hubungi admin dan sertakan Order ID <b>${esc(o.orderNo)}</b>.</p>
           <div class="result-actions">
-            <a class="btn btn--primary" href="checkout.html?product=${o.product.id}">Coba lagi</a>
-            ${link ? `<a class="btn btn--wa" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${I.wa}<span>Hubungi admin</span></a>` : `<a class="btn btn--soft" href="index.html#contact">Hubungi admin</a>`}
+            <a class="btn btn--primary" href="/checkout?product=${o.product.id}">Coba lagi</a>
+            ${link ? `<a class="btn btn--wa" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${I.wa}<span>Hubungi admin</span></a>` : `<a class="btn btn--soft" href="/#contact">Hubungi admin</a>`}
           </div>
         </section>
         <aside class="pay-side">${summaryPanel(o)}</aside>
@@ -322,7 +322,7 @@
         <h1>${nf ? 'Pesanan tidak ditemukan' : 'Pembayaran belum bisa dimuat'}</h1>
         <p>${nf ? 'Tautan pembayaran tidak valid atau sudah salah ketik. Gunakan tautan lengkap yang muncul setelah checkout.' : 'Periksa koneksi Anda, lalu coba lagi. Pesanan Anda aman dan tidak berubah.'}</p>
         <div class="result-actions">
-          ${nf ? '<a class="btn btn--primary" href="index.html#product">Lihat produk</a>' : '<button class="btn btn--primary" type="button" data-retry>Coba lagi</button>'}
+          ${nf ? '<a class="btn btn--primary" href="/#product">Lihat produk</a>' : '<button class="btn btn--primary" type="button" data-retry>Coba lagi</button>'}
         </div>
       </section>`;
   }

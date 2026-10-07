@@ -49,9 +49,25 @@ python test/e2e/browser.py  # opsional, 30 pemeriksaan di browser nyata (butuh: 
 ```
 `npm test` memakai R2 tiruan lokal dan membuat/menghapus database sementara sendiri (`TEST_MONGODB_URI` opsional).
 
+## Clean URL (tanpa .html)
+
+| URL | File |
+|---|---|
+| `/` | `public/index.html` |
+| `/rating` | `public/rating.html` |
+| `/product/<id>` | `public/product.html` |
+| `/checkout?product=<id>` | `public/checkout.html` |
+| `/payment?order=<no>&t=<token>` | `public/payment.html` (sukses / gagal / kedaluwarsa = keadaan di halaman ini) |
+| `/cek-pesanan` | `public/track.html` |
+
+- Pemetaan ada di satu tempat: `PAGES` di `server/lib/urls.js` (dipakai `server/index.js` untuk routing **dan** oleh pembuat tautan Email/WhatsApp).
+- URL lama dialihkan 301 dengan query utuh: `/payment.html?order=X&t=Y` → `/payment?order=X&t=Y`, `/product.html?id=5` dan `/product?id=5` → `/product/5`, `/track(.html)` → `/cek-pesanan`, `/faq` → `/#faq`, `/contact` → `/#contact`, `/rating/` → `/rating`.
+- Aset di HTML memakai path root-absolute (`/css/…`, `/js/…`) supaya tetap benar di `/product/5`. Tautan antarhalaman di JS/HTML juga clean (`/rating`, `/cek-pesanan`, `/product/<id>`).
+- Tautan notifikasi dibuat lewat `pageUrl()` + `resolvePublicOrigin()` (`server/lib/urls.js`): alamat dari Admin Web / `PUBLIC_BASE_URL`, lalu origin request hanya bila domain publik asli (bukan localhost / `*.up.railway.app` / preview), lalu cadangan production `https://www.31store.site` (`DEFAULT_PUBLIC_ORIGIN`).
+
 ## Cek Pesanan
 
-Halaman `/track.html` (tombol **Cek Pesanan** di header). Satu form, dua metode: **ID Transaksi** atau **Email** (cukup salah satu). Memakai Order, Payment, MongoDB, dan Socket.IO yang sudah ada; tidak ada koleksi atau status baru.
+Halaman `/cek-pesanan` (tombol **Cek Pesanan** di header). Satu form, dua metode: **ID Transaksi** atau **Email** (cukup salah satu). Memakai Order, Payment, MongoDB, dan Socket.IO yang sudah ada; tidak ada koleksi atau status baru.
 
 | Bagian | Detail |
 |---|---|

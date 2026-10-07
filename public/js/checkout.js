@@ -1,7 +1,7 @@
 /* ==========================================================================
-   checkout.js — Checkout  (checkout.html?product=ID)
+   checkout.js — Checkout  (/checkout?product=ID)
    Produk dari /api/public/products/:id (MongoDB, harga selalu dari server).
-   Submit -> POST /api/orders -> payment.html?order=...&t=...
+   Submit -> POST /api/orders -> /payment?order=...&t=...
    Memakai api, esc, formatRupiah, artwork, stockInfo, $, $$ dari script.js.
    ========================================================================== */
 (() => {
@@ -80,8 +80,8 @@
   function stateHTML(kind) {
     const map = {
       loading: null,
-      missing: { icon: 'alert', cls: 'warn', title: 'Produk tidak ditemukan', text: 'Produk yang ingin Anda beli tidak tersedia atau tautannya sudah berubah.', cta: '<a class="btn btn--primary" href="index.html#product">Lihat produk lain</a>' },
-      soldout: { icon: 'alert', cls: 'warn', title: 'Stok produk habis', text: p ? `${esc(p.name)} sedang tidak tersedia. Stok diperbarui langsung, silakan cek lagi nanti atau pilih produk lain.` : '', cta: `<a class="btn btn--primary" href="index.html#product">Lihat produk lain</a>${p ? `<a class="btn btn--soft" href="product.html?id=${p.id}">Kembali ke produk</a>` : ''}` },
+      missing: { icon: 'alert', cls: 'warn', title: 'Produk tidak ditemukan', text: 'Produk yang ingin Anda beli tidak tersedia atau tautannya sudah berubah.', cta: '<a class="btn btn--primary" href="/#product">Lihat produk lain</a>' },
+      soldout: { icon: 'alert', cls: 'warn', title: 'Stok produk habis', text: p ? `${esc(p.name)} sedang tidak tersedia. Stok diperbarui langsung, silakan cek lagi nanti atau pilih produk lain.` : '', cta: `<a class="btn btn--primary" href="/#product">Lihat produk lain</a>${p ? `<a class="btn btn--soft" href="/product/${p.id}">Kembali ke produk</a>` : ''}` },
       error: { icon: 'alert', cls: 'danger', title: 'Checkout belum bisa dimuat', text: 'Periksa koneksi Anda, lalu coba lagi.', cta: '<button class="btn btn--primary" type="button" data-retry>Coba lagi</button>' },
     };
     if (kind === 'loading') {
@@ -155,7 +155,7 @@
     root.innerHTML = `
       <header class="pay-head enter" style="--d:.05s">
         <div class="pay-head__text">
-          <a class="pay-back" href="product.html?id=${p.id}">${I.back}<span>Kembali ke produk</span></a>
+          <a class="pay-back" href="/product/${p.id}">${I.back}<span>Kembali ke produk</span></a>
           <h1 class="pay-title">Checkout</h1>
           <p class="pay-lead">Isi data pembeli. Admin akan menghubungi Anda lewat WhatsApp setelah pembayaran diterima.</p>
         </div>
@@ -260,7 +260,7 @@
         return;
       }
       sessionStorage.removeItem(KEY_CK);          // pembelian berikutnya = order baru
-      location.assign(`payment.html?order=${encodeURIComponent(data.orderNo)}&t=${encodeURIComponent(data.token)}`);
+      location.assign(`/payment?order=${encodeURIComponent(data.orderNo)}&t=${encodeURIComponent(data.token)}`);
     } catch {
       formError('Tidak dapat terhubung ke server. Periksa koneksi Anda lalu coba lagi. Pesanan tidak akan terkirim dua kali.');
     } finally {

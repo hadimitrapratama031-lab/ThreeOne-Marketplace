@@ -2,6 +2,7 @@ import { Order, Product, Contact, NotificationLog, NOTIFICATION_EVENTS } from '.
 import { publicUrl } from '../lib/r2.js';
 import { config } from '../config/env.js';
 import { tokenFor } from '../lib/orderToken.js';
+import { pageUrl, resolvePublicOrigin } from '../lib/urls.js';
 import { isValidWhatsApp, isValidEmail } from '../lib/phone.js';
 import { emitAdmin } from '../lib/realtime.js';
 import { getNotificationPrefs } from './integrationSettings.js';
@@ -110,7 +111,6 @@ async function deliverChannel({ order, event, channel, recipient, templateSource
 }
 
 /* ---------------------------------------------------------------- context */
-const isPublicBase = (u) => { try { const h = new URL(u).hostname; return !(/^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(h) || h.endsWith('.local')); } catch { return false; } };
 const httpUrl = (u) => (/^https?:\/\//i.test(u || '') ? String(u).trim() : '');
 
 async function loadContextInputs(order) {
@@ -124,10 +124,10 @@ async function loadContextInputs(order) {
     const live = await Product.findById(order.product.ref).select('media').lean().catch(() => null);
     imageKey = (live?.media || []).find((m) => m.type === 'image' && m.key && m.source !== 'steam')?.key || '';
   }
-  const origin = [pay.publicBaseUrl, order.origin, config.publicBaseUrl].find((u) => u && isPublicBase(u)) || '';
+  const origin = resolvePublicOrigin({ configured: [pay.publicBaseUrl, config.publicBaseUrl], requestOrigin: order.origin });
   // Sistem Code: code dibaca dari database saat pesan dibangun (bukan disalin ke log). Hanya dipakai event paymentSuccess.
   const redeemCode = order.product?.kind === 'code' ? await codeOfOrder(order._id) : '';
-  return { branding, pay, discordHref: httpUrl(discord?.href), imageKey, redeemCode, origin: origin.replace(/\/+$/, '') };
+  return { branding, pay, discordHref: httpUrl(discord?.href), imageKey, redeemCode, origin };
 }
 
 /** Data mentah (Order + pengaturan) -> satu objek datar untuk WhatsApp dan Email. Semua nilai dari database. */
@@ -173,9 +173,9 @@ export function buildContext({ event, order, inputs }) {
   };
   ctx.subject = copy ? copy.subject(ctx) : `Update pesanan ${ctx.orderCode}`;
   // Halaman payment di project ini memerlukan token pelanggan; halaman yang sama menampilkan invoice/sukses
-  const pageUrl = origin && order.orderNo ? `${origin}/payment.html?order=${encodeURIComponent(order.orderNo)}&t=${tokenFor(order.orderNo)}` : '';
-  ctx.payUrl = pageUrl;
-  ctx.invoiceUrl = pageUrl;
+  const payPageUrl = origin && order.orderNo ? pageUrl(origin, 'payment', { query: { order: order.orderNo, t: tokenFor(order.orderNo) } }) : '';
+  ctx.payUrl = payPageUrl;
+  ctx.invoiceUrl = payPageUrl;
   ctx.waAdminChatUrl = waHref ? `${waHref}?text=${encodeURIComponent(`Halo Admin, saya ingin bertanya mengenai Order ${ctx.orderCode}`)}` : '';
   return ctx;
 }

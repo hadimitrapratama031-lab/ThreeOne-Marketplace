@@ -1,5 +1,5 @@
 /* ==========================================================================
-   product.js — Product Detail  (product.html?id=ID)
+   product.js — Product Detail  (/product/ID)
    Data dari /api/public/products/:id (MongoDB) dan diperbarui realtime.
    Halaman TIDAK menunggu jaringan untuk tampil: struktur langsung digambar dari data yang sudah ada (hasil prefetch / kunjungan
    sebelumnya / kartu produk dari cache daftar), lalu detail lengkap + ulasan halaman 1 (SATU request) melengkapi di belakang layar.
@@ -15,7 +15,8 @@
    ========================================================================== */
 (() => {
   const root = $('#pd-root');
-  const pid = Number(new URLSearchParams(location.search).get('id'));
+  // /product/<id> (clean URL); ?id= tetap dibaca sebagai cadangan (server mengalihkan bentuk lama ke /product/<id>)
+  const pid = Number(/^\/product\/(\d+)\/?$/.exec(location.pathname)?.[1] ?? new URLSearchParams(location.search).get('id'));
   const REVIEWS_PER_PAGE = 3;
 
   let view = 'loading';            // loading | ready | missing | error
@@ -214,7 +215,7 @@
       <div class="pd-empty enter">
         <h1 class="pd-title">${title}</h1>
         ${text ? `<p>${text}</p>` : ''}
-        ${view === 'error' ? '<button class="btn btn--primary" type="button" data-retry>Coba lagi</button>' : view === 'missing' ? '<a class="btn btn--primary" href="index.html#product">Kembali ke Produk</a>' : ''}
+        ${view === 'error' ? '<button class="btn btn--primary" type="button" data-retry>Coba lagi</button>' : view === 'missing' ? '<a class="btn btn--primary" href="/#product">Kembali ke Produk</a>' : ''}
       </div>`;
     document.title = `${title} — ${DATA.brand}`;
   }
@@ -274,8 +275,8 @@
     root.innerHTML = `
       <nav class="pd-crumb enter" aria-label="Breadcrumb" style="--d:.05s">
         <ol>
-          <li><a href="index.html#home">Home</a></li>
-          <li><a href="index.html#product">Catalogue</a></li>
+          <li><a href="/#home">Home</a></li>
+          <li><a href="/#product">Catalogue</a></li>
           <li><span aria-current="page">${esc(p.name)}</span></li>
         </ol>
       </nav>
@@ -355,8 +356,8 @@
           <div id="pd-reviews"></div>
           <nav class="pager" id="pd-pager" aria-label="Halaman ulasan"></nav>
           <p class="pd-reviewcta">
-            <a class="btn btn--soft" href="rating.html?product=${p.id}#tulis">Tulis ulasan</a>
-            <a href="rating.html">Lihat semua rating</a>
+            <a class="btn btn--soft" href="/rating?product=${p.id}#tulis">Tulis ulasan</a>
+            <a href="/rating">Lihat semua rating</a>
           </p>
         </div>
       </section>
@@ -384,7 +385,7 @@
     const thumb = t.closest('.pd-thumb');
     if (thumb) return go(+thumb.dataset.i);
     if (t.closest('.pd-play')) return playVideo();
-    if (t.closest('#pd-buy')) { if (p && p.stock > 0) location.href = 'checkout.html?product=' + p.id; return; }
+    if (t.closest('#pd-buy')) { if (p && p.stock > 0) location.href = '/checkout?product=' + p.id; return; }
     if (t.closest('#pd-cart')) return flash(t.closest('#pd-cart'), 'Ditambahkan ke keranjang');
     if (t.closest('#pd-share')) return share(t.closest('#pd-share'));
     const pg = t.closest('[data-page]');

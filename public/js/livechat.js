@@ -19,7 +19,7 @@
   const PROFILE = 'mp_livechat_profile';
   const OK_IMG = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
   const MAX_IMG = 8 * 1024 * 1024;
-  const compact = /\/(checkout|payment)\.html$/.test(location.pathname);
+  const compact = /^\/(checkout|payment)\/?$/.test(location.pathname);
 
   /* ---------- util ---------- */
   const store = {

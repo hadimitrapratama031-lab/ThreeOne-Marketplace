@@ -3,6 +3,7 @@ import { config } from '../config/env.js';
 import { formatWhatsapp } from '../lib/phone.js';
 import { getLivechatSettings } from './livechatSettings.js';
 import { getPaymentConfig } from './paymentSettings.js';
+import { resolvePublicOrigin } from '../lib/urls.js';
 import * as fonnte from './fonnte.js';
 
 /**
@@ -17,13 +18,12 @@ const STALE_CLAIM_MS = 2 * 60 * 1000;
 const BACKOFF_MS = 1500;
 const MAX_ATTEMPTS = 2;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const isPublicBase = (u) => { try { const h = new URL(u).hostname; return !(/^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(h) || h.endsWith('.local')); } catch { return false; } };
 
 /** Tautan ke Live Chat Admin; kosong bila tidak ada alamat publik (localhost tidak berguna di WhatsApp). */
 async function adminLink(origin, conversationId) {
   const pay = await getPaymentConfig().catch(() => ({}));
-  const base = [pay.publicBaseUrl, config.publicBaseUrl, origin].find((u) => u && isPublicBase(u));
-  return base ? `${base.replace(/\/+$/, '')}/admin/#/livechat?c=${encodeURIComponent(conversationId)}` : '';
+  const base = resolvePublicOrigin({ configured: [pay.publicBaseUrl, config.publicBaseUrl], requestOrigin: origin });   // Admin Web (/admin) bukan bagian clean URL Marketplace
+  return base ? `${base}/admin/#/livechat?c=${encodeURIComponent(conversationId)}` : '';
 }
 
 const clip = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };

@@ -94,7 +94,7 @@ with sync_playwright() as p:
 
     # --- Halaman detail produk realtime ---
     pid = ad.locator(f'tr:has-text("{NAME}") small').first.inner_text().split('ID ')[1].split(' ')[0]
-    dp = mp.context.new_page(); watch(dp, 'detail'); dp.goto(f'{BASE}/product.html?id={pid}'); dp.wait_for_selector('.pd-title')
+    dp = mp.context.new_page(); watch(dp, 'detail'); dp.goto(f'{BASE}/product/{pid}'); dp.wait_for_selector('.pd-title')
     check('Detail produk: diskon dihitung dari harga coret', '-17%' in dp.locator('.pd-price__old').inner_text())
     ad.locator(f'tr:has-text("{NAME}") [data-edit]').last.click(); ad.wait_for_selector('dialog.drawer[open]')
     ad.fill('input[name=name]', NAME + ' v2'); ad.fill('input[name=stock]', '0')

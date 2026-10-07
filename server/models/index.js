@@ -3,7 +3,7 @@ const { Schema } = mongoose;
 
 const int = { type: Number, validate: { validator: (v) => v == null || Number.isInteger(v), message: '{PATH} harus bilangan bulat' } };
 
-/* Counter — id produk numerik berurutan (URL Marketplace memakai product.html?id=1) */
+/* Counter — id produk numerik berurutan (URL Marketplace memakai /product/1) */
 export const Counter = mongoose.model('Counter', new Schema({ _id: String, seq: { type: Number, default: 0 } }, { versionKey: false }));
 export async function nextSeq(name) {
   const doc = await Counter.findOneAndUpdate({ _id: name }, { $inc: { seq: 1 } }, { new: true, upsert: true });

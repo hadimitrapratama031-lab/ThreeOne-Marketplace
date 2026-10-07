@@ -1,5 +1,5 @@
 /* ==========================================================================
-   track.js — Cek Pesanan  (track.html)
+   track.js — Cek Pesanan  (/cek-pesanan)
    Satu form, dua metode (ID Transaksi | Email); cukup isi salah satu.
    - Data SELALU dari backend/MongoDB: POST /api/orders/track. Status memakai status Order yang sudah ada
      (PENDING | SUCCESS | EXPIRED | FAILED); halaman ini tidak menentukan status sendiri.
@@ -95,7 +95,7 @@
   }
   const helpBtn = (link, label = 'Butuh bantuan? Hubungi Admin') => (link
     ? `<a class="btn btn--wa" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${I.wa}<span>${label}</span></a>`
-    : '<a class="btn btn--soft" href="index.html#contact"><span>Lihat kontak admin</span></a>');
+    : '<a class="btn btn--soft" href="/#contact"><span>Lihat kontak admin</span></a>');
 
   /* Kerangka halaman: dirender SEKALI (agar isi form & fokus tidak hilang saat hasil berubah)
      -------------------------------------------------------------------------- */
@@ -275,7 +275,7 @@
         ${o.mode === 'sandbox' ? `<div class="notice notice--warn">${I.info}<p><b>Mode uji coba (Sandbox).</b> Pesanan ini tidak memakai uang asli.</p></div>` : ''}
 
         <div class="result-actions">
-          ${again ? `<a class="btn btn--primary" href="checkout.html?product=${o.product.id}">Buat pesanan baru</a>` : ''}
+          ${again ? `<a class="btn btn--primary" href="/checkout?product=${o.product.id}">Buat pesanan baru</a>` : ''}
           ${helpBtn(helpLink(o))}
         </div>
       </article>`;

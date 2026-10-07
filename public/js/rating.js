@@ -1,5 +1,5 @@
 /* ==========================================================================
-   rating.js — halaman Rating  (rating.html)
+   rating.js — halaman Rating  (/rating)
    Satu sistem ulasan untuk seluruh Marketplace: data dari /api/public/reviews
    (MongoDB), foto dikirim ke server lalu disimpan di Cloudflare R2, dan daftar
    diperbarui realtime lewat Socket.IO (event "review:*" dari live.js/script.js).
@@ -140,7 +140,7 @@
           <button class="pd-shot" type="button" data-r="${esc(r.id)}" data-k="${k}" aria-label="Perbesar foto ${k + 1} dari ${esc(r.name)}">
             <img src="${esc(m.url)}" alt="Foto ulasan dari ${esc(r.name)}" loading="lazy" decoding="async" data-rv="shot">
           </button>`).join('')}</div>` : ''}
-        ${p ? `<a class="rv-product" href="product.html?id=${p.id}">${thumb}<span><small>Produk yang diulas</small><b>${esc(p.name)}</b></span>${CHEVRON}</a>` : ''}
+        ${p ? `<a class="rv-product" href="/product/${p.id}">${thumb}<span><small>Produk yang diulas</small><b>${esc(p.name)}</b></span>${CHEVRON}</a>` : ''}
       </article>`;
   }
 

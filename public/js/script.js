@@ -154,7 +154,7 @@ function productCard(p) {
           <span class="card__tag">${esc(p.category)}</span>
         </div>
         <div class="card__body">
-          <h4><a class="card__link" href="product.html?id=${p.id}">${esc(p.name)}</a></h4>
+          <h4><a class="card__link" href="/product/${p.id}">${esc(p.name)}</a></h4>
           <p>${esc(p.description)}</p>
           <div class="card__meta">
             <span class="stock ${stockClass}">${stockLabel}</span>
@@ -744,7 +744,7 @@ window.MP = { ready, sync, get loaded() { return loaded; }, get hydrated() { ret
 /* Prefetch saat niat membuka produk (hover / sentuh / fokus): data Detail sudah ada ketika halaman produk terbuka */
 const pdIdOf = (el) => {
   const link = el.closest?.('.card')?.querySelector('a.card__link');
-  const m = /product\.html\?id=(\d+)/.exec(link?.getAttribute('href') || '');
+  const m = /^\/product\/(\d+)(?:[/?#]|$)/.exec(link?.getAttribute('href') || '');
   return m ? Number(m[1]) : null;
 };
 function prefetchProduct(id) {
@@ -767,5 +767,5 @@ document.addEventListener('focusin', (e) => prefetchProduct(pdIdOf(e.target)));
 // Tombol Beli pada kartu membuka Product Detail
 document.addEventListener('click', (e) => {
   const button = e.target.closest('.buy-btn');
-  if (button && !button.disabled) location.href = 'product.html?id=' + button.dataset.id;
+  if (button && !button.disabled) location.href = '/product/' + button.dataset.id;
 });

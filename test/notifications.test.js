@@ -94,7 +94,7 @@ test('paymentSuccess: webhook ganda & dibaca ulang tidak mengirim ulang (idempot
   assert.equal(prov.state.wa.length, 2, 'WA: orderCreated + paymentSuccess saja');
   assert.equal(prov.state.mail.length, 2, 'Email: orderCreated + paymentSuccess saja');
   assert.ok(prov.state.wa[1].message.includes('Lunas'));
-  assert.ok(prov.state.wa[1].message.includes('/payment.html?order='), 'tautan invoice memuat halaman payment');
+  assert.ok(prov.state.wa[1].message.includes('/payment?order='), 'tautan invoice memuat halaman payment');
   const events = (await logs(orderNo)).map((x) => `${x.event}:${x.channel}:${x.status}`).sort();
   assert.deepEqual(events, ['orderCreated:email:sent', 'orderCreated:whatsapp:sent', 'paymentSuccess:email:sent', 'paymentSuccess:whatsapp:sent']);
 });

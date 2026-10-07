@@ -32,6 +32,9 @@ export const config = {
   // Pembayaran (KlikQRIS). Kredensial diatur di Admin Web, bukan di env. Base URL hanya untuk uji otomatis.
   klikqrisBase: trimSlash(e.KLIKQRIS_BASE_URL) || 'https://klikqris.com/api',
   publicBaseUrl: trimSlash(e.PUBLIC_BASE_URL),
+  // Alamat publik cadangan untuk tautan notifikasi (Email/WhatsApp) bila Admin Web & PUBLIC_BASE_URL kosong dan request bukan domain publik asli.
+  // Hanya aktif di production (dev/test tetap tanpa tautan bila tidak ada alamat publik). Bisa diganti lewat DEFAULT_PUBLIC_ORIGIN.
+  defaultPublicOrigin: trimSlash(e.DEFAULT_PUBLIC_ORIGIN) || (isProd ? 'https://www.31store.site' : ''),
   // Provider notifikasi. Kredensial diatur di Admin Web; nilai env hanya cadangan (sama seperti project lama) dan base URL untuk uji.
   fonnteBase: trimSlash(e.FONNTE_BASE_URL) || 'https://api.fonnte.com',
   resendBase: trimSlash(e.RESEND_BASE_URL) || 'https://api.resend.com',

@@ -24,6 +24,7 @@ import { CONTACT_ICONS } from './models/index.js';
 import { r2Configured } from './config/env.js';
 import { FOLDERS } from './services/assets.js';
 import { getSetting } from './services/settings.js';
+import { PAGES } from './lib/urls.js';
 import authRouter from './routes/auth.js';
 import publicRouter from './routes/public.js';
 import productsRouter from './routes/products.js';
@@ -149,7 +150,7 @@ export function createApp() {
     hashCache.set(file, { sig, hash });
     return hash;
   };
-  const ASSET_REF = /\b(href|src)="((?:css|js)\/[A-Za-z0-9._-]+\.(?:css|js))"/g;
+  const ASSET_REF = /\b(href|src)="(\/?(?:css|js)\/[A-Za-z0-9._-]+\.(?:css|js))"/g;   // root-absolute (/css/..) agar tetap benar di /product/5
   const renderHtml = (file) => {
     const st = fs.statSync(file);
     const hit = htmlCache.get(file);
@@ -164,11 +165,57 @@ export function createApp() {
     htmlCache.set(file, { sig, html, deps });
     return html;
   };
-  app.get(/^\/(?:([A-Za-z0-9-]+)\.html)?$/, (req, res, next) => {
-    const file = path.join(PUBLIC_DIR, `${req.params[0] || 'index'}.html`);
-    if (!fs.existsSync(file)) return next();
+  /* ---------- Clean URL (tanpa .html) ----------
+     File fisik tetap public/*.html; URL browser bersih. Satu tabel (PAGES di lib/urls.js) dipakai server DAN pembuat tautan notifikasi.
+       /  /rating  /product  /product/<id>  /checkout  /payment  /cek-pesanan
+     URL lama dialihkan (301) ke URL bersih dengan query string UTUH: /payment.html?order=X&t=Y -> /payment?order=X&t=Y
+     /product.html?id=5 dan /product?id=5 -> /product/5 (parameter lain ikut). /faq dan /contact -> bagian di beranda. */
+  const CLEAN = new Map(Object.values(PAGES).map((p) => [p.path, p.file]));              // '/rating' -> 'rating'
+  const LEGACY = new Map([
+    ...Object.values(PAGES).map((p) => [`/${p.file}.html`, p.path]),                     // '/rating.html' -> '/rating'
+    ['/index.html', '/'], ['/track', PAGES.track.path], ['/cek-pesanan.html', PAGES.track.path],
+    ['/faq', '/#faq'], ['/contact', '/#contact'],
+  ]);
+  const queryOf = (url) => { const i = url.indexOf('?'); return i < 0 ? '' : url.slice(i); };
+  const sendPage = (res, file) => {
     res.set('Cache-Control', 'no-cache');   // HTML selalu divalidasi ulang (ETag -> 304): deploy baru langsung terpakai
     res.type('html').send(renderHtml(file));
+  };
+  app.get(/^\/(?!api(?:\/|$)|admin(?:\/|$)|socket\.io(?:\/|$))/, (req, res, next) => {
+    let pathname = req.path;
+    if (pathname.length > 1 && pathname.endsWith('/')) {      // /rating/ -> /rating
+      return res.redirect(301, pathname.replace(/\/+$/, '') + queryOf(req.originalUrl));
+    }
+    const search = queryOf(req.originalUrl);
+
+    // Detail produk: /product/<id> (id apa pun -> halaman yang menampilkan keadaan "tidak ditemukan" sendiri)
+    const pd = /^\/product\/([^/]+)$/.exec(pathname);
+    if (pd) {
+      const file = path.join(PUBLIC_DIR, 'product.html');
+      return fs.existsSync(file) ? sendPage(res, file) : next();
+    }
+    // Bentuk lama detail produk: /product?id=5  /product.html?id=5 -> /product/5 (query lain dipertahankan)
+    if (pathname === '/product' || pathname === '/product.html') {
+      const q = new URLSearchParams(search);
+      const id = (q.get('id') || '').trim();
+      if (/^\d+$/.test(id)) {
+        q.delete('id');
+        const rest = q.toString();
+        return res.redirect(301, `/product/${id}${rest ? `?${rest}` : ''}`);
+      }
+      if (pathname === '/product.html') return res.redirect(301, `/product${search}`);
+    }
+
+    if (LEGACY.has(pathname)) {
+      const target = LEGACY.get(pathname);
+      // '/faq' -> '/#faq': query (bila ada) harus berada SEBELUM fragment
+      const [tp, frag] = target.split('#');
+      return res.redirect(301, `${tp}${search}${frag ? `#${frag}` : ''}`);
+    }
+    if (!CLEAN.has(pathname)) return next();                  // aset statis, favicon, 404, dll.
+    const file = path.join(PUBLIC_DIR, `${CLEAN.get(pathname)}.html`);
+    if (!fs.existsSync(file)) return next();
+    sendPage(res, file);
   });
 
   // File ber-versi (?v=...) = isinya tidak akan berubah di URL itu -> cache panjang. Tanpa ?v= tetap divalidasi ulang seperti semula.
