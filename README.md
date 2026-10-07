@@ -75,6 +75,22 @@ Produk berjenis **Sistem Code**: setelah pembayaran SUCCESS, pembeli otomatis me
 | Keamanan | Code tidak ada di API publik, Cek Pesanan, atau log. Hanya pemilik order (token pelanggan) dan Admin yang bisa membacanya. |
 | Notifikasi | Code ikut di WhatsApp/Email `paymentSuccess` (slot `NotificationLog` mencegah kirim ganda); placeholder `{{redeem_code}}` untuk template custom. |
 
+## Keuntungan Per Bulan
+
+Halaman Admin Web (menu **Penjualan → Keuntungan Per Bulan**) berisi rekap pendapatan bulanan, grafik, filter, detail transaksi, dan hapus rekap. Memakai Order, Payment (KlikQRIS), MongoDB, dan Socket.IO yang sudah ada; tidak ada sistem transaksi baru.
+
+| Bagian | Detail |
+|---|---|
+| Sumber data | Koleksi `orders` saja (sumber kebenaran tunggal, tidak ada koleksi rekap berisi angka). Dihitung hanya bila `status = SUCCESS` **dan** `payment.mode = production`; filter ini dipaksa di query MongoDB (`services/reports.js`), bukan di frontend. Sandbox, PENDING, EXPIRED, dan FAILED tidak pernah masuk total, grafik, rekap, maupun detail. |
+| Nominal & waktu | Nominal = `totalAmount` (yang benar-benar dibayar, memuat kode unik QRIS) bila ada, selain itu `amount`. Waktu = `payment.paidAt` (cadangan `createdAt`). Bulan dikelompokkan menurut WIB (Asia/Jakarta). Satu order = satu produk terjual. |
+| Anti hitung ganda | Satu order = satu dokumen (`orderNo` unik) dan `markPaid()` hanya memenangkan transisi SUCCESS sekali, jadi webhook ganda, polling, dan reconnect tidak menambah baris. Laporan hanya membaca. |
+| Keuntungan vs pendapatan | `Product` belum punya modal/HPP, jadi halaman menampilkan **pendapatan** dan memberi catatan di layar. Tidak ada angka keuntungan yang dikarang. |
+| Filter | Tahun, bulan (butuh tahun), rentang tanggal (menggantikan tahun/bulan), produk, kategori, status pembayaran (semua yang berhasil / tepat waktu / terlambat `latePayment`). Pilihan produk, kategori, dan tahun diambil dari transaksi production yang benar-benar ada. Ringkasan "bulan berjalan" mengikuti filter produk/kategori/status, bukan filter tanggal. |
+| Admin API | `GET /api/admin/reports/monthly` (ringkasan, daftar bulan, opsi filter); `GET /monthly/:month` (detail transaksi, filter sama, pakai `totals` dari pipeline yang sama dengan daftar bulan); `GET /monthly/:month/impact`; `DELETE /monthly/:month?asOf=`. Semua di belakang `requireAdmin`. |
+| Hapus rekap | Tidak menghapus Order/Payment. Menulis penanda di koleksi `reportresets` (`month`, `cutoff`, jejak audit): order production bulan itu yang dibayar sampai `cutoff` disembunyikan dari laporan ini. `cutoff` = waktu yang ditampilkan di dialog konfirmasi (`asOf`), jadi yang terhapus persis yang dilihat admin; pembayaran baru sesudahnya tetap terhitung. Dashboard, Pesanan, dan "Terjual" produk tidak berubah. |
+| Socket.IO | Memakai socket `/admin` yang sudah ada: halaman menyegarkan diri pada `order:update` bertanda `mode = production` (sandbox diabaikan) dan pada `report:update` (event baru, dikirim saat admin lain menghapus rekap). Listener ikut dibuang saat berpindah halaman. |
+| Grafik | HTML/CSS murni (CSP hanya mengizinkan script `'self'`): pendapatan per bulan dan transaksi per bulan, mengikuti filter, maksimal 24 bulan terakhir. |
+
 ## Floating Order Notification
 
 Toast kecil di kiri bawah Marketplace (`/`) yang menampilkan order sukses terbaru sebagai social proof. Memakai Order, Payment, MongoDB, dan Socket.IO yang sudah ada; tidak ada koleksi, status, atau server Socket.IO baru.

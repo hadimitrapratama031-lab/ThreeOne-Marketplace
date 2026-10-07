@@ -237,6 +237,29 @@ export const adminOrderListQuery = z.object({
   status: z.enum(['PENDING', 'SUCCESS', 'EXPIRED', 'FAILED']).optional(),
 });
 
+/* ---------- Laporan: Keuntungan Per Bulan ---------- */
+const validDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00+07:00`));
+const reportDay = z.string().trim().refine((v) => v === '' || validDay(v), 'Format tanggal harus YYYY-MM-DD').optional().default('');
+const reportFilters = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+  from: reportDay,
+  to: reportDay,
+  productId: z.coerce.number().int().min(1).optional(),
+  category: z.string().trim().max(40).optional().default(''),
+  payment: z.enum(['', 'ontime', 'late']).optional().default(''),   // semua yang dihitung sudah SUCCESS; ini hanya membedakan tepat waktu / terlambat
+});
+const reportRules = (s) => s
+  .refine((q) => !q.month || q.year, { message: 'Pilih tahun terlebih dahulu', path: ['month'] })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, { message: 'Tanggal akhir harus setelah tanggal awal', path: ['to'] });
+export const monthlyReportQuery = reportRules(reportFilters);
+export const monthlyDetailQuery = reportRules(reportFilters.extend({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+}));
+export const reportMonthParam = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Bulan harus berformat YYYY-MM');
+export const clearMonthQuery = z.object({ asOf: z.string().trim().min(1).max(40) });
+
 /* ---------- Integrasi: Fonnte, Resend, notifikasi ---------- */
 const opt = (max) => z.string().trim().max(max).optional();
 export const fonnteSettingsInput = z.object({

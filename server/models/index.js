@@ -360,7 +360,22 @@ liveChatMessageSchema.index({ conversation: 1, clientId: 1 }, { unique: true, pa
 liveChatMessageSchema.index({ 'wa.status': 1, 'wa.claimedAt': 1 });
 export const LiveChatMessage = mongoose.model('LiveChatMessage', liveChatMessageSchema);
 
-export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order, NotificationLog, RedeemCode, LiveChat, LiveChatMessage];
+/* ReportReset — penanda "Hapus Rekap Bulan" di halaman Keuntungan Per Bulan. BUKAN data rekap: angka tetap dihitung langsung dari Order
+   (sumber kebenaran tunggal), jadi Order/Payment asli tidak pernah disentuh. Penanda hanya menyembunyikan order production yang dibayar
+   pada bulan `month` (WIB, format YYYY-MM) sampai `cutoff`. Pembayaran yang masuk SETELAH cutoff tetap terhitung, jadi bulan berjalan yang
+   direkap-ulang tidak kehilangan penjualan baru. clearedOrders/clearedAmount = jejak audit akumulatif, tidak dipakai untuk perhitungan. */
+const reportResetSchema = new Schema({
+  month: { type: String, required: true, unique: true, match: /^\d{4}-(0[1-9]|1[0-2])$/ },
+  cutoff: { type: Date, required: true },
+  clearedAt: { type: Date, required: true },
+  clearedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+  clearedOrders: { type: Number, default: 0 },
+  clearedAmount: { type: Number, default: 0 },
+}, { timestamps: true });
+export const ReportReset = mongoose.model('ReportReset', reportResetSchema);
+
+
+export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order, NotificationLog, RedeemCode, LiveChat, LiveChatMessage, ReportReset];
 
 export async function syncAllIndexes() {
   for (const m of ALL_MODELS) await m.syncIndexes();

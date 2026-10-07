@@ -32,6 +32,7 @@ import settingsRouter from './routes/settings.js';
 import mediaRouter from './routes/media.js';
 import steamRouter from './routes/steam.js';
 import dashboardRouter from './routes/dashboard.js';
+import reportsRouter from './routes/reports.js';
 import { ordersRouter, webhookRouter } from './routes/orders.js';
 import { paymentSettingsRouter, adminOrdersRouter } from './routes/paymentAdmin.js';
 import { startPaymentWorker, stopPaymentWorker } from './services/payments.js';
@@ -125,6 +126,7 @@ export function createApp() {
   admin.use('/steam', steamRouter);
   admin.use('/payment-settings', paymentSettingsRouter);
   admin.use('/orders', adminOrdersRouter);
+  admin.use('/reports', reportsRouter);
   admin.use('/code-products', codeProductsRouter);
   admin.use('/codes', codesRouter);
   admin.use('/integrations', integrationsRouter);
