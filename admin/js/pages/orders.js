@@ -1,4 +1,4 @@
-import { $, html, mount, icon, rp, dateTime, pagerHTML, emptyState, skeletonRows, debounce, toastError, dialog } from '../ui.js';
+import { $, html, mount, icon, rp, dateTime, pagerHTML, emptyState, skeletonRows, debounce, toastError, dialog, confirmDialog, toast } from '../ui.js';
 import { api } from '../api.js';
 
 const STATUS = { PENDING: ['Menunggu bayar', 'pill--warn'], SUCCESS: ['Berhasil', 'pill--ok'], EXPIRED: ['Kedaluwarsa', 'pill--mute'], FAILED: ['Gagal dibuat', 'pill--danger'] };
@@ -34,7 +34,7 @@ export default {
             <td class="num">${rp(o.totalAmount ?? o.amount)}</td>
             <td>${pill(o.status)}${o.latePayment ? html`<br><small class="faint">Dibayar terlambat</small>` : ''}${o.codeState === 'waiting' ? html`<br><small class="faint">Menunggu code (stok habis)</small>` : o.stockNote === 'short' ? html`<br><small class="faint">Stok habis saat dibayar</small>` : ''}</td>
             <td class="muted">${dateTime(o.createdAt)}</td>
-            <td><div class="row-actions"><button class="btn btn--sm" type="button" data-open="${o.id}">Detail</button></div></td>
+            <td><div class="row-actions"><button class="btn btn--sm" type="button" data-open="${o.id}">Detail</button><button class="btn btn--sm btn--danger" type="button" data-del="${o.id}" aria-label="Hapus pesanan ${o.orderNo}">Hapus</button></div></td>
           </tr>`)}</tbody></table>` : emptyState(q.q || q.status ? 'Tidak ada pesanan yang cocok' : 'Belum ada pesanan', q.q || q.status ? 'Ubah kata kunci atau filter.' : 'Pesanan muncul di sini begitu pelanggan checkout.', 'receipt')).s;
         $('#pager', root).innerHTML = pagerHTML(res).s;
         root.__items = new Map(res.items.map((o) => [o.id, o]));
@@ -43,7 +43,22 @@ export default {
     const loadSoon = debounce(load, 250);
     $('#f-q', root).addEventListener('input', (e) => { q.q = e.target.value.trim(); q.page = 1; loadSoon(); });
     $('#f-status', root).addEventListener('change', (e) => { q.status = e.target.value; q.page = 1; load(); });
-    root.addEventListener('click', (e) => {
+    root.addEventListener('click', async (e) => {
+      const del = e.target.closest('[data-del]');
+      if (del) {
+        const d = root.__items.get(del.dataset.del);
+        if (!d) return;
+        const paid = d.status === 'SUCCESS';
+        const ok = await confirmDialog({
+          title: `Hapus pesanan ${d.orderNo}?`,
+          message: `Pesanan ini dihapus permanen dari database dan tidak bisa dikembalikan.${paid ? ' Pesanan ini sudah dibayar: omzet/laporan yang dihitung dari pesanan ikut berubah, dan code yang sudah diberikan tetap berstatus terjual.' : ''}`,
+          confirmLabel: 'Ya, hapus', danger: true,
+        });
+        if (!ok) return;
+        del.disabled = true;
+        try { await api.del(`/orders/${d.id}`); toast('Pesanan dihapus'); load(); } catch (err) { del.disabled = false; toastError(err, 'Pesanan gagal dihapus'); }
+        return;
+      }
       const pg = e.target.closest('[data-page]');
       if (pg && !pg.disabled) { q.page = +pg.dataset.page; return load(); }
       const open = e.target.closest('[data-open]');
@@ -61,6 +76,6 @@ export default {
         </dl>`, foot: html`<button type="button" class="btn" data-close>Tutup</button>` });
     });
     await load();
-    return { destroy() { alive = false; loadSoon.cancel(); }, onLive(evt) { if (evt === 'order:update' || evt === 'resync') loadSoon(); } };
+    return { destroy() { alive = false; loadSoon.cancel(); }, onLive(evt) { if (evt === 'order:update' || evt === 'order:delete' || evt === 'resync') loadSoon(); } };
   },
 };

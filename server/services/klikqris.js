@@ -48,6 +48,25 @@ async function call(cred, method, path, body) {
   return json.data;
 }
 
+/** `qris_image` di dokumentasi: "data:image/png;base64,...". Bila yang datang base64 polos, dibungkus jadi data URI. Selain PNG/JPEG/WebP base64 -> ''. */
+export function toDataUri(v) {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!s) return '';
+  if (/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(s)) return s.replace(/\s+/g, '');
+  if (/^[A-Za-z0-9+/=\s]{200,}$/.test(s)) return `data:image/png;base64,${s.replace(/\s+/g, '')}`;
+  return '';
+}
+
+/** `qris_url` selalu dipakai sebagai URL https absolut; path relatif dilengkapi host KlikQRIS. */
+export function absoluteUrl(v, mode) {
+  const s = typeof v === 'string' ? v.trim() : '';
+  if (!s) return '';
+  try {
+    const u = new URL(s, 'https://klikqris.com');
+    return u.protocol === 'https:' || (u.protocol === 'http:' && mode !== 'production') ? u.toString() : (u.protocol === 'http:' ? `https://${u.host}${u.pathname}${u.search}` : '');
+  } catch { return ''; }
+}
+
 const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
 
 /** Buat tagihan QRIS. `total_amount` dari respons adalah nominal final yang harus dibayar. */
@@ -60,14 +79,17 @@ export async function createTransaction(cred, { orderId, amount, keterangan, cal
     ...(callbackUrl ? { callback_url: callbackUrl } : {}),
   });
   const total = num(d.total_amount);
-  if (d.order_id !== orderId || !Number.isFinite(total) || total < amount || !d.qris_url || !d.signature) {
-    throw new GatewayError('Respons KlikQRIS tidak lengkap.', { detail: `order_id=${d.order_id} total_amount=${d.total_amount} qris_url=${Boolean(d.qris_url)} signature=${Boolean(d.signature)}` });
+  const qrisImage = toDataUri(d.qris_image);
+  const qrisUrl = absoluteUrl(d.qris_url, cred.mode);
+  if (d.order_id !== orderId || !Number.isFinite(total) || total < amount || (!qrisUrl && !qrisImage) || !d.signature) {
+    throw new GatewayError('Respons KlikQRIS tidak lengkap.', { detail: `order_id=${d.order_id} total_amount=${d.total_amount} qris_url=${Boolean(d.qris_url)} qris_image=${Boolean(d.qris_image)} signature=${Boolean(d.signature)}` });
   }
   return {
     status: String(d.status || ''),
     totalAmount: total,
     uniqueAmount: Number.isFinite(num(d.amount_uniq)) ? num(d.amount_uniq) : 0,
-    qrisUrl: String(d.qris_url),
+    qrisUrl,
+    qrisImage,
     reportUrl: d.report_url ? String(d.report_url) : '',
     signature: String(d.signature),
     expiredAt: d.expired_at ? String(d.expired_at) : '',

@@ -3,7 +3,7 @@ import { asyncH, parse, HttpError, objectIdStr, pageMeta, escapeRegex } from '..
 import { paymentSettingsInput, adminOrderListQuery } from '../lib/schemas.js';
 import { Order } from '../models/index.js';
 import { getAdminPayment, savePaymentSettings, getPublicPayment } from '../services/paymentSettings.js';
-import { admOrder, testGateway } from '../services/payments.js';
+import { admOrder, testGateway, deleteOrder } from '../services/payments.js';
 import { emitAdmin, emitPublic } from '../lib/realtime.js';
 import { config } from '../config/env.js';
 
@@ -53,4 +53,11 @@ adminOrdersRouter.get('/:id', asyncH(async (req, res) => {
   const o = await Order.findById(req.params.id);
   if (!o) throw new HttpError(404, 'Pesanan tidak ditemukan.');
   res.json({ item: admOrder(o) });
+}));
+
+// Hapus permanen pesanan dari database
+adminOrdersRouter.delete('/:id', asyncH(async (req, res) => {
+  if (!objectIdStr.safeParse(req.params.id).success) throw new HttpError(404, 'Pesanan tidak ditemukan.');
+  const r = await deleteOrder(req.params.id);
+  res.json({ ok: true, ...r });
 }));

@@ -32,6 +32,15 @@
   const serverNow = () => Date.now() + offset;
   const remaining = () => (order?.expiresAt ? Date.parse(order.expiresAt) - serverNow() : 0);
   const safeHttps = (u) => (/^https:\/\//i.test(u || '') ? u : '');
+  const safeImg = (u) => (/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/i.test(u || '') ? u : '');
+  /* Sumber gambar QR berurutan: qris_image (base64 dari KlikQRIS, tidak bergantung hotlink) lalu qris_url. Bila satu gagal dimuat, coba berikutnya. */
+  const qrSources = (o) => [safeImg(o?.qrisImage), safeHttps(o?.qrisUrl)].filter(Boolean);
+  const qrImg = (o, i = 0, bust = false) => {
+    const src = qrSources(o)[i];
+    if (!src) return '';
+    const url = bust && !src.startsWith('data:') ? `${src}${src.includes('?') ? '&' : '?'}r=${Date.now()}` : src;
+    return `<img id="qr-img" data-i="${i}" src="${esc(url)}" alt="Kode QRIS pembayaran ${esc(o.orderNo)}" width="300" height="300" decoding="async" referrerpolicy="no-referrer">`;
+  };
   const waDigits = (n) => (/^\d{8,15}$/.test(n || '') ? n : '');
   const waLink = (text) => (waDigits(order?.waAdmin) ? `https://wa.me/${order.waAdmin}?text=${encodeURIComponent(text)}` : '');
   const announce = (t) => { liveMsg.textContent = ''; setTimeout(() => { liveMsg.textContent = t; }, 50); };
@@ -115,7 +124,8 @@
      -------------------------------------------------------------------------- */
   function pendingHTML(o) {
     const unique = o.uniqueAmount > 0;
-    const qr = safeHttps(o.qrisUrl);
+    const qr = qrSources(o)[0] || '';
+    const qrLink = safeHttps(o.qrisUrl);
     return `
       ${head({ title: 'Selesaikan pembayaran', lead: 'Scan kode QRIS di bawah sebelum waktu habis. Halaman ini otomatis berganti begitu pembayaran kami terima.', step: 2 })}
       <div class="pay-grid">
@@ -130,7 +140,7 @@
               <div class="qr__plate">
                 <div class="qr__bar" id="cd-bar" data-urgency="ok"><i style="width:100%"></i></div>
                 <div class="qr__frame" id="qr-frame">
-                  ${qr ? `<img id="qr-img" src="${esc(qr)}" alt="Kode QRIS pembayaran ${esc(o.orderNo)}" width="300" height="300" decoding="async" referrerpolicy="no-referrer">` : ''}
+                  ${qrImg(o)}
                 </div>
                 <p class="qr__mark">QRIS</p>
               </div>
@@ -145,7 +155,7 @@
                 : 'Bayar sesuai nominal di atas.'}</p>
               <div class="pay-amount__actions">
                 <button class="btn btn--soft btn--sm" type="button" data-copy="${esc(o.totalAmount)}">${I.copy}<span>Salin nominal</span></button>
-                ${qr ? `<a class="btn btn--soft btn--sm" href="${esc(qr)}" target="_blank" rel="noopener noreferrer">${I.external}<span>Buka QR</span></a>` : ''}
+                ${qrLink ? `<a class="btn btn--soft btn--sm" href="${esc(qrLink)}" target="_blank" rel="noopener noreferrer">${I.external}<span>Buka QR</span></a>` : qr ? `<a class="btn btn--soft btn--sm" href="${esc(qr)}" download="qris-${esc(o.orderNo)}.png">${I.external}<span>Simpan QR</span></a>` : ''}
               </div>
             </div>
           </div>
@@ -321,7 +331,7 @@
      -------------------------------------------------------------------------- */
   const phase = () => {
     if (view !== 'ready') return view;
-    if (order.status === 'PENDING') return !order.qrisUrl ? 'preparing' : remaining() <= 0 ? 'checking' : 'pending';
+    if (order.status === 'PENDING') return !(order.qrisUrl || order.qrisImage) ? 'preparing' : remaining() <= 0 ? 'checking' : 'pending';
     return order.status.toLowerCase();
   };
 
@@ -453,8 +463,7 @@
     const retryQr = e.target.closest('[data-qr-retry]');
     if (retryQr) {
       const frame = $('#qr-frame');
-      const url = safeHttps(order?.qrisUrl);
-      if (frame && url) frame.innerHTML = `<img id="qr-img" src="${esc(url)}${url.includes('?') ? '&' : '?'}r=${Date.now()}" alt="Kode QRIS pembayaran ${esc(order.orderNo)}" width="300" height="300" referrerpolicy="no-referrer">`;
+      if (frame && order) frame.innerHTML = qrImg(order, 0, true);
     }
   });
 
@@ -462,6 +471,8 @@
     const img = e.target;
     if (img.tagName !== 'IMG') return;
     if (img.id === 'qr-img') {
+      const next = +img.dataset.i + 1;
+      if (order && qrSources(order)[next]) { $('#qr-frame').innerHTML = qrImg(order, next, true); return; }   // sumber cadangan
       $('#qr-frame').innerHTML = `<div class="qr__fail"><p>Kode QR belum bisa dimuat.</p><button type="button" data-qr-retry>Muat ulang</button></div>`;
     } else if (img.dataset.seed && img.closest('.sum-thumb')) img.outerHTML = artwork(+img.dataset.seed);
   }, true);

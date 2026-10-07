@@ -211,6 +211,7 @@ const orderSchema = new Schema({
     mode: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
     gatewayStatus: { type: String, default: '' },                      // status terakhir dari KlikQRIS apa adanya
     qrisUrl: { type: String, default: '' },
+    qrisImage: { type: String, default: '' },                          // qris_image (data URI base64) dari KlikQRIS: dipakai lebih dulu agar QR tidak bergantung pada hotlink gambar
     reportUrl: { type: String, default: '' },
     signature: { type: String, select: false },                        // signature dari respons create; pembanding webhook
     gatewayExpiredAt: { type: String, default: '' },

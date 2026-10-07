@@ -350,7 +350,7 @@ export default {
         if (!alive) return;
         if (evt === 'resync' || evt === 'report:update') return reloadSoon();
         // Sandbox tidak pernah masuk laporan, jadi hanya perubahan order production yang menyegarkan halaman.
-        if (evt === 'order:update' && payload?.mode === 'production') reloadSoon();
+        if ((evt === 'order:update' || evt === 'order:delete') && payload?.mode === 'production') reloadSoon();
       },
     };
   },

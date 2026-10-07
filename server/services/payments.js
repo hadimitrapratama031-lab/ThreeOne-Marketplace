@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { Order, Product } from '../models/index.js';
+import { Order, Product, NotificationLog } from '../models/index.js';
 import { HttpError } from '../lib/http.js';
 import { safeEqual } from '../lib/secrets.js';
 import { config } from '../config/env.js';
@@ -59,6 +59,7 @@ export function pubOrder(o, { waAdmin = '', redeem = null } = {}) {
     uniqueAmount: unique,
     totalAmount: o.totalAmount,
     qrisUrl: pending ? (o.payment?.qrisUrl || null) : null,
+    qrisImage: pending ? (o.payment?.qrisImage || null) : null,
     failureReason: o.status === 'FAILED' ? PUBLIC_FAIL : null,
     waAdmin,
     ...(redeem ? { redeem } : {}),
@@ -213,7 +214,7 @@ export async function createCheckout(input, { requestBase }) {
       {
         $set: {
           totalAmount: tx.totalAmount, uniqueAmount: tx.uniqueAmount, expiresAt,
-          'payment.gatewayStatus': tx.status, 'payment.qrisUrl': tx.qrisUrl, 'payment.reportUrl': tx.reportUrl,
+          'payment.gatewayStatus': tx.status, 'payment.qrisUrl': tx.qrisUrl, 'payment.qrisImage': tx.qrisImage, 'payment.reportUrl': tx.reportUrl,
           'payment.signature': tx.signature, 'payment.gatewayExpiredAt': tx.expiredAt, 'payment.createdAt': now,
         },
         $inc: { rev: 1 },
@@ -416,6 +417,26 @@ function scheduleExpiry(order) {
   }, Math.max(0, order.expiresAt.getTime() - Date.now()) + 250);
   t.unref?.();
   timers.set(order.orderNo, t);
+}
+
+/**
+ * Hapus permanen satu order dari database (Admin Web). Order PENDING yang belum jatuh tempo ditolak:
+ * pelanggan masih bisa membayar dan webhook-nya tidak akan menemukan order.
+ * Code redeem yang sudah diberikan TETAP berstatus sold (pelanggan sudah menerimanya); hanya log notifikasi order ini ikut dihapus.
+ */
+export async function deleteOrder(id) {
+  const o = await Order.findById(id);
+  if (!o) throw new HttpError(404, 'Pesanan tidak ditemukan.');
+  if (o.status === 'PENDING' && o.expiresAt && o.expiresAt.getTime() > Date.now()) {
+    throw new HttpError(409, 'Pesanan ini masih menunggu pembayaran. Tunggu sampai kedaluwarsa sebelum dihapus.');
+  }
+  const res = await Order.deleteOne({ _id: o._id, status: o.status });
+  if (!res.deletedCount) throw new HttpError(409, 'Status pesanan baru saja berubah. Muat ulang daftar lalu coba lagi.');
+  clearTimeout(timers.get(o.orderNo));
+  timers.delete(o.orderNo);
+  await NotificationLog.deleteMany({ orderId: o._id }).catch((e) => console.error('[payment] hapus log notifikasi:', e.message));
+  emitAdmin('order:delete', { id: String(o._id), orderNo: o.orderNo, mode: o.payment?.mode || 'sandbox' });
+  return { orderNo: o.orderNo, status: o.status };
 }
 
 /* ---------- Sistem Code: pemulihan & pemenuhan ---------- */

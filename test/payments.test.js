@@ -59,6 +59,7 @@ test('checkout: order unik, total_amount dari KlikQRIS, kedaluwarsa 10 menit dar
   assert.equal(o1.totalAmount, 50016, 'nominal final = total_amount KlikQRIS');
   assert.equal(o1.uniqueAmount, 16);
   assert.match(o1.qrisUrl, /^https:\/\/klikqris\.com\/storage\/qris_api\//);
+  assert.match(o1.qrisImage, /^data:image\/png;base64,[A-Za-z0-9+/=]+$/, 'qris_image (base64) dikirim agar QR tidak bergantung pada hotlink');
   assert.equal(o1.customer.whatsapp, '6281234567890');
   assert.equal(o1.customer.email, 'budi@example.com');
   assert.equal(o1.waAdmin, '6281122223333');
@@ -206,4 +207,22 @@ test('Terjual: hanya order SUCCESS yang dihitung, per produk yang benar, realtim
   seen.length = 0;
   await pay(o2);
   assert.equal((await until(() => seen.find((x) => x.id === other.productId && x.sold === 2))).stock, 0);
+});
+
+test('Admin: hapus pesanan permanen; PENDING aktif ditolak; id tidak valid/tak ada -> 404', async () => {
+  const r = await checkout();
+  assert.equal(r.status, 201);
+  const o = (await a.get('/orders?q=' + r.body.orderNo)).body.items[0];
+  const blocked = await a.del(`/orders/${o.id}`);
+  assert.equal(blocked.status, 409, 'masih menunggu pembayaran');
+
+  mock.setStatus(r.body.orderNo, 'EXPIRED');
+  await t.req('/api/payments/klikqris/webhook', { method: 'POST', body: mock.webhookBody(r.body.orderNo, 'EXPIRED') });
+  const del = await a.del(`/orders/${o.id}`);
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal((await a.get('/orders?q=' + r.body.orderNo)).body.items.length, 0);
+  assert.equal((await a.get(`/orders/${o.id}`)).status, 404);
+  assert.equal((await a.del(`/orders/${o.id}`)).status, 404);
+  assert.equal((await a.del('/orders/bukan-id')).status, 404);
+  assert.equal((await t.req(`/api/admin/orders/${o.id}`, { method: 'DELETE' })).status, 401, 'wajib login admin');
 });

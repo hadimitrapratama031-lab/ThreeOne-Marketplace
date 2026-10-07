@@ -20,7 +20,8 @@ export async function startKlikqrisMock({ uniqueCode = 16 } = {}) {
         txs.set(b.order_id, tx);
         return send(200, { status: true, message: 'Transaction Created Successfully', data: {
           order_id: b.order_id, amount_uniq: fmt(uniqueCode), amount: fmt(b.amount), total_amount: fmt(b.amount + uniqueCode), status: 'PENDING',
-          qris_url: `https://klikqris.com/storage/qris_api/qris_${b.order_id}.png`, report_url: 'https://klikqris.com/laporan-buyer/x',
+          qris_url: `https://klikqris.com/storage/qris_api/qris_${b.order_id}.png`,
+          qris_image: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', report_url: 'https://klikqris.com/laporan-buyer/x',
           expired_at: '2026-10-05 11:41:25', paid_at: null, signature: tx.signature } });
       }
       const m = url.pathname.match(/^\/sandbox\/qris\/status\/(.+)$/);
