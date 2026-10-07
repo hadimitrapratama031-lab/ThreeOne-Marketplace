@@ -659,3 +659,19 @@ tr.row-flash td { animation: flash 1.4s ease-out; }
   .lcx-send span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .lcx-info, .lcx-life i, .lcx-bar i { transition: none; } }
+
+/* Pengaturan: gambar branding & ikon kontak */
+.media-grid--contain .media-tile, .media-grid--contain .media-add { aspect-ratio: 1; }
+.media-grid--contain .media-tile img { object-fit: contain; padding: 10px; }
+.save-state { font-size: 12.5px; color: var(--muted); }
+.save-state.is-dirty { color: var(--warn); font-weight: 600; }
+.contact-icons { display: grid; gap: 10px; }
+.contact-icon-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px auto; gap: 16px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.contact-icon-row__info { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.contact-icon-row__info p { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contact-icon-row__save { display: grid; gap: 6px; justify-items: end; }
+.row__icon .row__img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; display: block; }
+@media (max-width: 720px) {
+  .contact-icon-row { grid-template-columns: 1fr; }
+  .contact-icon-row__save { justify-items: start; grid-auto-flow: column; align-items: center; justify-content: space-between; }
+}

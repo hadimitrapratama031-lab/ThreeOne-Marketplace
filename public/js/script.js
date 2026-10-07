@@ -39,7 +39,7 @@ const extAttrs = (h) => (/^https?:\/\//i.test(h) ? ' target="_blank" rel="noopen
 /* 2. Data (diisi dari API)
    -------------------------------------------------------------------------- */
 const DEFAULT_SETTINGS = {
-  branding: { name: 'Marketplace', siteTitle: 'Marketplace', logoUrl: null },
+  branding: { name: 'Marketplace', siteTitle: 'Marketplace', logoUrl: null, footerLogoUrl: null, faviconUrl: null },
   hero: { eyebrow: '', title: '', desc: '', primaryCta: { label: '', href: '#product' }, secondaryCta: { label: '', href: '#product' }, chips: [], covers: [null, null, null] },
   stats: { orders: 0, rating: 0, ratingCount: 0, support: '' },
   sections: {
@@ -186,7 +186,10 @@ document.addEventListener('error', (e) => {
   const img = e.target;
   if (!(img instanceof HTMLImageElement)) return;
   reportImageError(img.currentSrc || img.src);
-  if (img.classList.contains('logo__img')) img.outerHTML = LOGO_SVG;
+  if (img.classList.contains('logo__img')) {
+    const fallback = img.dataset.fallback;          // logo footer rusak -> coba logo store dulu
+    if (fallback) { delete img.dataset.fallback; img.src = fallback; } else img.outerHTML = LOGO_SVG;
+  } else if (img.classList.contains('contact-card__icon') && img.dataset.path) img.outerHTML = contactSvg(img.dataset.path);
   else if (img.dataset.seed && img.closest('.card__media')) img.outerHTML = artwork(+img.dataset.seed);
 }, true);
 
@@ -195,10 +198,29 @@ document.addEventListener('error', (e) => {
    -------------------------------------------------------------------------- */
 const isHome = Boolean($('#hero-title'));
 
+// Favicon: <link rel="icon"> diganti saat setting berubah (realtime lewat event settings:update yang sama dengan logo).
+// Awalnya menunjuk /favicon.ico (server mengarahkannya ke favicon pilihan Admin), jadi tab sudah benar sebelum JS jalan.
+const FAVICON_FALLBACK = '/favicon.ico';
+let iconHref = null;
+function renderFavicon() {
+  const href = DATA.settings.branding.faviconUrl || FAVICON_FALLBACK;
+  if (href === iconHref) return;
+  iconHref = href;
+  $$('link[rel~="icon"]').forEach((l) => l.remove());
+  const link = document.createElement('link');
+  link.rel = 'icon';
+  link.href = href;
+  document.head.append(link);
+}
+
 function renderBrand() {
   const b = DATA.settings.branding;
-  const mark = b.logoUrl ? `<img class="logo__img" src="${esc(b.logoUrl)}" alt="" height="26">` : LOGO_SVG;
-  $$('.logo').forEach((el) => { el.innerHTML = `${mark}<b>${esc(b.name)}</b>`; });
+  const logoImg = (url, extra = '') => `<img class="logo__img" src="${esc(url)}" alt="" height="26"${extra}>`;
+  const storeMark = b.logoUrl ? logoImg(b.logoUrl) : LOGO_SVG;
+  // Footer memakai Footer logo bila ada; baru jika kosong memakai logo store (perilaku lama)
+  const footerMark = b.footerLogoUrl ? logoImg(b.footerLogoUrl, b.logoUrl ? ` data-fallback="${esc(b.logoUrl)}"` : '') : storeMark;
+  $$('.logo').forEach((el) => { el.innerHTML = `${el.closest('.site-footer') ? footerMark : storeMark}<b>${esc(b.name)}</b>`; });
+  renderFavicon();
   const copy = $('#copyright');
   if (copy) copy.textContent = `© ${new Date().getFullYear()} ${b.name}`;
   if (isHome) document.title = b.siteTitle;
@@ -294,16 +316,20 @@ function renderFaq(settle) {
   if (settle) settleIn(root); else observeReveals();
 }
 
+const contactSvg = (path) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="${esc(path)}"/></svg>`;
+
 function renderContacts(settle) {
   const root = $('#contact-list');
   if (!root) return;
   root.innerHTML = DATA.contacts.map((c) => {
     const href = safeHref(c.href);
+    // Ikon custom dari Admin (R2) bila ada; ikon bawaan hanya sebagai cadangan
+    const mark = c.iconUrl
+      ? `<img class="contact-card__icon" src="${esc(c.iconUrl)}" alt="" width="26" height="26" loading="lazy" data-path="${esc(c.icon)}">`
+      : contactSvg(c.icon);
     return `
     <a class="contact-card reveal" href="${esc(href || '#')}"${href ? extAttrs(href) : ' data-placeholder'}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="${esc(c.icon)}"/>
-      </svg>
+      ${mark}
       <small>${esc(c.label)}</small>
       <b>${esc(c.value)}</b>
     </a>`;

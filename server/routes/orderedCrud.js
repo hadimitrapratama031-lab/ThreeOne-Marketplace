@@ -31,6 +31,7 @@ export function orderedCrud({ Model, entity, input, adm, pub, hooks = {} }) {
     const extra = hooks.beforeSave ? await hooks.beforeSave(data, null) : {};
     const last = await Model.findOne().sort({ order: -1 }).select('order').lean();
     const doc = await Model.create({ ...data, ...extra, order: (last?.order ?? -1) + 1 });
+    if (hooks.afterSave) await hooks.afterSave(doc);
     emit(null, doc);
     res.status(201).json({ item: adm(doc) });
   }));
@@ -54,6 +55,7 @@ export function orderedCrud({ Model, entity, input, adm, pub, hooks = {} }) {
     const extra = hooks.beforeSave ? await hooks.beforeSave(data, doc) : {};
     doc.set({ ...data, ...extra });
     await doc.save();
+    if (hooks.afterSave) await hooks.afterSave(doc);
     emit(before, doc.toObject());
     res.json({ item: adm(doc) });
   }));
@@ -73,6 +75,8 @@ export function orderedCrud({ Model, entity, input, adm, pub, hooks = {} }) {
     if (hooks.beforeDelete) await hooks.beforeDelete(doc, req.query);
     const before = doc.toObject();
     await Model.deleteOne({ _id: doc._id });
+    // Pembersihan aset tidak boleh menggagalkan penghapusan yang sudah tersimpan (yang gagal ditandai orphan dan dibersihkan sweeper)
+    if (hooks.afterDelete) await Promise.resolve(hooks.afterDelete(before)).catch((e) => console.error(`[${entity}] pembersihan aset gagal:`, e?.message));
     emit(before, null);
     res.json({ ok: true });
   }));

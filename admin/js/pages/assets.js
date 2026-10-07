@@ -1,7 +1,7 @@
 import { $, html, mount, icon, bytes, dateTime, pagerHTML, emptyState, debounce, toast, toastError, confirmDialog } from '../ui.js';
 import { api } from '../api.js';
 
-const FOLDERS = { products: 'Produk', reviews: 'Ulasan', hero: 'Hero', branding: 'Branding' };
+const FOLDERS = { products: 'Produk', reviews: 'Ulasan', hero: 'Hero', branding: 'Branding', contacts: 'Ikon kontak' };
 const OWNERS = { product: 'Produk', review: 'Ulasan', settings: 'Pengaturan' };
 
 export default {

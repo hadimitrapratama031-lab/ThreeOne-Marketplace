@@ -88,8 +88,10 @@ export const contactInput = z.object({
   value: str(1, 120),
   href: href.optional().default(''),
   icon: z.enum(Object.keys(CONTACT_ICONS)).default('link'),
+  iconImage: mediaRef.nullable().optional(),   // tidak dikirim = tidak berubah; null = pakai ikon bawaan
   active: z.boolean().optional().default(true),
 });
+export const contactIconInput = z.object({ iconImage: mediaRef.nullable() });
 export const statusInput = z.object({ active: z.boolean() });
 export const reorderInput = z.object({ ids: z.array(objectIdStr).min(1).max(500) });
 
@@ -131,7 +133,15 @@ export const reviewListQuery = z.object({
 
 const cta = z.object({ label: str(1, 40), href });
 export const settingSchemas = {
-  branding: z.object({ name: str(1, 40), siteTitle: str(1, 80), logo: mediaRef.nullable().default(null) }),
+  // Semua field opsional: tiap kartu di halaman Pengaturan hanya mengirim field miliknya dan field lain tidak berubah.
+  // null = hapus gambar, tidak dikirim = biarkan.
+  branding: z.object({
+    name: str(1, 40).optional(),
+    siteTitle: str(1, 80).optional(),
+    logo: mediaRef.nullable().optional(),
+    footerLogo: mediaRef.nullable().optional(),
+    favicon: mediaRef.nullable().optional(),
+  }),
   hero: z.object({
     eyebrow: z.string().trim().max(60),
     title: str(1, 120),

@@ -3,18 +3,36 @@ import { $, html, mount, icon, toast, toastError } from '../ui.js';
 import { api } from '../api.js';
 
 // `max` opsional: tanpa `max` jumlah file tidak dibatasi (dipakai galeri produk). Halaman lain tetap memberi batas sendiri.
-export function mediaManager(host, { max = Infinity, folder, video = false, limits, initial = [], showMain = false, addLabel = 'Tambah gambar', addHint = '', replace = false, onChange }) {
+// Opsional (hanya bila diisi, perilaku lama tidak berubah): `accept` = daftar MIME yang boleh dipilih (divalidasi di browser,
+// server tetap memeriksa isi file), `formats` = teks format untuk pesan error, `maxMB` = batas ukuran khusus bagian ini.
+const EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', ico: 'image/x-icon' };
+
+export function mediaManager(host, { max = Infinity, folder, video = false, limits, initial = [], showMain = false, addLabel = 'Tambah gambar', addHint = '', replace = false, accept = null, formats = '', maxMB = null, onChange }) {
   let items = initial.map((m) => ({ type: m.type || 'image', key: m.key, url: m.url }));
   let pending = 0;
 
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = max > 1;
-  input.accept = video ? 'image/jpeg,image/png,image/webp,image/gif,image/avif,video/mp4,video/webm' : 'image/jpeg,image/png,image/webp,image/gif,image/avif';
+  input.accept = accept ? [...new Set([...accept, ...Object.entries(EXT_MIME).filter(([, m]) => accept.includes(m)).map(([e]) => `.${e}`)])].join(',')
+    : video ? 'image/jpeg,image/png,image/webp,image/gif,image/avif,video/mp4,video/webm' : 'image/jpeg,image/png,image/webp,image/gif,image/avif';
+
+  /** Validasi di browser sebelum upload. Mengembalikan { title, detail } bila ditolak. */
+  function problem(file) {
+    if (accept) {
+      const byExt = EXT_MIME[(file.name.split('.').pop() || '').toLowerCase()];
+      const ok = accept.includes(file.type) || (!file.type && byExt && accept.includes(byExt));
+      if (!ok) return { title: `${file.name} tidak didukung`, detail: formats ? `Gunakan ${formats}.` : 'Format file tidak sesuai.' };
+    }
+    const isVideo = file.type.startsWith('video/');
+    const cap = Math.min(isVideo ? limits.videoMB : limits.imageMB, maxMB ?? Infinity);
+    if (file.size > cap * 1048576) return { title: `${file.name} terlalu besar`, detail: `Maksimal ${cap} MB.` };
+    return null;
+  }
 
   const swap = document.createElement('input');   // pilih satu file pengganti untuk tile tertentu
   swap.type = 'file';
-  swap.accept = input.accept;
+  swap.accept = input.accept;   // dibaca setelah input.accept diisi di atas
   let swapIndex = -1;
 
   function render() {
@@ -39,9 +57,8 @@ export function mediaManager(host, { max = Infinity, folder, video = false, limi
     const list = [...files].slice(0, Math.max(0, room));
     if (files.length > list.length) toast(`Maksimal ${max} file`, { type: 'error', detail: 'Sebagian file tidak ditambahkan.' });
     for (const file of list) {
-      const isVideo = file.type.startsWith('video/');
-      const maxMB = isVideo ? limits.videoMB : limits.imageMB;
-      if (file.size > maxMB * 1048576) { toast(`${file.name} terlalu besar`, { type: 'error', detail: `Maksimal ${maxMB} MB.` }); continue; }
+      const bad = problem(file);
+      if (bad) { toast(bad.title, { type: 'error', detail: bad.detail }); continue; }
       pending++; render();
       try {
         const { asset } = await api.upload(file, folder);
@@ -57,9 +74,8 @@ export function mediaManager(host, { max = Infinity, folder, video = false, limi
     const i = swapIndex;
     swapIndex = -1;
     if (!file || !items[i]) return;
-    const isVideo = file.type.startsWith('video/');
-    const maxMB = isVideo ? limits.videoMB : limits.imageMB;
-    if (file.size > maxMB * 1048576) { toast(`${file.name} terlalu besar`, { type: 'error', detail: `Maksimal ${maxMB} MB.` }); return; }
+    const bad = problem(file);
+    if (bad) { toast(bad.title, { type: 'error', detail: bad.detail }); return; }
     const old = items[i];
     pending++; render();
     try {

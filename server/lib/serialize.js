@@ -48,8 +48,10 @@ export function pubFaq(f) {
   return { id: idStr(f), q: f.question, a: f.answer, order: f.order, updatedAt: iso(f.updatedAt) };
 }
 
+const contactImage = (c) => (c.iconImage?.key ? { key: c.iconImage.key, url: mediaUrl(c.iconImage) } : null);
+
 export function pubContact(c) {
-  return { id: idStr(c), label: c.label, value: c.value, href: c.href || '', icon: CONTACT_ICONS[c.icon] || CONTACT_ICONS.link, order: c.order, updatedAt: iso(c.updatedAt) };
+  return { id: idStr(c), label: c.label, value: c.value, href: c.href || '', icon: CONTACT_ICONS[c.icon] || CONTACT_ICONS.link, iconUrl: contactImage(c)?.url ?? null, order: c.order, updatedAt: iso(c.updatedAt) };
 }
 
 export function pubReview(r, product) {
@@ -103,7 +105,7 @@ export function admFaq(f) {
 }
 
 export function admContact(c) {
-  return { id: idStr(c), label: c.label, value: c.value, href: c.href || '', icon: c.icon, iconPath: CONTACT_ICONS[c.icon] || CONTACT_ICONS.link, order: c.order, active: c.active, updatedAt: iso(c.updatedAt) };
+  return { id: idStr(c), label: c.label, value: c.value, href: c.href || '', icon: c.icon, iconPath: CONTACT_ICONS[c.icon] || CONTACT_ICONS.link, iconImage: contactImage(c), order: c.order, active: c.active, updatedAt: iso(c.updatedAt) };
 }
 
 export function admReview(r, product) {

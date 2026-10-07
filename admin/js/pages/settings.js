@@ -1,12 +1,42 @@
-import { $, $$, html, mount, icon, toast, toastError, busy, fieldErrors } from '../ui.js';
+import { $, $$, html, mount, icon, toast, toastError, busy, fieldErrors, emptyState, raw, esc } from '../ui.js';
 import { api } from '../api.js';
 import { mediaManager } from './_media.js';
 
 const PLATFORM_ICONS = { windows: 'Windows', steam: 'Steam', store: 'Logo toko' };
 
+// Aturan file per bagian (server memeriksa ulang isi file, ukuran, dan format)
+const IMG_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
+const IMG_FORMATS = 'JPG, PNG, WebP, GIF, atau AVIF';
+const FAVICON_MIMES = ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/webp', 'image/jpeg', 'image/gif'];
+
+// Kartu gambar -> field di setting `branding`. Tiap kartu hanya mengirim field miliknya, jadi tidak saling menimpa.
+const MEDIA_CARDS = { storeLogo: 'logo', footerLogo: 'footerLogo', favicon: 'favicon' };
+const TARGET = { brand: 'branding', storeLogo: 'branding', footerLogo: 'branding', favicon: 'branding' };
+const SAVED = {
+  brand: ['Identitas brand disimpan', 'Marketplace sudah menerima pembaruan.'],
+  storeLogo: ['Store logo disimpan', 'Header Marketplace langsung memakai logo ini.'],
+  footerLogo: ['Footer logo disimpan', 'Footer Marketplace langsung memakai logo ini.'],
+  favicon: ['Favicon disimpan', 'Tab browser Marketplace berganti otomatis.'],
+};
+
+const mediaCard = ({ card, field, title, desc, hint, tile = 160 }) => html`
+  <form class="card" data-card="${card}" novalidate>
+    <div class="card__head"><h3>${title}</h3><small class="save-state" data-state></small></div>
+    <div class="card__body stack">
+      <div class="field" data-field="${field}"><span>${desc}</span><small>${hint}</small>
+        <div class="media-grid media-grid--contain" style="grid-template-columns:${tile}px"><div data-media="${field}" style="display:contents"></div></div>
+      </div>
+      <div class="actions"><button class="btn btn--primary" type="submit">Simpan ${title.toLowerCase()}</button></div>
+    </div>
+  </form>`;
+
 export default {
   async mount(root, ctx) {
     const { settings: s } = await api.get('/settings');
+    // Daftar kontak untuk bagian "Ikon kontak". Bila gagal dimuat, bagian lain di halaman ini tetap berfungsi.
+    let contacts = [];
+    let contactsError = '';
+    try { contacts = (await api.get('/contacts')).items; } catch (err) { contactsError = err.message || 'Daftar kontak gagal dimuat.'; }
 
     const platformRow = (p = { icon: 'windows', label: '' }) => html`
       <div class="spec-row" data-platform style="grid-template-columns:150px 1fr auto">
@@ -16,20 +46,46 @@ export default {
       </div>`;
 
     mount(root, html`
-      <div class="page-head"><div><h2>Pengaturan Marketplace</h2><p>Hanya pengaturan yang benar-benar dipakai Marketplace. Setiap kartu disimpan terpisah.</p></div></div>
+      <div class="page-head"><div><h2>Pengaturan Marketplace</h2><p>Logo, favicon, dan ikon kontak punya bagian sendiri. Setiap kartu disimpan terpisah dan langsung tampil di Marketplace.</p></div></div>
       <div class="stack" style="max-width:820px">
 
-        <form class="card" data-card="branding" novalidate>
-          <div class="card__head"><h3>Brand</h3></div>
+        <form class="card" data-card="brand" novalidate>
+          <div class="card__head"><h3>Identitas brand</h3></div>
           <div class="card__body stack">
             <div class="grid-2">
               <label class="field"><span>Nama brand</span><input name="name" value="${s.branding.name}" maxlength="40" required><small>Tampil di header dan footer.</small></label>
               <label class="field"><span>Judul tab browser</span><input name="siteTitle" value="${s.branding.siteTitle}" maxlength="80" required></label>
             </div>
-            <div class="field" data-field="logo"><span>Logo</span><small>Kosong = ikon bawaan. Tinggi logo ditampilkan 26 px.</small><div class="media-grid" style="grid-template-columns:160px"><div id="logo-host" style="display:contents"></div></div></div>
-            <div class="actions"><button class="btn btn--primary" type="submit">Simpan brand</button></div>
+            <div class="actions"><button class="btn btn--primary" type="submit">Simpan identitas</button></div>
           </div>
         </form>
+
+        ${mediaCard({ card: 'storeLogo', field: 'logo', title: 'Store logo', desc: 'Logo di header', hint: 'Kosong = ikon bawaan. Tinggi ditampilkan 26 px. JPG, PNG, WebP, GIF, atau AVIF. Footer juga memakainya selama Footer logo belum diatur.' })}
+
+        ${mediaCard({ card: 'footerLogo', field: 'footerLogo', title: 'Footer logo', desc: 'Logo di footer', hint: 'Tampil di footer semua halaman. Kosong = footer memakai Store logo. Tinggi ditampilkan 26 px.' })}
+
+        ${mediaCard({ card: 'favicon', field: 'favicon', title: 'Favicon', desc: 'Ikon tab browser', tile: 120, hint: 'PNG atau ICO persegi, minimal 32 × 32 px (disarankan 48 × 48 atau lebih). Maksimal 1 MB. Format lain yang bisa: WebP, JPG, GIF. SVG tidak didukung.' })}
+
+        <section class="card" id="contact-icons">
+          <div class="card__head"><h3>Ikon kontak</h3></div>
+          <div class="card__body stack">
+            <p class="muted">Setiap kontak di bagian “${s.sections.contact.title}” bisa memakai gambar sendiri. Hapus gambar lalu simpan untuk kembali ke ikon bawaan. Teks dan tautan kontak diatur di halaman Kontak.</p>
+            ${contactsError ? html`<p role="alert" style="color:var(--danger)">${contactsError}</p>`
+              : !contacts.length ? emptyState('Belum ada kontak', 'Tambahkan kontak di halaman Kontak, lalu atur ikonnya di sini.', 'chat')
+              : html`<div class="contact-icons">${contacts.map((c) => html`
+              <div class="contact-icon-row" data-contact="${c.id}">
+                <div class="contact-icon-row__info">
+                  <span class="row__icon">${raw(`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${esc(c.iconPath)}"/></svg>`)}</span>
+                  <div><b>${c.label}</b>${c.active ? '' : html` <span class="pill pill--mute">Disembunyikan</span>`}<p class="muted">${c.value}</p></div>
+                </div>
+                <div class="media-grid media-grid--contain" style="grid-template-columns:96px"><div data-icon-host style="display:contents"></div></div>
+                <div class="contact-icon-row__save">
+                  <small class="save-state" data-state>${c.iconImage ? 'Tersimpan' : 'Ikon bawaan'}</small>
+                  <button class="btn btn--primary btn--sm" type="button" data-save-icon>Simpan ikon</button>
+                </div>
+              </div>`)}</div>`}
+          </div>
+        </section>
 
         <form class="card" data-card="stats" novalidate>
           <div class="card__head"><h3>Statistik di beranda</h3></div>
@@ -72,7 +128,41 @@ export default {
         </form>
       </div>`);
 
-    const logo = mediaManager($('#logo-host', root), { max: 1, folder: 'branding', limits: ctx.meta.limits, initial: s.branding.logo ? [{ ...s.branding.logo, type: 'image' }] : [], addLabel: 'Unggah logo' });
+    // ----- Gambar branding: Store logo, Footer logo, Favicon -----
+    const setState = (form, text, dirty = false) => {
+      const el = $('[data-state]', form);
+      if (!el) return;
+      el.textContent = text;
+      el.classList.toggle('is-dirty', dirty);
+    };
+    const media = {};
+    for (const [card, field] of Object.entries(MEDIA_CARDS)) {
+      const form = $(`form[data-card="${card}"]`, root);
+      const isIco = field === 'favicon';
+      media[card] = mediaManager($(`[data-media="${field}"]`, form), {
+        max: 1, folder: 'branding', limits: ctx.meta.limits, replace: true,
+        accept: isIco ? FAVICON_MIMES : IMG_MIMES,
+        formats: isIco ? 'PNG, ICO, WebP, JPG, atau GIF' : IMG_FORMATS,
+        maxMB: isIco ? 1 : null,
+        addLabel: isIco ? 'Unggah favicon' : 'Unggah logo',
+        initial: s.branding[field] ? [{ ...s.branding[field], type: 'image' }] : [],
+        onChange: () => { fieldErrors(form, {}); setState(form, 'Perubahan belum disimpan', true); },
+      });
+      setState(form, s.branding[field] ? 'Tersimpan' : 'Belum diatur');
+    }
+
+    // ----- Ikon kontak: satu pengelola gambar per kontak, disimpan per kontak -----
+    const iconMgrs = new Map();
+    for (const row of $$('[data-contact]', root)) {
+      const c = contacts.find((x) => x.id === row.dataset.contact);
+      if (!c) continue;
+      iconMgrs.set(c.id, mediaManager($('[data-icon-host]', row), {
+        max: 1, folder: 'contacts', limits: ctx.meta.limits, replace: true,
+        accept: IMG_MIMES, formats: IMG_FORMATS, maxMB: 2, addLabel: 'Unggah',
+        initial: c.iconImage ? [{ ...c.iconImage, type: 'image' }] : [],
+        onChange: () => setState(row, 'Perubahan belum disimpan', true),
+      }));
+    }
 
     root.addEventListener('click', (e) => {
       if (e.target.closest('#add-platform')) {
@@ -83,10 +173,34 @@ export default {
       }
       const rm = e.target.closest('[data-rm-platform]');
       if (rm) rm.closest('[data-platform]').remove();
+
+      const save = e.target.closest('[data-save-icon]');
+      if (save) saveContactIcon(save);
     });
 
+    async function saveContactIcon(btn) {
+      const row = btn.closest('[data-contact]');
+      const id = row.dataset.contact;
+      const mgr = iconMgrs.get(id);
+      const c = contacts.find((x) => x.id === id);
+      if (!mgr || !c) return;
+      if (mgr.busy()) return toast('Tunggu upload selesai', { type: 'error' });
+      try {
+        const { item } = await busy(btn, () => api.put(`/contacts/${id}/icon`, { iconImage: mgr.get()[0] ?? null }));
+        Object.assign(c, item);
+        setState(row, item.iconImage ? 'Tersimpan' : 'Ikon bawaan');
+        toast('Ikon kontak disimpan', { detail: `${c.label} sudah diperbarui di Marketplace.` });
+      } catch (err) {
+        setState(row, 'Gagal menyimpan', true);
+        toast(err.message || 'Ikon gagal disimpan', { type: 'error', detail: err.fields?.iconImage || '' });
+      }
+    }
+
     const BODIES = {
-      branding: (f) => ({ name: f.name.value, siteTitle: f.siteTitle.value, logo: logo.get()[0] ?? null }),
+      brand: (f) => ({ name: f.name.value, siteTitle: f.siteTitle.value }),
+      storeLogo: () => ({ logo: media.storeLogo.get()[0] ?? null }),
+      footerLogo: () => ({ footerLogo: media.footerLogo.get()[0] ?? null }),
+      favicon: () => ({ favicon: media.favicon.get()[0] ?? null }),
       stats: (f) => ({ support: f.support.value }),
       sections: (f) => ({
         products: { title: f.productsTitle.value, subtitle: f.productsSub.value },
@@ -105,13 +219,18 @@ export default {
       const form = e.target.closest('form[data-card]');
       if (!form) return;
       const key = form.dataset.card;
-      if (key === 'branding' && logo.busy()) return toast('Tunggu upload selesai', { type: 'error' });
+      if (media[key]?.busy()) return toast('Tunggu upload selesai', { type: 'error' });
       try {
-        await busy($('button[type="submit"]', form), () => api.put(`/settings/${key}`, BODIES[key](form.elements)));
-        toast('Pengaturan disimpan', { detail: 'Marketplace sudah menerima pembaruan.' });
+        await busy($('button[type="submit"]', form), () => api.put(`/settings/${TARGET[key] || key}`, BODIES[key](form.elements)));
+        const [title, detail] = SAVED[key] || ['Pengaturan disimpan', 'Marketplace sudah menerima pembaruan.'];
+        toast(title, { detail });
+        if (media[key]) setState(form, media[key].get().length ? 'Tersimpan' : 'Belum diatur');
       } catch (err) {
-        const fields = Object.fromEntries(Object.entries(err.fields).map(([k, v]) => [FIELD_MAP[k] || k, v]));
-        if (!fieldErrors(form, fields)) toast(err.message, { type: 'error', detail: Object.values(err.fields)[0] || '' });
+        const fields = Object.fromEntries(Object.entries(err.fields || {}).map(([k, v]) => [FIELD_MAP[k] || k, v]));
+        const shown = fieldErrors(form, fields);
+        // Kartu gambar selalu memberi toast gagal agar tidak terlewat; kartu lain hanya bila tidak ada kolom yang cocok
+        if (!shown || media[key]) toast(err.message || 'Gagal menyimpan', { type: 'error', detail: Object.values(err.fields || {})[0] || '' });
+        if (media[key]) setState(form, 'Gagal menyimpan', true);
       }
     });
     return { destroy() {}, onLive() {} };

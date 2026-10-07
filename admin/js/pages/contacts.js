@@ -1,4 +1,4 @@
-import { html, icon, raw } from '../ui.js';
+import { html, icon, raw, esc } from '../ui.js';
 import { listPage } from './_list.js';
 
 const ICONS = { whatsapp: 'WhatsApp', discord: 'Discord', email: 'Email', telegram: 'Telegram', phone: 'Telepon', link: 'Tautan lain' };
@@ -13,14 +13,17 @@ export default listPage({
   endpoint: '/contacts',
   liveMatch: /^contact:/,
   heading: 'Kontak',
-  description: 'Kartu kontak di bagian “Hubungi Kami”. Tautan membuat kartunya bisa diklik.',
+  description: 'Kartu kontak di bagian “Hubungi Kami”. Tautan membuat kartunya bisa diklik. Gambar ikon kontak diatur di Pengaturan.',
   addLabel: 'Tambah kontak',
   editTitle: 'Ubah kontak',
   addedMessage: 'Kontak ditambahkan',
   emptyTitle: 'Belum ada kontak',
   emptyText: 'Bagian kontak disembunyikan di Marketplace selama daftar ini kosong.',
   emptyIcon: 'chat',
-  rowIcon: (c) => raw(`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${PATHS[c.icon] || PATHS.link}"/></svg>`),
+  // Ikon custom (gambar R2, diatur di Pengaturan > Ikon kontak) bila ada; ikon bawaan sebagai cadangan
+  rowIcon: (c) => (c.iconImage?.url
+    ? raw(`<img class="row__img" src="${esc(c.iconImage.url)}" alt="" width="38" height="38">`)
+    : raw(`<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${PATHS[c.icon] || PATHS.link}"/></svg>`)),
   rowMain: (c) => html`<b>${c.label}</b><p>${c.value}${c.href ? ` · ${c.href}` : ' · tanpa tautan'}</p>`,
   deleteTitle: 'Hapus kontak?',
   deleteMessage: (c) => `Kontak “${c.label}” akan dihapus dari Marketplace.`,

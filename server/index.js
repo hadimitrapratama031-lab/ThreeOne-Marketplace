@@ -19,6 +19,7 @@ import { seedDemo } from './seed/seed.js';
 import { CONTACT_ICONS } from './models/index.js';
 import { r2Configured } from './config/env.js';
 import { FOLDERS } from './services/assets.js';
+import { getSetting } from './services/settings.js';
 import authRouter from './routes/auth.js';
 import publicRouter from './routes/public.js';
 import productsRouter from './routes/products.js';
@@ -79,6 +80,17 @@ export function createApp() {
   });
 
   const apiCors = config.corsOrigins.length ? cors({ origin: config.corsOrigins, credentials: true }) : (_req, _res, next) => next();
+  // Favicon dinamis: halaman Marketplace menautkan /favicon.ico, server mengarahkannya ke favicon yang dipilih Admin (R2).
+  // Dengan begitu tab browser langsung memakai favicon yang benar saat halaman dibuka, tanpa menunggu JavaScript.
+  app.get('/favicon.ico', async (_req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    try {
+      const { favicon } = await getSetting('branding');
+      if (favicon?.url) return res.redirect(302, favicon.url);
+    } catch { /* tanpa favicon */ }
+    res.status(204).end();
+  });
+
   app.use('/api', apiCors);
   app.use('/api/public', publicRouter);
   app.use('/api/livechat', livechatPublicRouter);                    // Live Chat pelanggan (token percakapan per pelanggan)

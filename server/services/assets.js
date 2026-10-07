@@ -5,7 +5,7 @@ import { sniff } from '../lib/sniff.js';
 import { HttpError } from '../lib/http.js';
 import { config } from '../config/env.js';
 
-export const FOLDERS = ['products', 'reviews', 'hero', 'branding', 'livechat'];
+export const FOLDERS = ['products', 'reviews', 'hero', 'branding', 'livechat', 'contacts'];
 
 const sameOwner = (a, b) => a?.type === b.type && a?.id === String(b.id);
 
@@ -16,6 +16,7 @@ export async function uploadAsset({ buffer, originalName, folder }) {
   if (!info) throw new HttpError(415, 'Format file tidak didukung. Gunakan JPG, PNG, WebP, GIF, AVIF (gambar) atau MP4/WebM (video).');
   const max = info.kind === 'video' ? config.limits.videoBytes : config.limits.imageBytes;
   if (buffer.length > max) throw new HttpError(413, `Ukuran file terlalu besar (maksimal ${Math.round(max / 1048576)} MB untuk ${info.kind === 'video' ? 'video' : 'gambar'}).`);
+  if (info.ext === 'ico' && folder !== 'branding') throw new HttpError(415, 'Format ICO hanya untuk Favicon. Gunakan JPG, PNG, WebP, GIF, atau AVIF.');
   if (info.kind === 'video' && folder !== 'products') throw new HttpError(422, 'Video hanya boleh untuk galeri produk.');
 
   const now = new Date();
@@ -44,7 +45,7 @@ export async function uploadAsset({ buffer, originalName, folder }) {
  * - aset baru ('temp') diverifikasi masih ada di R2
  * Mengembalikan aset berurutan sesuai input.
  */
-export async function resolveForOwner(keys, owner, { folders, kinds = ['image'], max = 99 } = {}) {
+export async function resolveForOwner(keys, owner, { folders, kinds = ['image'], max = 99, mimes = null, maxBytes = null } = {}) {
   const uniq = [...new Set(keys)];
   if (uniq.length !== keys.length) throw new HttpError(422, 'Gambar duplikat dalam satu daftar.');
   if (keys.length > max) throw new HttpError(422, `Maksimal ${max} file.`);
@@ -58,6 +59,8 @@ export async function resolveForOwner(keys, owner, { folders, kinds = ['image'],
     if (!a) throw new HttpError(422, 'Salah satu file tidak dikenal. Upload ulang file tersebut.');
     if (!folders.includes(a.folder)) throw new HttpError(422, 'File ini tidak boleh dipakai di bagian tersebut.');
     if (!kinds.includes(a.kind)) throw new HttpError(422, a.kind === 'video' ? 'Video tidak diizinkan di bagian ini.' : 'Hanya gambar yang diizinkan di bagian ini.');
+    if (mimes && !mimes.includes(a.mime)) throw new HttpError(422, 'Format file ini tidak cocok untuk bagian tersebut.');
+    if (maxBytes && a.size > maxBytes) throw new HttpError(422, `Ukuran file terlalu besar (maksimal ${Math.round(maxBytes / 1048576)} MB untuk bagian ini).`);
     if (a.status === 'used' && !sameOwner(a.owner, owner)) throw new HttpError(409, 'File ini sudah dipakai oleh data lain.');
     out.push(a);
   }

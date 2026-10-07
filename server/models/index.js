@@ -124,7 +124,8 @@ const contactSchema = new Schema({
   label: { type: String, required: true, trim: true, maxlength: 40 },
   value: { type: String, required: true, trim: true, maxlength: 120 },
   href: { type: String, default: '', maxlength: 300 },
-  icon: { type: String, enum: Object.keys(CONTACT_ICONS), default: 'link' },
+  icon: { type: String, enum: Object.keys(CONTACT_ICONS), default: 'link' },   // ikon bawaan (fallback)
+  iconImage: { type: new Schema({ key: { type: String, required: true } }, { _id: false }), default: null },   // ikon custom: hanya key R2
   order: { type: Number, default: 0 },
   active: { type: Boolean, default: true },
 }, { timestamps: true });
