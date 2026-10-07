@@ -34,12 +34,18 @@ before(async () => {
     { _id: o2, orderCode: 'ORD-20260102-BBBBBB', customer: { name: '', email: 'siti@mail.com', whatsapp: '081211112222' }, product: { productId: p2, name: 'App B', price: 25000, category: 'Aplikasi' }, quantity: 2, total: 50000, status: 'PENDING', paymentStatus: 'PENDING', createdAt: new Date('2026-01-02T10:00:00Z') },
     { _id: o3, orderCode: 'ORD-20260103-CCCCCC', customer: { name: 'Ani', email: 'ani@mail.com', whatsapp: '6285500000000' }, product: { productId: OID(), name: 'Produk Terhapus' }, quantity: 1, total: 10000, status: 'PAID', paymentStatus: 'SUCCESS' },
   ]);
+  const o4 = OID(); const o5 = OID();
+  await d.collection('orders').insertMany([
+    { _id: o4, orderCode: 'ORD-20260104-DDDDDD', customer: { name: 'Eko', email: 'eko@mail.com', whatsapp: '6281399990000' }, product: { productId: p1, name: 'Game A', price: 50000, category: 'Game' }, quantity: 1, total: 50000, status: 'FAILED', paymentStatus: 'FAILED', createdAt: new Date('2026-01-04T10:00:00Z') },
+    { _id: o5, orderCode: 'ORD-20260105-EEEEEE', customer: { email: '', whatsapp: '' }, product: { productId: p1, name: 'Game A', price: 50000 }, quantity: 2, total: 100000, status: 'EXPIRED', paymentStatus: 'EXPIRED', createdAt: new Date('2026-01-05T10:00:00Z') },
+  ]);
   await d.collection('transactions').insertOne({ transactionId: 'ORD-20260101-AAAAAA', orderId: o1, environment: 'sandbox', amount: 50000, totalAmount: 50016, status: 'SUCCESS', paidAt: new Date('2026-01-01T10:04:00Z') });
   await d.collection('customers').insertMany([{ email: 'budi@mail.com', whatsapp: '6281234567890' }, { email: 'siti@mail.com', whatsapp: '6281211112222' }]);
   await d.collection('ratings').insertMany([
     { user: 'Budi', rating: 5, review: 'Mantap', productId: p1, status: 'approved', createdAt: new Date('2026-01-03T00:00:00Z') },
     { user: 'Siti', rating: 4, review: 'Baru masuk', productId: p1, status: 'pending' },
     { user: 'Umum', rating: 5, review: 'Tanpa produk', status: 'approved' },
+    { user: 'Dewi', rating: 3, review: 'Produknya dilewati', productId: p3, status: 'approved' },   // produk dilewati → tetap jadi ulasan umum
   ]);
 });
 after(async () => { await oldConn.dropDatabase(); await oldConn.close(); await oldS3.close(); await t.stop(); });
@@ -72,15 +78,20 @@ test('apply: kategori, produk (harga/stok/terjual), pesanan+pembeli, rating; pro
   assert.equal(prods.find((p) => p.name === 'App B').active, false);
 
   const orders = (await a.get('/orders?limit=100')).body.items;
-  assert.equal(orders.length, 2, 'hanya pesanan SUKSES yang diimpor (produk terhapus tetap ikut lewat snapshot nama)');
+  assert.equal(orders.length, 5, 'SEMUA pesanan diimpor (sukses, gagal, kedaluwarsa; produk terhapus tetap ikut lewat snapshot nama)');
   const o3 = orders.find((o) => o.orderNo === 'ORD-20260103-CCCCCC');
   assert.equal(o3.status, 'SUCCESS'); assert.equal(o3.product.name, 'Produk Terhapus');
   const o1 = orders.find((o) => o.orderNo === 'ORD-20260101-AAAAAA');
   assert.equal(o1.status, 'SUCCESS'); assert.equal(o1.customer.email, 'budi@mail.com'); assert.equal(o1.mode, 'sandbox'); assert.equal(o1.totalAmount, 50016);
-  assert.equal(orders.find((o) => o.orderNo === 'ORD-20260102-BBBBBB'), undefined, 'pesanan PENDING lama tidak diimpor');
+  assert.equal(orders.find((o) => o.orderNo === 'ORD-20260102-BBBBBB').status, 'EXPIRED', 'PENDING lama diimpor sebagai EXPIRED');
+  assert.equal(orders.find((o) => o.orderNo === 'ORD-20260104-DDDDDD').status, 'FAILED');
+  const o5 = orders.find((o) => o.orderNo === 'ORD-20260105-EEEEEE');
+  assert.equal(o5.status, 'EXPIRED'); assert.equal(o5.customer.email, 'tanpa-email@import.invalid', 'data kosong diberi nilai pengganti, pesanan tidak dilewati');
+  assert.match(out, /Database di cluster lama/);
 
   const reviews = (await a.get('/reviews?limit=100')).body.items;
-  assert.equal(reviews.length, 3, 'rating tanpa produk diimpor sebagai ulasan umum');
+  assert.equal(reviews.length, 4, 'semua rating diimpor; tanpa produk / produk dilewati = ulasan umum');
+  assert.equal(reviews.find((r) => r.text === 'Produknya dilewati').status, 'published');
   assert.equal(reviews.find((r) => r.text === 'Mantap').status, 'published');
   assert.equal(reviews.find((r) => r.text === 'Baru masuk').status, 'hidden');
 });

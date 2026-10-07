@@ -24,7 +24,7 @@ const ROUTES = [
 ];
 
 const LIVE_EVENTS = [
-  'product:create', 'product:update', 'product:delete', 'product:bulk',
+  'product:create', 'product:update', 'product:delete', 'product:bulk', 'product:reorder',
   'category:create', 'category:update', 'category:delete', 'category:reorder',
   'hero:update', 'settings:update',
   'faq:create', 'faq:update', 'faq:delete', 'faq:reorder',

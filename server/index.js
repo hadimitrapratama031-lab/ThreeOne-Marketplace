@@ -17,6 +17,7 @@ import { invalidate as invalidatePublicCache } from './lib/memo.js';
 import { requireAdmin, originGuard, adminLimiter } from './middleware/security.js';
 import { notFoundApi, errorHandler } from './middleware/errors.js';
 import { sweepAssets } from './services/assets.js';
+import { ensureProductOrder } from './services/productOrder.js';
 import { r2EnvReport, probeR2 } from './lib/r2.js';
 import { seedDemo } from './seed/seed.js';
 import { CONTACT_ICONS } from './models/index.js';
@@ -198,6 +199,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
 
   await mongoose.connect(config.mongoUri, { serverSelectionTimeoutMS: 10_000 });
   await syncAllIndexes();
+  await ensureProductOrder();   // produk lama (sebelum fitur urutan) diberi posisi = urutan tampil sebelumnya (terbaru dulu)
   invalidatePublicCache();   // cache memori publik tidak boleh membawa data dari koneksi/database sebelumnya
   await ensureAdmin();
   if (config.seedDemo) {

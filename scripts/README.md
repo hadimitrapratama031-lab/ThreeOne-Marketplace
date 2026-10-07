@@ -38,9 +38,10 @@ Opsi: `--include-content`, `--include-settings`, `--include-admins`, `--keep-ima
 
 - **Kategori**: nama, urutan, aktif/nonaktif.
 - **Produk**: nama, harga, stok, status, kategori, deskripsi singkat + "Tentang produk", dan **semua gambar** (utama + tambahan) disalin dari R2 lama ke R2 baru.
-- **Pesanan**: hanya yang **sukses**, beserta data pembeli. Tidak mengubah stok, tidak mengirim notifikasi. (`--all-orders` = semua status.)
-- **Terjual per produk**: sama dengan project lama. Project baru menghitung Terjual dari jumlah pesanan sukses, jadi selisihnya disimpan di `Product.soldAdjust`.
-- **Rating**: semua; approved → tayang, hidden/pending → tersembunyi.
+- **Pesanan**: **semua status** (sukses / gagal / kedaluwarsa; PENDING lama → kedaluwarsa) beserta data pembeli. Tidak ada yang dilewati: data kosong diberi nilai pengganti, dan pesanan yang gagal ditulis disebut satu per satu di laporan. Tidak mengubah stok, tidak mengirim notifikasi. (`--success-only` = hanya yang sukses.)
+- **Terjual per produk**: sama dengan project lama. Project baru menghitung Terjual dari jumlah pesanan sukses, jadi selisihnya (pesanan dengan jumlah > 1, atau pesanan yang sudah dihapus admin di sistem lama) disimpan di `Product.soldAdjust`, dihitung ulang dari database baru setiap kali dijalankan.
+- **Rating**: semua; approved → tayang, hidden/pending → tersembunyi. Produknya tak ditemukan → jadi ulasan umum (tidak dibuang).
+- **Diagnosa**: laporan juga memindai semua database di cluster lama dan jejak pesanan yatim. Bila jumlah pesanan/rating di laporan lebih sedikit dari yang Anda harapkan, lihat bagian "Database di cluster lama": datanya mungkin ada di database lain → `OLD_MONGODB_DB=<nama>`.
 
-Opsi: `--apply`, `--verbose`, `--skip-orders`, `--skip-reviews`, `--skip-images`, `--old-uri=…`, `--old-db=…`.
+Opsi: `--apply`, `--verbose`, `--skip-orders`, `--skip-reviews`, `--skip-images`, `--success-only`, `--old-uri=…`, `--old-db=…`.
 Aman dijalankan berulang (tidak ada data atau gambar dobel). Produk bernama sama hanya diperbarui harga/stok/status/kategori; deskripsi diisi bila kosong; gambar tidak menimpa gambar yang sudah diatur manual.

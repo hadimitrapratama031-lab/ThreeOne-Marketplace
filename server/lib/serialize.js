@@ -25,6 +25,7 @@ export function pubProductCard(p, catName, sold = 0) {
     price: p.price,
     stock: p.stock,
     sold,
+    order: p.order ?? null,
     description: p.description,
     imageUrl: mainImage(p) ? mediaUrl(mainImage(p)) : null,
     createdAt: iso(p.createdAt),
@@ -80,6 +81,7 @@ export function admProduct(p, cat, sold = null) {
     oldPrice: p.oldPrice ?? null,
     stock: p.stock,
     sold,
+    order: p.order ?? null,
     active: p.active,
     kind: p.kind || 'normal',
     redeemTutorial: p.kind === 'code' ? (p.redeemTutorial || '') : '',   // hanya Admin; Marketplace publik tidak pernah menerimanya

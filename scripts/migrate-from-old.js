@@ -12,14 +12,18 @@
  *                dan SEMUA GAMBAR (utama + tambahan) yang disalin dari R2 lama ke R2 baru, terdaftar sebagai aset produk.
  *                Produk baru bernama sama (tanpa peduli huruf) hanya DIPERBARUI harga/stok/status/kategori-nya; deskripsi diisi bila masih
  *                kosong; gambar hanya diganti bila produk itu belum punya gambar atau gambarnya semua hasil migrasi.
- *   • Pesanan  : HANYA pesanan yang sukses (dibayar). Nama, email, WhatsApp, produk, nominal, waktu, mode sandbox/production.
- *                Tidak mengubah stok, tidak mengirim notifikasi. (--all-orders: impor semua status seperti versi sebelumnya.)
+ *   • Pesanan  : SEMUA pesanan, apa pun statusnya (sukses / gagal / kedaluwarsa; PENDING lama → kedaluwarsa agar worker pembayaran
+ *                tidak memprosesnya). Nama, email, WhatsApp, produk, nominal, waktu, mode sandbox/production. Tidak ada pesanan yang
+ *                dilewati: data yang kosong diberi nilai pengganti dan pesanan yang gagal ditulis dilaporkan satu per satu.
+ *                Tidak mengubah stok, tidak mengirim notifikasi. (--success-only: hanya pesanan sukses seperti versi lama.)
  *   • Terjual  : angka terjual per produk di project lama dipertahankan. Project baru menghitung Terjual dari jumlah pesanan sukses,
- *                jadi selisihnya (mis. pesanan lama dengan quantity > 1) disimpan di Product.soldAdjust.
- *   • Rating   : bintang, ulasan, nama, tanggal. approved→tayang; hidden/pending→tersembunyi. Tanpa produk = ulasan umum.
+ *                jadi selisihnya (mis. pesanan lama dengan quantity > 1, atau pesanan yang sudah dihapus admin) disimpan di Product.soldAdjust.
+ *   • Rating   : SEMUA rating: bintang, ulasan, nama, tanggal. approved→tayang; hidden/pending→tersembunyi. Produknya tak ditemukan = ulasan umum.
+ *   • Diagnosa : memindai SEMUA database di cluster lama (bila user DB boleh) dan jejak pesanan yatim (transaksi / log notifikasi
+ *                tanpa pesanan), supaya terlihat bila data yang dicari ternyata ada di database lain.
  *
  * Aman dijalankan berulang (tidak membuat data/gambar dobel).
- * Opsi: --apply --verbose --skip-orders --skip-reviews --skip-images --all-orders --old-uri=… --old-db=…
+ * Opsi: --apply --verbose --skip-orders --skip-reviews --skip-images --success-only --old-uri=… --old-db=…
  */
 import mongoose from 'mongoose';
 import { config, r2Configured } from '../server/config/env.js';
@@ -36,7 +40,7 @@ const { flags, values } = parseArgs();
 const APPLY = flags.has('apply');
 const VERBOSE = flags.has('verbose');
 const SKIP_IMAGES = flags.has('skip-images');
-const ALL_ORDERS = flags.has('all-orders');
+const SUCCESS_ONLY = flags.has('success-only');   // default: SEMUA status diimpor (--all-orders lama tetap diterima, tanpa efek)
 
 let old = null;
 const bye = async (code, msg) => {
@@ -68,6 +72,24 @@ if (!oldCount.categories && !oldCount.products && !oldCount.orders) {
   await bye(1, `Database lama "${oldDbName}" kosong (tidak ada kategori/produk/pesanan). Koleksi yang ada: ${names.join(', ') || '(tidak ada)'}.\nPeriksa nama database (OLD_MONGODB_DB).`);
 }
 
+/** Hitung koleksi penting di SEMUA database cluster lama: bila data ternyata ada di database lain, kelihatan di laporan. */
+async function scanCluster() {
+  try {
+    const client = old.getClient();
+    const { databases } = await client.db('admin').admin().listDatabases({ nameOnly: true });
+    const out = [];
+    for (const { name } of databases) {
+      if (['admin', 'local', 'config'].includes(name)) continue;
+      const db = client.db(name);
+      const have = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name));
+      const n = (c) => (have.has(c) ? db.collection(c).countDocuments({}) : 0);
+      out.push({ name, orders: await n('orders'), ratings: await n('ratings'), products: await n('products'), transactions: await n('transactions') });
+    }
+    return out;
+  } catch (e) { return { error: String(e.message || e).slice(0, 160) }; }
+}
+const cluster = await scanCluster();
+
 let source = null; let imgDeps = null;
 if (!SKIP_IMAGES) {
   source = createOldSource(r2old);
@@ -90,7 +112,7 @@ const rep = {
   prod: { created: 0, updated: 0, skipped: [], textTrimmed: 0, withText: 0 },
   img: { refs: 0, found: 0, copied: 0, reused: 0, failed: [], noImage: 0, keptExisting: 0 },
   ord: { created: 0, existing: 0, repaired: 0, noProduct: 0, total: 0, notSuccess: 0, skipped: [], buyers: new Set(), byStatus: {}, legacy: {} },
-  rev: { created: 0, existing: 0, skipped: [] },
+  rev: { created: 0, existing: 0, noProduct: 0, skipped: [] },
   sold: [],
 };
 
@@ -167,16 +189,20 @@ for (const p of oldProducts) {
   if (VERBOSE) console.log(`  produk ${doc ? 'ok' : 'baru'}: ${name} · harga ${price} · stok ${stock} · terjual ${sold}`);
 }
 
-/* ---- Pesanan sukses + pembeli ---- */
+/* ---- Pesanan (semua status) + pembeli ---- */
+const oldOrderIds = new Set(); const oldOrderCodes = new Set();
+let orphanTx = []; let orphanLogs = [];
 if (!flags.has('skip-orders')) {
+  const oldOrders = await read('orders', { createdAt: 1 });
   const tx = new Map((await read('transactions')).map((t) => [String(t.orderId), t]));
-  for (const o of await read('orders', { createdAt: 1 })) {
-    const code = String(o.orderCode || '').trim();
+  for (const o of oldOrders) { oldOrderIds.add(String(o._id)); if (o.orderCode) oldOrderCodes.add(String(o.orderCode).trim()); }
+  for (const o of oldOrders) {
+    // Tidak ada pesanan yang dilewati: kode kosong diberi kode pengganti yang stabil (berbasis _id lama, jadi aman diulang).
+    const code = String(o.orderCode || '').trim() || `LAMA-${String(o._id)}`;
     rep.ord.total += 1;
-    if (!code) { rep.ord.skipped.push('(pesanan tanpa kode)'); continue; }
     const t = tx.get(String(o._id));
     const label = legacyStatusLabel(o, t); const status = mapOrderStatus(o, t);
-    const take = ALL_ORDERS || status === 'SUCCESS';
+    const take = !SUCCESS_ONLY || status === 'SUCCESS';
     (rep.ord.legacy[label] ||= { n: 0, to: take ? status : 'dilewati (bukan sukses)' }).n += 1;
     if (!take) { rep.ord.notSuccess += 1; continue; }
 
@@ -188,7 +214,7 @@ if (!flags.has('skip-orders')) {
         // Pesanan hasil impor sebelumnya: perbaiki status yang salah baca & lengkapi gambar produk bila sudah ada
         const $set = {};
         if (already.status !== status) {
-          rep.ord.repaired += 1; rep.ord.byStatus[status] = (rep.ord.byStatus[status] || 0) + 1;
+          rep.ord.repaired += 1;
           $set.status = status;
           if (status === 'SUCCESS') $set['payment.paidAt'] = t?.paidAt ? new Date(t.paidAt) : (o.updatedAt ? new Date(o.updatedAt) : new Date());
         }
@@ -198,53 +224,77 @@ if (!flags.has('skip-orders')) {
       }
       continue;
     }
-    const email = String(o.customer?.email || '').trim().toLowerCase().slice(0, 120);
-    const total = toInt(o.total ?? (Number(o.product?.price) * Number(o.quantity || 1)), 1);
+    // Data yang kosong/rusak di pesanan lama diberi nilai pengganti (bukan dilewati), supaya setiap pesanan tetap ikut pindah.
+    const email = String(o.customer?.email || '').trim().toLowerCase().slice(0, 120) || 'tanpa-email@import.invalid';
+    const qty = Math.max(1, toInt(o.quantity, 1) || 1);
+    const okAmt = (n) => Number.isFinite(n) && n >= 1;
+    let total = toInt(o.total, 1);
+    if (!okAmt(total)) total = toInt(Number(o.product?.price) * qty, 1);
+    if (!okAmt(total)) total = toInt(t?.amount, 1);
+    if (!okAmt(total)) total = 1;
     // Produk sudah dihapus di sistem lama: pesanan TETAP diimpor memakai snapshot nama/kategori di pesanan itu.
-    const snapName = cleanName(o.product?.name, 120) || entry?.name || '';
-    if (!snapName) { rep.ord.skipped.push(`${code} (nama produk kosong)`); continue; }
-    if (!email || !Number.isFinite(total)) { rep.ord.skipped.push(`${code} (email/nominal tidak valid)`); continue; }
+    const snapName = cleanName(o.product?.name, 120) || entry?.name || 'Produk tidak diketahui';
     if (!entry) rep.ord.noProduct += 1;
-    const wa = normalizeWa(o.customer?.whatsapp, normalizeWhatsapp);
+    const wa = normalizeWa(o.customer?.whatsapp, normalizeWhatsapp).slice(0, 20) || '-';
     const createdAt = o.createdAt ? new Date(o.createdAt) : new Date(); const updatedAt = o.updatedAt ? new Date(o.updatedAt) : createdAt;
-    const totalAmount = Number.isFinite(Number(t?.totalAmount)) ? Number(t.totalAmount) : null;
+    const totalAmount = Number.isFinite(Number(t?.totalAmount)) && t?.totalAmount != null ? Number(t.totalAmount) : null;
     const doc = {
       orderNo: code, status, rev: 1,
-      customer: { name: cleanName(o.customer?.name, 60) || 'Pelanggan', email, whatsapp: wa.slice(0, 20) },
+      customer: { name: cleanName(o.customer?.name, 60) || 'Pelanggan', email, whatsapp: wa },
       product: { ref: entry?.ref ?? null, productId: entry?.productId ?? null, name: snapName, category: cleanName(o.product?.category, 60) || entry?.category || '', imageKey: entry?.coverKey || '' },
       amount: total, totalAmount, uniqueAmount: totalAmount && totalAmount >= total ? totalAmount - total : 0,
       expiresAt: t?.expiredAt ? new Date(t.expiredAt) : null,
       payment: { provider: 'klikqris', mode: t?.environment === 'sandbox' ? 'sandbox' : 'production', gatewayStatus: String(t?.status || ''), qrisUrl: '', source: 'import', ...(status === 'SUCCESS' ? { paidAt: t?.paidAt ? new Date(t.paidAt) : updatedAt } : {}) },
-      origin: '', events: [{ at: createdAt, type: 'imported', detail: `dari project lama${Number(o.quantity) > 1 ? ` · jumlah ${o.quantity}` : ''}`.slice(0, 300) }],
+      failureReason: status === 'FAILED' ? `dari project lama (${label})`.slice(0, 300) : '',
+      origin: '', events: [{ at: createdAt, type: 'imported', detail: `dari project lama · ${label}${qty > 1 ? ` · jumlah ${qty}` : ''}`.slice(0, 300) }],
       createdAt, updatedAt,
     };
+    try {
+      if (APPLY) await Order.create([doc], { timestamps: false });   // insert langsung: tanpa stok, tanpa notifikasi
+    } catch (err) { rep.ord.skipped.push(`${code} (gagal ditulis: ${String(err.message).slice(0, 140)})`); continue; }
     rep.ord.created += 1; rep.ord.buyers.add(`${email}|${wa}`); rep.ord.byStatus[status] = (rep.ord.byStatus[status] || 0) + 1;
     if (status === 'SUCCESS' && entry) entry.imported += 1;
-    if (APPLY) await Order.create([doc], { timestamps: false });   // insert langsung: tanpa stok, tanpa notifikasi
   }
 
+  /* ---- Jejak pesanan yatim: transaksi / log notifikasi yang pesanannya sudah tidak ada di database lama ---- */
+  orphanTx = [...tx.values()].filter((t) => !oldOrderIds.has(String(t.orderId)));
+  const logCodes = new Set();
+  if ((await old.db.listCollections({ name: 'notificationlogs' }, { nameOnly: true }).toArray()).length) {
+    for (const l of await old.db.collection('notificationlogs').find({}, { projection: { orderCode: 1, orderId: 1 } }).toArray()) {
+      const c = String(l.orderCode || '').trim();
+      if (!oldOrderIds.has(String(l.orderId)) && c && !oldOrderCodes.has(c)) logCodes.add(c);
+    }
+  }
+  orphanLogs = [...logCodes];
+
   /* ---- Terjual per produk: samakan dengan angka project lama ---- */
-  // Project baru: Terjual = jumlah pesanan SUCCESS produk + soldAdjust. Di project lama sold naik sebesar quantity pesanan,
-  // jadi soldAdjust = terjual lama − jumlah pesanan sukses yang diimpor untuk produk itu.
+  // Project baru: Terjual = jumlah pesanan SUCCESS produk + soldAdjust. Di project lama sold naik sebesar quantity pesanan dan TIDAK
+  // turun saat admin menghapus pesanan, jadi soldAdjust = terjual lama − jumlah pesanan sukses HASIL IMPOR untuk produk itu.
+  // Saat --apply angka itu dihitung ulang dari database baru (bukan dari hitungan sesi ini), jadi benar juga untuk proses ulang / sebagian.
   for (const e of prodMap.values()) {
-    const adjust = e.sold - e.imported;
-    rep.sold.push({ name: e.name, old: e.sold, imported: e.imported, adjust });
+    const imported = APPLY && e.ref ? await Order.countDocuments({ 'product.ref': e.ref, status: 'SUCCESS', 'payment.source': 'import' }) : e.imported;
+    const adjust = e.sold - imported;
+    rep.sold.push({ name: e.name, old: e.sold, imported, adjust });
     if (APPLY && e.ref) await Product.updateOne({ _id: e.ref }, { $set: { soldAdjust: adjust } });
   }
 }
 
-/* ---- Rating ---- */
+/* ---- Rating (semua) ---- */
 if (!flags.has('skip-reviews')) {
   for (const r of await read('ratings', { createdAt: 1 })) {
     const legacyId = String(r._id);
     if (await Review.exists({ legacyId })) { rep.rev.existing += 1; continue; }
+    // Tidak ada rating yang dilewati: produk tak ditemukan → ulasan umum; bintang dibatasi 1–5; ulasan kosong diberi tanda strip.
     const entry = r.productId ? prodMap.get(String(r.productId)) : null;
-    const stars = toInt(r.rating, 1); const text = cleanName(r.review, 1000);
-    if (r.productId && !entry) { rep.rev.skipped.push(`"${cleanName(r.user, 30)}" (produknya tidak ditemukan)`); continue; }
-    if (!Number.isFinite(stars) || stars > 5 || !text) { rep.rev.skipped.push(`"${cleanName(r.user, 30)}" (bintang/ulasan tidak valid)`); continue; }
+    if (r.productId && !entry) rep.rev.noProduct += 1;
+    const n = toInt(r.rating, 1);
+    const stars = Number.isFinite(n) ? Math.min(5, n) : 5;
+    const text = cleanName(r.review, 1000) || '-';
     const createdAt = r.createdAt ? new Date(r.createdAt) : new Date();
+    try {
+      if (APPLY) await Review.create([{ product: entry?.ref ?? null, productId: entry?.productId ?? null, name: cleanName(r.user, 60) || 'Pengguna', stars, text, date: createdAt, status: mapReviewStatus(r.status), legacyId, createdAt, updatedAt: r.updatedAt ? new Date(r.updatedAt) : createdAt }], { timestamps: false });
+    } catch (err) { rep.rev.skipped.push(`"${cleanName(r.user, 30)}" (gagal ditulis: ${String(err.message).slice(0, 140)})`); continue; }
     rep.rev.created += 1;
-    if (APPLY) await Review.create([{ product: entry?.ref ?? null, productId: entry?.productId ?? null, name: cleanName(r.user, 60) || 'Pengguna', stars, text, date: createdAt, status: mapReviewStatus(r.status), legacyId, createdAt, updatedAt: r.updatedAt ? new Date(r.updatedAt) : createdAt }], { timestamps: false });
   }
 }
 
@@ -267,8 +317,9 @@ if (!SKIP_IMAGES) {
 }
 if (!flags.has('skip-orders')) {
   rowOut('Pesanan di database lama', rep.ord.total);
-  rowOut(ALL_ORDERS ? 'Pesanan diimpor / sudah ada' : 'Pesanan SUKSES diimpor / sudah ada', `${rep.ord.created} / ${rep.ord.existing}`);
-  if (!ALL_ORDERS) rowOut('  pesanan tidak sukses (dilewati)', rep.ord.notSuccess);
+  rowOut(SUCCESS_ONLY ? 'Pesanan SUKSES diimpor / sudah ada' : 'Pesanan (semua status) diimpor / sudah ada', `${rep.ord.created} / ${rep.ord.existing}`);
+  if (SUCCESS_ONLY) rowOut('  pesanan tidak sukses (dilewati)', rep.ord.notSuccess);
+  else rowOut('  hasil per status baru', Object.entries(rep.ord.byStatus).map(([k, v]) => `${k} ${v}`).join(' · ') || '-');
   rowOut('  di antaranya produknya sudah dihapus', rep.ord.noProduct);
   rowOut('Pesanan lama yang diperbaiki statusnya', rep.ord.repaired);
   rowOut('Status lama (order/pembayaran/transaksi)', '');
@@ -285,7 +336,23 @@ if (!flags.has('skip-orders')) {
     if (!VERBOSE && diff.length > 15) console.log(`  … dan ${diff.length - 15} lainnya (--verbose untuk semua)`);
   }
 } else if (APPLY) console.log('\n(--skip-orders: angka Terjual tidak disesuaikan; tampil sesuai jumlah pesanan sukses yang ada.)');
-if (!flags.has('skip-reviews')) rowOut('Rating diimpor / sudah ada', `${rep.rev.created} / ${rep.rev.existing}`);
+if (!flags.has('skip-reviews')) {
+  rowOut('Rating di database lama', oldCount.ratings);
+  rowOut('Rating diimpor / sudah ada', `${rep.rev.created} / ${rep.rev.existing}`);
+  if (rep.rev.noProduct) rowOut('  produknya tak ditemukan → ulasan umum', rep.rev.noProduct);
+}
+if (orphanTx.length || orphanLogs.length) {
+  console.log(`\nJejak pesanan yang ORDER-nya sudah tidak ada di database lama (tidak bisa diimpor, datanya memang sudah terhapus di sana):`);
+  if (orphanTx.length) console.log(`  - transaksi tanpa pesanan: ${orphanTx.length}${orphanTx.length <= 15 ? ` (${orphanTx.map((t) => t.transactionId).join(', ')})` : ''}`);
+  if (orphanLogs.length) console.log(`  - kode pesanan di log notifikasi tanpa pesanan: ${orphanLogs.length}${orphanLogs.length <= 15 ? ` (${orphanLogs.join(', ')})` : ''}`);
+}
+if (cluster.error) console.log(`\n(Pemindaian database lain di cluster lama tidak bisa dilakukan: ${cluster.error})`);
+else if (cluster.length) {
+  console.log(`\nDatabase di cluster lama (yang dipakai: "${oldDbName}"):`);
+  for (const d of cluster) console.log(`  ${d.name === oldDbName ? '→' : ' '} ${d.name.padEnd(24)} ${d.orders} pesanan · ${d.ratings} rating · ${d.products} produk · ${d.transactions} transaksi`);
+  const richer = cluster.filter((d) => d.name !== oldDbName && (d.orders > oldCount.orders || d.ratings > oldCount.ratings));
+  for (const d of richer) console.log(`\n⚠ Database "${d.name}" berisi LEBIH BANYAK data (${d.orders} pesanan · ${d.ratings} rating) daripada "${oldDbName}". Bila data yang Anda cari ada di sana, jalankan ulang dengan OLD_MONGODB_DB=${d.name} (atau --old-db=${d.name}).`);
+}
 for (const [label, list] of [['Kategori', rep.cat.skipped], ['Produk', rep.prod.skipped], ['Gambar', rep.img.failed], ['Pesanan', rep.ord.skipped], ['Rating', rep.rev.skipped]]) {
   if (!list.length) continue;
   console.log(`\n${label} ${label === 'Gambar' ? 'gagal/tidak ditemukan' : 'dilewati'} (${list.length}):`);

@@ -47,7 +47,7 @@ export const productListQuery = z.object({
   category: objectIdStr.optional(),
   status: z.enum(['active', 'inactive']).optional(),
   stock: z.enum(['in', 'low', 'out']).optional(),
-  sort: z.enum(['newest', 'oldest', 'updated', 'name', 'price_asc', 'price_desc', 'stock_asc', 'stock_desc']).default('newest'),
+  sort: z.enum(['manual', 'newest', 'oldest', 'updated', 'name', 'price_asc', 'price_desc', 'stock_asc', 'stock_desc']).default('newest'),
 });
 
 /* ---------- Sistem Code ---------- */
@@ -93,6 +93,7 @@ export const contactInput = z.object({
 });
 export const contactIconInput = z.object({ iconImage: mediaRef.nullable() });
 export const statusInput = z.object({ active: z.boolean() });
+export const moveInput = z.object({ to: z.enum(['up', 'down', 'top', 'bottom']) });
 export const reorderInput = z.object({ ids: z.array(objectIdStr).min(1).max(500) });
 
 export const reviewInput = z.object({

@@ -8,6 +8,7 @@ import * as assets from '../services/assets.js';
 import { soldOf } from '../services/sales.js';
 import { addCodes, validateCodeInput, listCodes, revealCode, codeStats, productCounts, broadcastProduct } from '../services/codes.js';
 import { fulfillWaitingOrders } from '../services/redeem.js';
+import { nextTopOrder } from '../services/productOrder.js';
 
 const owner = (id) => ({ type: 'product', id: String(id) });
 const visible = (p) => p.active && p.category?.active !== false;
@@ -55,7 +56,7 @@ codeProductsRouter.post('/', asyncH(async (req, res) => {
   const media = await resolveImages(keys, owner('new'));
   const productId = await nextSeq('product');
   const { codes, ...fields } = data;
-  const doc = await Product.create({ ...fields, media, productId, kind: 'code', stock: 0 });
+  const doc = await Product.create({ ...fields, media, productId, kind: 'code', stock: 0, order: await nextTopOrder() });
   await assets.attach(owner(doc._id), keys);
 
   const result = hasCodes ? await addCodes(doc, codes) : null;   // menyinkronkan stok = jumlah code available

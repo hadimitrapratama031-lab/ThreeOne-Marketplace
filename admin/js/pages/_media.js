@@ -10,6 +10,8 @@ const EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp
 export function mediaManager(host, { max = Infinity, folder, video = false, limits, initial = [], showMain = false, addLabel = 'Tambah gambar', addHint = '', replace = false, accept = null, formats = '', maxMB = null, onChange }) {
   let items = initial.map((m) => ({ type: m.type || 'image', key: m.key, url: m.url }));
   let pending = 0;
+  let main = { pending: false, preview: null };   // penggantian gambar utama yang sedang diunggah (pratinjau lokal langsung tampil)
+  const listeners = new Set();                    // dipanggil setiap daftar berubah (dipakai pemilih gambar utama)
 
   const input = document.createElement('input');
   input.type = 'file';
@@ -50,6 +52,7 @@ export function mediaManager(host, { max = Infinity, folder, video = false, limi
     const add = items.length + pending < max
       ? html`<button type="button" class="media-add" data-add>${icon('upload')}<span>${addLabel}</span>${addHint ? html`<small>${addHint}</small>` : ''}</button>` : '';
     mount(host, html`${tiles}${uploading}${add}`);
+    listeners.forEach((fn) => fn());
   }
 
   async function addFiles(files) {
@@ -88,6 +91,32 @@ export function mediaManager(host, { max = Infinity, folder, video = false, limi
     finally { pending--; render(); }
   }
 
+  /**
+   * Ganti GAMBAR UTAMA langsung dari satu file, tanpa menggeser apa pun:
+   *  - sudah ada gambar utama -> item itu diganti di posisinya; gambar & video lain, serta urutannya, tidak berubah
+   *  - belum ada -> gambar baru jadi item pertama (otomatis menjadi gambar utama)
+   * Upload memakai jalur R2 yang sama (api.upload -> /api/admin/media). File lama baru dilepas/dibersihkan server saat produk disimpan.
+   */
+  async function replaceMain(file) {
+    if (!file || main.pending) return;
+    if (!file.type.startsWith('image/')) { toast(`${file.name} bukan gambar`, { type: 'error', detail: 'Gambar utama harus berupa gambar (JPG, PNG, WebP, GIF, AVIF).' }); return; }
+    const bad = problem(file);
+    if (bad) { toast(bad.title, { type: 'error', detail: bad.detail }); return; }
+    const old = items.find((m) => m.type === 'image') || null;
+    if (!old && items.length >= max) { toast(`Maksimal ${max} file`, { type: 'error', detail: 'Hapus satu file dulu untuk menambah gambar utama.' }); return; }
+    const preview = URL.createObjectURL(file);
+    main = { pending: true, preview }; render();
+    try {
+      const { asset } = await api.upload(file, folder);
+      if (asset.kind !== 'image') throw new Error('File ini bukan gambar. Pilih JPG, PNG, WebP, GIF, atau AVIF.');
+      const fresh = { type: 'image', key: asset.key, url: asset.url };
+      const at = old ? items.indexOf(old) : -1;   // posisi bisa berubah selama upload (admin menggeser/menghapus)
+      if (at >= 0) items[at] = fresh; else items.unshift(fresh);
+      onChange?.(items);
+    } catch (err) { toastError(err, 'Upload gagal'); }
+    finally { URL.revokeObjectURL(preview); main = { pending: false, preview: null }; render(); }
+  }
+
   host.addEventListener('click', (e) => {
     const rp = e.target.closest('[data-rp]');
     if (rp) { swapIndex = +rp.dataset.rp; swap.value = ''; swap.click(); return; }
@@ -109,6 +138,51 @@ export function mediaManager(host, { max = Infinity, folder, video = false, limi
     get: () => items.map((m) => ({ key: m.key })),
     items: () => items,
     set(list) { items = list.map((m) => ({ type: m.type || 'image', key: m.key, url: m.url })); render(); },
-    busy: () => pending > 0,
+    busy: () => pending > 0 || main.pending,
+    replaceMain,
+    mainState: () => main,
+    subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
+}
+
+/**
+ * Bagian "Gambar utama" pada form produk: pratinjau besar + satu tombol untuk memilih gambar pengganti.
+ * Hanya tampilan di atas mediaManager yang sama (satu daftar media, satu jalur upload R2), jadi tidak ada sistem baru.
+ */
+export function mainImagePicker(host, media, { limits }) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/jpeg,image/png,image/webp,image/gif,image/avif';
+
+  function draw() {
+    const cur = media.items().find((m) => m.type === 'image');
+    const s = media.mainState();
+    const src = s.preview || cur?.url;
+    mount(host, html`
+      <div class="main-image ${s.pending ? 'is-uploading' : ''}">
+        <div class="main-image__preview">
+          ${src ? html`<img src="${src}" alt="Pratinjau gambar utama">` : html`<span class="main-image__empty">${icon('image')}<span>Belum ada gambar utama</span></span>`}
+          ${s.pending ? html`<span class="main-image__busy" role="status">Mengunggah…</span>` : ''}
+        </div>
+        <div class="main-image__side">
+          <button type="button" class="btn btn--primary" data-main-pick ${s.pending ? 'disabled' : ''}>${icon('upload')}${cur ? 'Ganti Gambar Utama' : 'Pilih Gambar Utama'}</button>
+          <p class="hint muted">Gambar yang dipilih langsung menjadi gambar utama di kartu produk dan halaman detail setelah disimpan. Galeri lain tidak berubah. JPG, PNG, WebP, GIF, AVIF hingga ${limits.imageMB} MB. Bisa juga seret gambar ke sini.</p>
+        </div>
+      </div>`);
+  }
+
+  host.addEventListener('click', (e) => { if (e.target.closest('[data-main-pick]')) { input.value = ''; input.click(); } });
+  input.addEventListener('change', () => media.replaceMain(input.files[0]));
+  host.addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); host.firstElementChild?.classList.add('is-drag'); } });
+  host.addEventListener('dragleave', () => host.firstElementChild?.classList.remove('is-drag'));
+  host.addEventListener('drop', (e) => {
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    e.preventDefault();
+    host.firstElementChild?.classList.remove('is-drag');
+    media.replaceMain(file);
+  });
+
+  media.subscribe(draw);
+  draw();
 }

@@ -142,3 +142,17 @@ Detail lengkap (koleksi, indeks, seluruh endpoint, event Socket.IO, struktur R2,
 
 ## Performa
 Ringkasan audit dan perubahan optimasi: lihat `PERFORMANCE.md`.
+
+
+## Filter Kategori & Urutan Produk
+
+| Bagian | Detail |
+|---|---|
+| Filter kategori (Marketplace) | Tombol filter dibangun dari `categories` di database (`/api/public/bootstrap`), bukan hardcode. Tambah/hapus/ubah/urutkan kategori di Admin langsung mengubah filter lewat event Socket.IO `category:*` yang sudah ada. Kategori terpilih disimpan di URL (`?kategori=<id>`), jadi tetap sama setelah refresh dan bisa dibagikan; id yang sudah tidak ada kembali ke "Semua". |
+| Field urutan | Satu field: `Product.order` (kecil = tampil lebih dulu). Urutan berlaku **per kategori**. Logika di `services/productOrder.js`. |
+| Produk baru | Ditaruh paling atas (`order` = terkecil − 1); posisi produk lain tidak berubah. Produk dihapus: urutan relatif produk lain tetap. |
+| Data lama | Saat server start, produk tanpa `order` diberi posisi sesuai tampilan sebelumnya (terbaru dulu). Aman dijalankan berulang. |
+| Admin | Produk → urutan "Urutan Marketplace": tombol ke paling atas / naik / turun per produk (`PATCH /api/admin/products/:id/move` body `{ to: up\|down\|top\|bottom }`). Hanya menukar nilai `order` di antara produk sekategori. |
+| Marketplace | Urutan default "Rekomendasi" = urutan Admin. Opsi Terbaru / Harga / Nama tetap ada. |
+| Socket.IO | `product:reorder` (admin: `{ items:[{id,productId,order}] }`, publik: `{ items:[{id,order}] }`, hanya produk yang tampil). Marketplace menerapkan posisi baru tanpa refresh. |
+| Gambar utama | Form Ubah Produk (dan Produk Code) punya bagian **Gambar utama**: tombol "Ganti Gambar Utama" mengunggah ke R2 lewat jalur upload yang sama dan menggantikan item gambar utama di posisinya; galeri lain tidak bergeser. Berkas lama dibersihkan oleh `assets.attach()` saat produk disimpan. |

@@ -13,6 +13,7 @@ import { memo, invalidate } from '../lib/memo.js';
 import { onPublicEmit } from '../lib/realtime.js';
 import { summarize, listPublic, createFromCustomer } from '../services/reviews.js';
 import { soldByProduct, soldOf } from '../services/sales.js';
+import { ORDER_SORT } from '../services/productOrder.js';
 import { listRecentSales } from '../services/salesFeed.js';
 import { publicLimiter, telemetryLimiter, reviewSubmitLimiter, originGuard } from '../middleware/security.js';
 
@@ -37,7 +38,7 @@ function sendMemo(res, entry) {
 async function visibleProducts() {
   const cats = await Category.find({ active: true }).sort({ order: 1, _id: 1 }).lean();
   const names = new Map(cats.map((c) => [String(c._id), c.name]));
-  const products = await Product.find({ active: true, category: { $in: cats.map((c) => c._id) } }).sort({ productId: -1 }).limit(MAX_PRODUCTS).lean();
+  const products = await Product.find({ active: true, category: { $in: cats.map((c) => c._id) } }).sort(ORDER_SORT).limit(MAX_PRODUCTS).lean();
   const sold = await soldByProduct(products.map((p) => p._id));   // satu agregasi untuk seluruh grid
   return { cats, products: products.map((p) => pubProductCard(p, names.get(String(p.category)), sold.get(String(p._id)) ?? 0)) };
 }

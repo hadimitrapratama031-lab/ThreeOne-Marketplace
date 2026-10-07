@@ -1,16 +1,17 @@
 import { $, $$, html, raw, mount, icon, rp, num, dateShort, stockPill, pagerHTML, emptyState, skeletonRows, debounce, toast, toastError, dialog, confirmDialog, busy, fieldErrors } from '../ui.js';
 import { api } from '../api.js';
-import { mediaManager } from './_media.js';
+import { mediaManager, mainImagePicker } from './_media.js';
 import { steamSourceBlock, initSteam } from './_steam.js';
 import { chooseProductType, openCodeProductForm } from './_codeProduct.js';
 
-const SORTS = [['newest', 'Terbaru'], ['oldest', 'Terlama'], ['updated', 'Terakhir diubah'], ['name', 'Nama A–Z'], ['price_asc', 'Harga terendah'], ['price_desc', 'Harga tertinggi'], ['stock_asc', 'Stok tersedikit'], ['stock_desc', 'Stok terbanyak']];
+const SORTS = [['manual', 'Urutan Marketplace'], ['newest', 'Terbaru'], ['oldest', 'Terlama'], ['updated', 'Terakhir diubah'], ['name', 'Nama A–Z'], ['price_asc', 'Harga terendah'], ['price_desc', 'Harga tertinggi'], ['stock_asc', 'Stok tersedikit'], ['stock_desc', 'Stok terbanyak']];
 
 const thumb = (p) => { const m = p.media.find((x) => x.type === 'image'); return m ? html`<span class="thumb"><img src="${m.url}" alt="" loading="lazy"></span>` : html`<span class="thumb">${icon('image')}</span>`; };
 
 export default {
   async mount(root, ctx) {
-    const q = { page: 1, limit: 25, q: '', category: '', status: '', stock: '', sort: 'newest' };
+    const q = { page: 1, limit: 25, q: '', category: '', status: '', stock: '', sort: 'manual' };   // default = urutan yang tampil di Marketplace
+    let focusMove = null;   // tombol urutan yang difokuskan lagi setelah daftar digambar ulang
     let categories = [];
     let alive = true;
     let reqId = 0;
@@ -30,6 +31,7 @@ export default {
           <select id="f-stock" aria-label="Filter stok"><option value="">Semua stok</option><option value="in">Tersedia</option><option value="low">Stok terbatas</option><option value="out">Habis</option></select>
           <select id="f-sort" aria-label="Urutkan">${SORTS.map(([v, l]) => html`<option value="${v}">${l}</option>`)}</select>
         </div>
+        <p class="sort-hint" id="sort-hint" hidden>Urutan berlaku per kategori, sama seperti tampilan di Marketplace. Gunakan panah untuk memindahkan produk di dalam kategorinya.</p>
         <div class="table-wrap" id="table">${skeletonRows(7)}</div>
         <div id="pager"></div>
       </section>`);
@@ -45,13 +47,29 @@ export default {
       } catch (err) { if (alive) toastError(err, 'Produk gagal dimuat'); }
     }
 
+    const manual = () => q.sort === 'manual';
+    const moveCell = (p) => {
+      const pos = p.position;
+      const first = !pos || pos.index <= 1;
+      const last = !pos || pos.index >= pos.total;
+      const where = `di kategori ${p.category.name}`;
+      return html`<div class="move-btns">
+        <button class="icon-btn" type="button" data-move="${p.id}:top" ${first ? 'disabled' : ''} title="Pindah ke paling atas" aria-label="Pindahkan ${p.name} ke paling atas ${where}">${icon('top')}</button>
+        <button class="icon-btn" type="button" data-move="${p.id}:up" ${first ? 'disabled' : ''} title="Naikkan satu posisi" aria-label="Naikkan ${p.name} ${where}">${icon('up')}</button>
+        <button class="icon-btn" type="button" data-move="${p.id}:down" ${last ? 'disabled' : ''} title="Turunkan satu posisi" aria-label="Turunkan ${p.name} ${where}">${icon('down')}</button>
+        <small>${pos ? `${pos.index}/${pos.total}` : '—'}</small>
+      </div>`;
+    };
+
     function renderTable(res) {
+      $('#sort-hint', root).hidden = !manual();
       const filtered = q.q || q.category || q.status || q.stock;
       $('#table', root).innerHTML = res.items.length ? html`
         <table>
-          <thead><tr><th>Produk</th><th>Kategori</th><th class="num">Harga</th><th>Stok</th><th class="num">Terjual</th><th>Tampil</th><th>Diubah</th><th></th></tr></thead>
+          <thead><tr>${manual() ? html`<th>Urutan</th>` : ''}<th>Produk</th><th>Kategori</th><th class="num">Harga</th><th>Stok</th><th class="num">Terjual</th><th>Tampil</th><th>Diubah</th><th></th></tr></thead>
           <tbody>${res.items.map((p) => html`
             <tr data-id="${p.id}">
+              ${manual() ? html`<td>${moveCell(p)}</td>` : ''}
               <td><div class="cell-product">${thumb(p)}<div><b><a href="#/products?edit=${p.id}" data-edit="${p.id}">${p.name}</a></b><small>ID ${p.productId}${p.media.length ? ` · ${p.media.length} media` : ' · tanpa gambar'}${p.kind === 'code' ? raw(' · <span class="pill pill--code">Sistem Code</span>') : ''}</small></div></div></td>
               <td>${p.category.name}${p.category.active ? '' : raw(' <span class="pill pill--mute">nonaktif</span>')}</td>
               <td class="num">${rp(p.price)}${p.oldPrice ? html`<br><small class="faint"><s>${rp(p.oldPrice)}</s></small>` : ''}</td>
@@ -65,6 +83,15 @@ export default {
         : emptyState(filtered ? 'Tidak ada produk yang cocok' : 'Belum ada produk', filtered ? 'Ubah kata kunci atau filter.' : 'Klik “Tambah produk” untuk mulai.').s;
       $('#pager', root).innerHTML = pagerHTML(res).s;
       root.__items = new Map(res.items.map((p) => [p.id, p]));
+      if (focusMove) { $(`[data-move="${focusMove}"]:not(:disabled)`, root)?.focus(); focusMove = null; }
+    }
+
+    async function move(btn) {
+      const [id, to] = btn.dataset.move.split(':');
+      btn.disabled = true;
+      focusMove = btn.dataset.move;
+      try { await api.patch(`/products/${id}/move`, { to }); await load(); }
+      catch (err) { focusMove = null; toastError(err, 'Urutan gagal disimpan'); load(); }
     }
 
     const loadDebounced = debounce(load, 300);
@@ -77,6 +104,8 @@ export default {
 
     root.addEventListener('click', async (e) => {
       if (e.target.closest('[data-add]')) { addProduct(); return; }
+      const mv = e.target.closest('[data-move]');
+      if (mv && !mv.disabled) { move(mv); return; }
       const pg = e.target.closest('[data-page]');
       if (pg && !pg.disabled) { q.page = +pg.dataset.page; load(); return; }
       const edit = e.target.closest('[data-edit]');
@@ -163,9 +192,13 @@ export default {
             </div>
           </div>
           <div class="fieldset">
+            <h3>Gambar utama</h3>
+            <div class="field" data-field="media"><div id="main-image-host"></div></div>
+          </div>
+          <div class="fieldset">
             <h3>Galeri</h3>
             <p class="hint muted">Jumlah gambar dan video tidak dibatasi. Gambar pertama jadi gambar utama di kartu produk; yang lain tampil sebagai galeri. JPG, PNG, WebP, GIF, AVIF hingga ${ctx.meta.limits.imageMB} MB; video MP4/WebM hingga ${ctx.meta.limits.videoMB} MB.</p>
-            <div class="field" data-field="media"><div class="media-grid" id="media-host"></div></div>
+            <div class="media-grid" id="media-host"></div>
           </div>
           <div class="fieldset">
             <h3>Persyaratan sistem</h3>
@@ -186,6 +219,8 @@ export default {
       const f = d.form;
       let steam = null;
       const media = mediaManager($('#media-host', f), { folder: 'products', video: true, replace: true, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah media', onChange: () => steam?.onMediaChange() });
+
+      mainImagePicker($('#main-image-host', f), media, { limits: ctx.meta.limits });
 
       const count = () => { $('#desc-count', f).textContent = `${f.elements.description.value.length}/300`; };
       f.elements.description.addEventListener('input', count); count();

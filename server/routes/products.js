@@ -1,17 +1,19 @@
 import { Router } from 'express';
 import { Product, Category, Review, nextSeq } from '../models/index.js';
 import { asyncH, parse, HttpError, objectIdStr, pageMeta, escapeRegex } from '../lib/http.js';
-import { productInput, productListQuery, statusInput } from '../lib/schemas.js';
+import { productInput, productListQuery, statusInput, moveInput } from '../lib/schemas.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
-import { emitChange } from '../lib/realtime.js';
+import { emitChange, emitAdmin, emitPublic } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
 import { soldByProduct, soldOf } from '../services/sales.js';
 import { releaseProductCodes, deleteProductCodes } from '../services/codes.js';
+import { ORDER_SORT, nextTopOrder, moveProduct, positionsFor, ensureProductOrder } from '../services/productOrder.js';
 
 const r = Router();
 const LOW_STOCK = 10; // sama dengan batas "Stok terbatas" di Marketplace
 
 const SORTS = {
+  manual: ORDER_SORT,   // urutan yang diatur Admin = urutan tampil di Marketplace
   newest: { productId: -1 }, oldest: { productId: 1 }, updated: { updatedAt: -1 }, name: { name: 1 },
   price_asc: { price: 1 }, price_desc: { price: -1 }, stock_asc: { stock: 1 }, stock_desc: { stock: -1 },
 };
@@ -59,6 +61,7 @@ r.get('/', asyncH(async (req, res) => {
     filter.$or = [{ name: rx }, { description: rx }, ...(/^\d{1,9}$/.test(q.q) ? [{ productId: Number(q.q) }] : [])];
   }
   if (q.category) filter.category = q.category;
+  if (q.sort === 'manual') await ensureProductOrder();   // data lama tanpa order dirapikan dulu supaya urutan pasti
   if (q.status) filter.active = q.status === 'active';
   if (q.stock === 'out') filter.stock = 0;
   if (q.stock === 'low') filter.stock = { $gt: 0, $lte: LOW_STOCK };
@@ -69,7 +72,24 @@ r.get('/', asyncH(async (req, res) => {
     Product.find(filter).sort({ ...SORTS[q.sort], _id: 1 }).skip((q.page - 1) * q.limit).limit(q.limit).populate('category', 'name active'),
   ]);
   const sold = await soldByProduct(docs.map((d) => d._id));
-  res.json({ items: docs.map((d) => admProduct(d, undefined, sold.get(String(d._id)) ?? 0)), ...pageMeta(q.page, q.limit, total) });
+  // Urutan manual: sertakan posisi di dalam kategorinya (untuk tombol naik/turun di Admin)
+  const pos = q.sort === 'manual' ? await positionsFor(docs) : null;
+  res.json({ items: docs.map((d) => ({ ...admProduct(d, undefined, sold.get(String(d._id)) ?? 0), ...(pos ? { position: pos.get(String(d._id)) ?? null } : {}) })), ...pageMeta(q.page, q.limit, total) });
+}));
+
+/** Pindah posisi produk di dalam kategorinya: body { to: 'up' | 'down' | 'top' | 'bottom' }. Harus sebelum rute '/:id' lain bila ada bentrok. */
+r.patch('/:id/move', asyncH(async (req, res) => {
+  const { to } = parse(moveInput, req.body);
+  const doc = await loadProduct(req.params.id);
+  const changed = await moveProduct(doc, to);
+  if (changed.length) {
+    emitAdmin('product:reorder', { items: changed.map((c) => ({ id: String(c._id), productId: c.productId, order: c.order })) });
+    // Marketplace hanya menerima produk yang tampil (aktif + kategori aktif); produk tersembunyi tidak bocor lewat event
+    const shown = await Product.find({ _id: { $in: changed.map((c) => c._id) }, active: true }).populate('category', 'active').select('productId order category').lean();
+    const items = shown.filter((p) => p.category?.active !== false).map((p) => ({ id: p.productId, order: p.order }));
+    if (items.length) emitPublic('product:reorder', { items });
+  }
+  res.json({ ok: true, moved: changed.length > 0, items: changed.map((c) => ({ id: String(c._id), productId: c.productId, order: c.order })) });
 }));
 
 r.get('/:id', asyncH(async (req, res) => {
@@ -83,7 +103,7 @@ r.post('/', asyncH(async (req, res) => {
   const keys = data.media.map((m) => m.key);
   const media = await resolveMedia(keys, owner('new'));
   const productId = await nextSeq('product');
-  const doc = await Product.create({ ...data, media, productId });
+  const doc = await Product.create({ ...data, media, productId, order: await nextTopOrder() });   // produk baru = paling atas, produk lain tidak bergeser
   await assets.attach(owner(doc._id), keys);
   doc.category = cat;
   emitChange('product', { before: null, after: doc, ...eventsWith(0) });   // produk baru belum punya order

@@ -360,9 +360,24 @@ function setupStaticHandlers() {
 
 /* 5. Daftar produk (cari, urut, filter)
    -------------------------------------------------------------------------- */
-const state = { query: '', category: 'Semua', sort: 'new' };
+/* Kategori terpilih disimpan di URL (?kategori=<id>): tetap sama setelah refresh dan bisa dibagikan ke device lain.
+   Sumber kebenaran daftar kategori tetap database; id yang sudah tidak ada otomatis kembali ke "Semua" (lihat renderFilters). */
+const CAT_PARAM = 'kategori';
+const readCategoryParam = () => { try { return new URLSearchParams(location.search).get(CAT_PARAM) || 'Semua'; } catch { return 'Semua'; } };
+function writeCategoryParam(id) {
+  try {
+    const url = new URL(location.href);
+    if (id === 'Semua') url.searchParams.delete(CAT_PARAM); else url.searchParams.set(CAT_PARAM, id);
+    history.replaceState(history.state, '', url);
+  } catch { /* URL tidak bisa diubah: filter tetap jalan tanpa disimpan */ }
+}
 
+const state = { query: '', category: readCategoryParam(), sort: 'order' };
+
+// 'order' = urutan yang diatur Admin (Product.order); seri dipecah produk terbaru dulu, sama seperti di server
+const ord = (p) => p.order ?? Number.MIN_SAFE_INTEGER;   // tanpa order (cache lama / baru dibuat) = paling atas
 const SORTERS = {
+  order: (a, b) => (ord(a) - ord(b)) || (b.id - a.id),
   new: (a, b) => b.id - a.id,
   lo:  (a, b) => a.price - b.price,
   hi:  (a, b) => b.price - a.price,
@@ -407,9 +422,14 @@ function renderLoadError() {
 function renderFilters() {
   const root = $('#filters');
   if (!root) return;
-  if (state.category !== 'Semua' && !DATA.categories.some((c) => c.id === state.category)) state.category = 'Semua';
+  // Kategori yang dipilih sudah dihapus/disembunyikan Admin -> kembali ke "Semua". Dicek hanya setelah data SEGAR dari server ada,
+  // supaya ?kategori= dari link tidak terhapus oleh cache lama saat halaman masih memuat.
+  if (state.category !== 'Semua' && loaded && !DATA.categories.some((c) => c.id === state.category)) {
+    state.category = 'Semua';
+    writeCategoryParam('Semua');
+  }
   const all = [{ id: 'Semua', name: 'Semua' }, ...DATA.categories];
-  root.innerHTML = all.map((c) => `<button class="filter${c.id === state.category ? ' on' : ''}" type="button" data-cat="${esc(c.id)}">${esc(c.name)}</button>`).join('');
+  root.innerHTML = all.map((c) => `<button class="filter${c.id === state.category ? ' on' : ''}" type="button" data-cat="${esc(c.id)}" aria-pressed="${c.id === state.category}">${esc(c.name)}</button>`).join('');
 }
 
 function setupProductControls() {
@@ -417,7 +437,8 @@ function setupProductControls() {
     const button = e.target.closest('.filter');
     if (!button) return;
     state.category = button.dataset.cat;
-    $$('.filter', $('#filters')).forEach((f) => f.classList.toggle('on', f === button));
+    writeCategoryParam(state.category);
+    $$('.filter', $('#filters')).forEach((f) => { f.classList.toggle('on', f === button); f.setAttribute('aria-pressed', String(f === button)); });
     renderProducts();
   });
 
@@ -625,6 +646,18 @@ function onLiveEvent(name, p) {
 
   if (entity === 'product') {
     if (action === 'bulk') { sync().catch(() => {}); return; }
+    if (action === 'reorder') {
+      // Admin mengubah urutan: terapkan posisi baru langsung (tanpa fetch ulang). Produk yang belum dikenal -> sinkron dari database.
+      const next = new Map((p.items || []).map((i) => [i.id, i.order]));
+      let unknown = false;
+      next.forEach((_o, id) => { if (!PRODUCTS.some((x) => x.id === id)) unknown = true; });
+      if (unknown) { sync().catch(() => {}); return; }
+      PRODUCTS.forEach((x) => { if (next.has(x.id)) x.order = next.get(x.id); });
+      renderProducts({ settle: true });
+      saveBootCache();
+      announce(entity, action, p);
+      return;
+    }
     if (action === 'delete') {
       const i = PRODUCTS.findIndex((x) => x.id === p.id);
       if (i >= 0) PRODUCTS.splice(i, 1);

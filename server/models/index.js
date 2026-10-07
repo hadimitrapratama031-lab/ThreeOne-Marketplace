@@ -53,6 +53,9 @@ const productSchema = new Schema({
   // (di project lama sold naik sebesar quantity, di sini satu pesanan = satu terjual). Dipakai services/sales.js; 0 = tidak ada penyesuaian.
   soldAdjust: { ...int, default: 0 },
   active: { type: Boolean, default: true },
+  // Posisi tampil di Marketplace (kecil = lebih dulu). SATU-SATUNYA field urutan produk; diatur Admin (PATCH /products/:id/move)
+  // dan dijaga services/productOrder.js. null = belum diberi posisi (dianggap paling atas, lalu dirapikan saat boot / saat reorder).
+  order: { ...int, default: null },
   // 'code' = Sistem Code: stok = jumlah RedeemCode berstatus available (dijaga services/codes.js), bukan angka manual.
   kind: { type: String, enum: ['normal', 'code'], default: 'normal' },
   // Cara redeem, satu langkah per baris. Ditulis Admin; tampil HANYA di halaman Payment Success pembeli.
@@ -77,6 +80,7 @@ const productSchema = new Schema({
 }, { timestamps: true });
 productSchema.index({ active: 1, category: 1 });
 productSchema.index({ category: 1 });
+productSchema.index({ order: 1, productId: -1 });   // urutan tampil Marketplace & Admin
 productSchema.index({ createdAt: -1 });
 productSchema.index({ updatedAt: -1 });
 productSchema.index({ name: 1 });

@@ -1,7 +1,7 @@
 /* Add Product → Sistem Code: pemilih jenis produk + form produk code (terpisah dari form produk biasa). */
 import { $, html, icon, num, toast, dialog, busy, fieldErrors } from '../ui.js';
 import { api } from '../api.js';
-import { mediaManager } from './_media.js';
+import { mediaManager, mainImagePicker } from './_media.js';
 
 /** Popup pilihan jenis produk. Resolve 'normal' | 'code' | null (ditutup). */
 export function chooseProductType() {
@@ -78,9 +78,14 @@ export function openCodeProductForm({ ctx, categories, product: p, onSaved }) {
       </div>
 
       <div class="fieldset">
+        <h3>Gambar utama</h3>
+        <div class="field" data-field="media"><div id="main-image-host"></div></div>
+      </div>
+
+      <div class="fieldset">
         <h3>Gambar produk</h3>
         <p class="hint muted">Gambar pertama jadi gambar utama. JPG, PNG, WebP, GIF, AVIF hingga ${ctx.meta.limits.imageMB} MB.</p>
-        <div class="field" data-field="media"><div class="media-grid" id="media-host"></div></div>
+        <div class="media-grid" id="media-host"></div>
       </div>
 
       <div class="fieldset">
@@ -114,6 +119,7 @@ export function openCodeProductForm({ ctx, categories, product: p, onSaved }) {
   });
   const f = d.form;
   const media = mediaManager($('#media-host', f), { folder: 'products', video: false, max: 10, limits: ctx.meta.limits, initial: p?.media ?? [], showMain: true, addLabel: 'Tambah gambar' });
+  mainImagePicker($('#main-image-host', f), media, { limits: ctx.meta.limits });
 
   const desc = () => { $('#desc-count', f).textContent = `${f.elements.description.value.length}/300`; };
   const steps = () => { const n = stepsCount(f.elements.redeemTutorial.value); $('#steps-count', f).textContent = n ? `${n} langkah` : 'Belum ada langkah. Pembeli akan melihat arahan untuk menghubungi admin.'; };
