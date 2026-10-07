@@ -41,6 +41,16 @@
     store: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4.5" fill="#a78bfa"/><text x="8" y="11.6" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="9.5" font-weight="700" fill="#140d2b">31</text></svg>',
   };
 
+  // Ikon "store" di strip platform memakai Store logo dari Admin (Pengaturan). Badge "31" hanya cadangan bila logo belum diatur atau gagal dimuat.
+  const platformLogo = (icon) => {
+    if (icon !== 'store') return LOGO[icon] || '';
+    const url = DATA.settings.branding.logoUrl;
+    return url ? `<img class="pd-store-logo" src="${esc(url)}" alt="" height="16">` : LOGO.store;
+  };
+  document.addEventListener('error', (e) => {
+    if (e.target instanceof HTMLImageElement && e.target.classList.contains('pd-store-logo')) e.target.outerHTML = LOGO.store;
+  }, true);
+
   const stars = (n) => `<span class="stars" role="img" aria-label="Rating ${n} dari 5">${'★'.repeat(n)}<span>${'★'.repeat(5 - n)}</span></span>`;
   const dateId = (iso) => new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -232,7 +242,7 @@
 
           ${pp.platforms.length ? `
           <ul class="pd-methods" aria-label="Platform dan toko">
-            ${pp.platforms.map((x) => `<li>${LOGO[x.icon] || ''}<span>${esc(x.label)}</span></li>`).join('')}
+            ${pp.platforms.map((x) => `<li>${platformLogo(x.icon)}<span>${esc(x.label)}</span></li>`).join('')}
           </ul>` : ''}
         </aside>
       </div>
