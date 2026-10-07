@@ -8,6 +8,8 @@
  * (`hls_h264`, `dash_av1`, `dash_h264`). File MP4/WebM progresifnya tetap ada di CDN Steam dengan pola URL berbasis movie ID,
  * jadi `movieCandidates()` memakai URL yang dideklarasikan Steam lebih dulu, lalu pola berbasis movie ID sebagai cadangan.
  * Setiap kandidat diverifikasi lewat unduhan sungguhan (404 = lanjut ke kandidat berikutnya); tidak ada URL yang dianggap valid tanpa diunduh.
+ * Kualitas `max` dicoba LEBIH DULU daripada `480` (lihat MOVIE_TIERS) — tidak ada batas MB artifisial yang memaksa mengambil
+ * kualitas kecil lebih dulu; `480` hanya cadangan bila `max` benar-benar tidak ada di CDN untuk movie tsb.
  *
  * Alur media: SEMUA `screenshots[]` dan SEMUA `movies[]` dari appdetails diunduh server dari CDN resmi Steam (hanya host
  * *.steamstatic.com / *.akamaihd.net, selalu lewat HTTPS, redirect divalidasi ulang), lalu disimpan sebagai aset 'temp' di Cloudflare R2 lewat services/assets.js.
@@ -181,9 +183,11 @@ export function screenshotCandidates(data) {
   return out;
 }
 
-// Urutan percobaan per video: yang paling kecil dulu (batas upload 30 MB), MP4 (H.264, jalan di semua browser) sebelum WebM pada kualitas yang sama.
+// Urutan percobaan per video: kualitas TERTINGGI (`max`) dulu, bukan `480` — tidak ada lagi batas MB artifisial yang mengharuskan
+// mengirit dengan kualitas kecil dulu. Dalam satu kualitas, MP4 (H.264, jalan di semua browser) dicoba sebelum WebM.
+// `480` hanya dipakai bila `max` benar-benar tidak tersedia di CDN Steam (404/410) untuk movie tsb, bukan karena ukurannya besar.
 // Hanya MP4/WebM progresif yang bisa disimpan sebagai file di R2 dan diputar <video>; HLS/DASH hanya dicatat (lihat `streamOnly`).
-const MOVIE_TIERS = [['mp4', '480'], ['webm', '480'], ['mp4', 'max'], ['webm', 'max']];
+const MOVIE_TIERS = [['mp4', 'max'], ['webm', 'max'], ['mp4', '480'], ['webm', '480']];
 
 // Manifest streaming yang dikirim Steam untuk trailer baru. Bukan file, jadi tidak bisa dipakai sebagai sumber <video> biasa.
 const MANIFEST_KEYS = ['hls_h264', 'dash_av1', 'dash_h264'];
@@ -436,10 +440,11 @@ export async function fetchVideo(rawId, movie = 0, have = []) {
 
   let tooLarge = false;
   let onlyMissing = true;   // semua percobaan berakhir "file tidak ada di CDN" (403/404/410), bukan gangguan jaringan atau file rusak
+  // Semua source dicoba (urutan: kualitas tertinggi dulu, lihat MOVIE_TIERS) — tidak ada lagi skip source lain hanya karena
+  // source sebelumnya "too-large"; satu source melebihi videoBytes bukan alasan untuk tidak mencoba source lain yang tersedia.
   for (const c of m.sources) {
-    if (tooLarge && c.quality === 'max') continue;   // versi 480 sudah melebihi batas; versi max pasti lebih besar
     try {
-      const v = await stage(c.url, { kind: 'video', maxBytes: config.limits.videoBytes, timeoutMs: 90_000, name: videoName(appId, m, idx, c.format) });
+      const v = await stage(c.url, { kind: 'video', maxBytes: config.limits.videoBytes, timeoutMs: 180_000, name: videoName(appId, m, idx, c.format) });
       return { video: { ...v, title: m.title }, message: '', index: idx, count };
     } catch (err) {
       const why = err?.message || String(err);
@@ -448,7 +453,7 @@ export async function fetchVideo(rawId, movie = 0, have = []) {
       console.warn(`[steam] video ${appId}/${idx} movie=${m.id ?? '-'} (${c.format} ${c.quality}${c.derived ? ' cadangan' : ''}) gagal: ${why}`);
     }
   }
-  if (tooLarge) return none(`${UNAVAILABLE} (Video Steam melebihi ${config.limits.videoBytes / 1048576} MB.)`);
+  if (tooLarge) return none(`${UNAVAILABLE} (Semua source video Steam yang tersedia melebihi ${Math.round(config.limits.videoBytes / 1048576)} MB. Naikkan MAX_VIDEO_MB bila infrastruktur mendukung, atau upload manual.)`);
   if (m.streamOnly && onlyMissing) return none(`${UNAVAILABLE} (Trailer ini hanya tersedia dari Steam sebagai stream HLS/DASH, bukan file MP4/WebM.)`);
   return none(UNAVAILABLE);
 }

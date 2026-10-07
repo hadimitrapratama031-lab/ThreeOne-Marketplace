@@ -49,7 +49,13 @@ export const config = {
   // Live Chat: berapa hari riwayat conversation EXPIRED disimpan (audit) sebelum pesan + gambar R2-nya dihapus. 0 = hapus segera.
   livechat: { retentionDays: Number.isFinite(Number(e.LIVECHAT_RETENTION_DAYS)) && e.LIVECHAT_RETENTION_DAYS !== undefined && e.LIVECHAT_RETENTION_DAYS !== '' ? Math.max(0, Number(e.LIVECHAT_RETENTION_DAYS)) : 7 },
   // Tidak ada batas JUMLAH media produk (gambar maupun video): hanya ukuran per file. Galeri Steam bisa berisi puluhan screenshot + banyak trailer.
-  limits: { imageBytes: 8 * 1024 * 1024, videoBytes: 30 * 1024 * 1024 },
+  // videoBytes BUKAN batas "kualitas Steam yang boleh diambil" — trailer `max` quality Steam pada umumnya masih jauh di bawah nilai ini.
+  // Nilainya hanya katup keamanan teknis (memori proses Node / limit infrastruktur Railway & R2), bukan batas artifisial aplikasi,
+  // dan bisa dinaikkan lewat env MAX_VIDEO_MB tanpa mengubah kode bila infrastruktur memang mendukung file lebih besar.
+  limits: {
+    imageBytes: 8 * 1024 * 1024,
+    videoBytes: (Number(e.MAX_VIDEO_MB) > 0 ? Number(e.MAX_VIDEO_MB) : 500) * 1024 * 1024,
+  },
 };
 
 export const r2Configured = () =>
