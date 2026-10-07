@@ -3,7 +3,18 @@ import { config } from '../config/env.js';
 import { publicUrl } from './r2.js';
 
 // URL selalu dibentuk dari key + R2_PUBLIC_URL saat ini, jadi pindah ke custom domain tidak merusak data lama
-const mediaUrl = (m) => (config.r2.publicUrl && m.key ? publicUrl(m.key) : m.url);
+const mediaUrl = (m) => (config.r2.publicUrl && m.key && m.source !== 'steam' ? publicUrl(m.key) : m.url);
+
+// Media Steam = URL asli Steam apa adanya (tidak pernah diubah ke R2). Video Steam membawa poster + daftar source terstruktur.
+const steamExtra = (m) => (m.source !== 'steam' ? {} : {
+  source: 'steam',
+  ...(m.type === 'video' ? {
+    poster: m.poster || '',
+    title: m.title || '',
+    ref: m.ref || '',
+    sources: (m.sources || []).map((s) => ({ url: s.url, format: s.format, quality: s.quality || '' })),
+  } : {}),
+});
 
 const iso = (d) => (d ? new Date(d).toISOString() : null);
 const idStr = (d) => String(d._id);
@@ -41,7 +52,7 @@ export function pubProductDetail(p, catName, sold = 0) {
     discount: hasOld ? Math.round((1 - p.price / p.oldPrice) * 100) : 0,
     about: String(p.about || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
     specs: { min: p.specs?.min || [], rec: p.specs?.rec || [], source: p.specs?.source || '' },
-    media: (p.media || []).map((m) => ({ type: m.type, url: mediaUrl(m) })),
+    media: (p.media || []).map((m) => ({ type: m.type, url: mediaUrl(m), ...steamExtra(m) })),
   };
 }
 
@@ -96,7 +107,7 @@ export function admProduct(p, cat, sold = null) {
       genres: p.gameInfo?.genres ? [...p.gameInfo.genres] : [],
       metacritic: p.gameInfo?.metacritic ?? null,
     },
-    media: (p.media || []).map((m) => ({ type: m.type, key: m.key, url: mediaUrl(m) })),
+    media: (p.media || []).map((m) => ({ type: m.type, key: m.key || null, url: mediaUrl(m), ...steamExtra(m) })),
     createdAt: iso(p.createdAt),
     updatedAt: iso(p.updatedAt),
   };

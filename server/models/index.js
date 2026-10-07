@@ -31,10 +31,24 @@ categorySchema.index({ order: 1 });
 export const Category = mongoose.model('Category', categorySchema);
 
 /* Product */
+// Media produk. source 'upload' (default, data lama): file di Cloudflare R2, `key` = key R2.
+// source 'steam': REFERENSI eksternal ke CDN Steam (tidak pernah diunduh/diupload ke R2): `key` kosong, `url` = URL asli Steam.
+// `key` sengaja tidak `required` di level skema (validator update Mongoose tidak punya konteks dokumen); aturan "upload wajib ber-key,
+// steam wajib ber-URL Steam" ditegakkan di lib/schemas.js + services/productMedia.js.
+const videoSourceSchema = new Schema({
+  url: { type: String, required: true },
+  format: { type: String, enum: ['mp4', 'webm', 'hls', 'dash'], required: true },
+  quality: { type: String, default: '' },
+}, { _id: false });
 const mediaSchema = new Schema({
   type: { type: String, enum: ['image', 'video'], required: true },
-  key: { type: String, required: true },
+  source: { type: String, enum: ['upload', 'steam'], default: 'upload' },
+  key: { type: String, default: '' },
   url: { type: String, required: true },
+  poster: { type: String, default: '' },        // thumbnail video (URL Steam asli)
+  title: { type: String, default: '' },
+  ref: { type: String, default: '' },           // id movie Steam (identitas stabil saat data diambil ulang)
+  sources: { type: [videoSourceSchema], default: undefined },   // video Steam: MP4/WebM/HLS yang tersedia
 }, { _id: false });
 const specRow = new Schema({
   label: { type: String, required: true, trim: true, maxlength: 60 },

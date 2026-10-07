@@ -2,10 +2,31 @@ import { z } from 'zod';
 import { objectIdStr } from './http.js';
 import { CONTACT_ICONS } from '../models/index.js';
 import { normalizeWhatsapp } from './phone.js';
+import { cleanSteamRef } from './steamMedia.js';
 
 const str = (min, max) => z.string().trim().min(min).max(max);
 const int = (min, max) => z.number().int().min(min).max(max);
 const mediaRef = z.object({ key: z.string().min(3).max(200) });
+
+// Media galeri produk (Tambah/Ubah produk): file upload R2 ({ key }) ATAU referensi eksternal Steam
+// ({ source:'steam', type, url, ... }). Referensi Steam hanya diterima bila URL-nya host CDN resmi Steam; tidak ada pengecekan ukuran/jumlah.
+export const productMediaRef = z.object({
+  key: z.string().max(200).optional(),
+  source: z.enum(['upload', 'steam']).optional(),
+  type: z.string().max(10).optional(),
+  url: z.string().max(1000).optional(),
+  poster: z.string().max(1000).optional().nullable(),
+  title: z.string().max(200).optional().nullable(),
+  ref: z.union([z.string().max(20), z.number()]).optional().nullable(),
+  sources: z.array(z.object({ url: z.string().max(1000), format: z.string().max(10), quality: z.union([z.string().max(20), z.number()]).optional().nullable() })).max(12).optional().nullable(),
+}).superRefine((v, ctx) => {
+  if (v.source === 'steam') {
+    const r = cleanSteamRef(v);
+    if (typeof r === 'string') ctx.addIssue({ code: 'custom', message: r });
+  } else if (!v.key || v.key.length < 3) {
+    ctx.addIssue({ code: 'custom', message: 'File media tidak valid.' });
+  }
+}).transform((v) => (v.source === 'steam' ? cleanSteamRef(v) : { source: 'upload', key: v.key }));
 
 // Tautan yang boleh: http(s), mailto, tel, anchor (#x) atau path internal (/x). Menolak javascript:, data:, dll.
 export const href = z.string().trim().max(300).refine(
@@ -37,7 +58,7 @@ export const productInput = z.object({
     genres: z.array(str(1, 40)).max(10).optional().default([]),
     metacritic: int(0, 100).nullable().optional().default(null),
   }).optional().default({}),
-  media: z.array(mediaRef).optional().default([]),   // tanpa batas jumlah (gambar & video); key duplikat tetap ditolak di resolveForOwner
+  media: z.array(productMediaRef).optional().default([]),   // tanpa batas jumlah (gambar & video); key R2 duplikat ditolak di resolveForOwner, URL Steam duplikat dibuang di services/productMedia.js
 }).refine((v) => v.oldPrice == null || v.oldPrice > v.price, { path: ['oldPrice'], message: 'Harga coret harus lebih besar dari harga jual' });
 
 export const productListQuery = z.object({

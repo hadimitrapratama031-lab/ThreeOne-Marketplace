@@ -122,7 +122,7 @@ async function loadContextInputs(order) {
   let imageKey = order.product?.imageKey || '';
   if (!imageKey && order.product?.ref) {   // snapshot tanpa gambar: pakai gambar produk yang hidup (aset admin yang sama)
     const live = await Product.findById(order.product.ref).select('media').lean().catch(() => null);
-    imageKey = (live?.media || []).find((m) => m.type === 'image')?.key || '';
+    imageKey = (live?.media || []).find((m) => m.type === 'image' && m.key && m.source !== 'steam')?.key || '';
   }
   const origin = [pay.publicBaseUrl, order.origin, config.publicBaseUrl].find((u) => u && isPublicBase(u)) || '';
   // Sistem Code: code dibaca dari database saat pesan dibangun (bukan disalin ke log). Hanya dipakai event paymentSuccess.

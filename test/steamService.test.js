@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 Object.assign(process.env, { NODE_ENV: 'test', R2_ACCOUNT_ID: '', R2_ACCESS_KEY_ID: '', R2_SECRET_ACCESS_KEY: '', R2_BUCKET_NAME: '', R2_PUBLIC_URL: '', R2_ENDPOINT: '' });
 const steam = await import('../server/services/steam.js');
+const media = await import('../server/lib/steamMedia.js');
 
 const realFetch = globalThis.fetch;
 let calls = [];
@@ -61,13 +62,20 @@ test('metadata lengkap: nama, deskripsi, spesifikasi terparse; video terdeteksi'
   assert.equal(r.about, 'Paragraf satu.\n\nParagraf dua.');
   assert.deepEqual(r.specs.min, [{ label: 'OS', value: 'Windows 10' }, { label: 'Memory', value: '8 GB RAM' }]);
   assert.equal(r.specs.rec[1].value, '16 GB RAM');
-  assert.deepEqual(r.video, { available: true, title: 'Trailer', count: 1, items: [{ index: 0, title: 'Trailer' }] });
+  assert.deepEqual(r.video, { available: true, count: 1 });
+  assert.equal(r.videos[0].source, 'steam');
+  assert.equal(r.videos[0].title, 'Trailer');
+  assert.equal(r.videos[0].url, 'https://video.akamai.steamstatic.com/a/max.mp4', 'URL asli dari respons Steam, kualitas tertinggi dulu');
+  assert.deepEqual(r.videos[0].sources.map((x) => `${x.format}/${x.quality}`), ['mp4/max', 'mp4/480']);
+  assert.deepEqual(r.screenshots.map((x) => x.url), [FULL.screenshots[0].path_full, FULL.screenshots[1].path_full], 'screenshot = URL asli Steam, tanpa unduh');
+  assert.ok(r.screenshots.every((x) => x.source === 'steam' && x.type === 'image'));
   assert.equal(r.info.developer, 'Studio A');
   assert.equal(r.info.publisher, 'Publisher B, Publisher C');
   assert.equal(r.info.releaseDate, '10 Jul, 2020');
   assert.equal(r.info.metacritic, 88);
   assert.equal(r.screenshotsAvailable, 2, 'host asing & duplikat tidak dihitung');
   assert.match(calls[0], /appids=1&/);
+  assert.equal(calls.length, 1, 'hanya appdetails yang dipanggil: screenshot & video Steam tidak diunduh');
 });
 
 test('App ID valid tapi metadata sebagian -> tetap sukses dengan warnings (bukan "tidak valid")', async () => {
@@ -90,6 +98,10 @@ test('gambar ditemukan tetapi R2 belum dikonfigurasi -> warning, tidak gagal', a
   const r = await steam.searchApp('1');
   assert.equal(r.image, null);
   assert.ok(r.warnings.some((w) => w.field === 'image' && /R2/.test(w.message)));
+  // Screenshot & video Steam tidak memakai R2, jadi tetap tersedia walau R2 belum dikonfigurasi
+  assert.equal(r.screenshots.length, 2);
+  assert.equal(r.videos.length, 1);
+  assert.ok(!r.warnings.some((w) => w.field === 'screenshots' || w.field === 'video'));
 });
 
 test('cache: lookup berulang tidak membebani Steam; permintaan bersamaan digabung', async () => {
@@ -99,50 +111,52 @@ test('cache: lookup berulang tidak membebani Steam; permintaan bersamaan digabun
   assert.equal(calls.length, 1);
 });
 
-test('video: kandidat hanya MP4/WebM dari host CDN Steam (host lain & HLS diabaikan); http:// dinaikkan ke https://', () => {
-  const c = steam.movieCandidates({ movies: [
-    { name: 'x', highlight: false, mp4: { 480: 'https://evil.example.com/a.mp4' }, hls_h264: 'https://video.akamai.steamstatic.com/a.m3u8' },
+test('video: hanya URL host CDN Steam yang dipakai (host asing diabaikan); http:// dinaikkan ke https://', () => {
+  const c = media.movieDrafts({ movies: [
+    { name: 'x', highlight: false, mp4: { 480: 'https://evil.example.com/a.mp4' } },
     { name: 'y', highlight: true, webm: { 480: 'https://video.akamai.steamstatic.com/y480.webm', max: 'http://video.akamai.steamstatic.com/ymax.webm' } },
     { name: 'z', mp4: { 480: 'ftp://video.akamai.steamstatic.com/z.mp4', max: 'http://evil.example.com/z.mp4' } },
   ] });
   assert.equal(c.length, 1, 'x (host asing) dan z (protokol/host tidak sah) dibuang');
-  assert.deepEqual(c[0].sources.map((v) => v.url), ['https://video.akamai.steamstatic.com/y480.webm', 'https://video.akamai.steamstatic.com/ymax.webm']);
+  assert.deepEqual(c[0].progressive.map((v) => v.url), ['https://video.akamai.steamstatic.com/ymax.webm', 'https://video.akamai.steamstatic.com/y480.webm']);
 });
 
-test('video: SEMUA movies[] dibaca, satu entri per video; highlight dulu, selebihnya urutan Steam; duplikat dibuang', () => {
-  const mk = (id, over = {}) => ({ id, name: `Video ${id}`, highlight: false, webm: { 480: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie480.webm?t=1`, max: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie_max.webm?t=1` }, mp4: { 480: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie480.mp4?t=1`, max: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie_max.mp4?t=1` }, ...over });
+test('video: SEMUA movies[] dibaca, satu entri per video; highlight dulu, selebihnya urutan Steam; duplikat dibuang; tidak ada batas jumlah', () => {
+  const mk = (id, over = {}) => ({ id, name: `Video ${id}`, highlight: false, thumbnail: `https://shared.akamai.steamstatic.com/t/${id}.jpg?t=9`, webm: { 480: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie480.webm?t=1`, max: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie_max.webm?t=1` }, mp4: { 480: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie480.mp4?t=1`, max: `http://video.akamai.steamstatic.com/store_trailers/${id}/movie_max.mp4?t=1` }, ...over });
   const movies = [mk(1), mk(2), mk(3, { highlight: true }), mk(4), mk(2), mk(5), mk(6), mk(7), mk(8)];
-  const c = steam.movieCandidates({ movies });
-  assert.equal(c.length, 8, '8 video unik (satu duplikat dibuang), bukan hanya 1');
-  assert.deepEqual(c.map((m) => m.title), ['Video 3', 'Video 1', 'Video 2', 'Video 4', 'Video 5', 'Video 6', 'Video 7', 'Video 8']);
-  assert.deepEqual(c.map((m) => m.index), [0, 1, 2, 3, 4, 5, 6, 7]);
-  // URL yang dideklarasikan Steam: urutan tetap 480 dulu (paling kecil). Cadangan berbasis movie ID (derived) menyusul di tier yang sama.
-  assert.deepEqual(c[0].sources.filter((v) => !v.derived).map((v) => `${v.format}/${v.quality}`), ['mp4/480', 'webm/480', 'mp4/max', 'webm/max'], '480 dicoba dulu (paling kecil)');
-  const tiers = c[0].sources.map((v) => `${v.format}/${v.quality}`);
-  assert.deepEqual([...new Set(tiers)], ['mp4/480', 'webm/480', 'mp4/max', 'webm/max'], 'cadangan tidak mengubah urutan tier');
-  assert.equal(c[0].sources.find((v) => v.format === 'mp4' && v.quality === '480').derived, false, 'yang dideklarasikan Steam selalu lebih dulu dalam tier-nya');
-  assert.ok(c.every((m) => m.sources.every((v) => v.url.startsWith('https://'))), 'semua URL sudah https');
-  assert.deepEqual(steam.movieCandidates({}), []);
-  assert.deepEqual(steam.movieCandidates({ movies: 'x' }), []);
+  const drafts = media.movieDrafts({ movies });
+  assert.equal(drafts.length, 8, '8 video unik (satu duplikat dibuang)');
+  const items = drafts.map((d) => media.toVideoItem(d));
+  assert.deepEqual(items.map((m) => m.title), ['Video 3', 'Video 1', 'Video 2', 'Video 4', 'Video 5', 'Video 6', 'Video 7', 'Video 8']);
+  assert.deepEqual(items[0].sources.map((v) => `${v.format}/${v.quality}`), ['mp4/max', 'webm/max', 'mp4/480', 'webm/480'], 'kualitas tertinggi dulu; MP4 sebelum WebM');
+  assert.equal(items[0].url, 'https://video.akamai.steamstatic.com/store_trailers/3/movie_max.mp4?t=1');
+  assert.equal(items[0].poster, 'https://shared.akamai.steamstatic.com/t/3.jpg?t=9', 'thumbnail = URL asli Steam');
+  assert.equal(items[0].ref, '3');
+  assert.ok(items.every((m) => m.source === 'steam' && m.type === 'video' && m.sources.every((v) => v.url.startsWith('https://'))), 'semua URL https, sumber steam');
+  assert.deepEqual(media.movieDrafts({}), []);
+  assert.deepEqual(media.movieDrafts({ movies: 'x' }), []);
+  const lots = media.movieDrafts({ movies: Array.from({ length: 40 }, (_, i) => mk(100 + i)) });
+  assert.equal(lots.length, 40);
 });
 
-test('screenshot: semua entri screenshots[] dibaca (bukan hanya satu), urutan Steam dipertahankan, full lebih dulu dari thumbnail', () => {
-  const c = steam.screenshotCandidates(FULL);
+test('screenshot: semua entri screenshots[] dibaca (bukan hanya satu), urutan Steam dipertahankan, URL asli apa adanya', () => {
+  const c = media.screenshotItems(FULL);
   assert.equal(c.length, 2);
-  assert.deepEqual(c[0].urls, [FULL.screenshots[0].path_full, FULL.screenshots[0].path_thumbnail]);
+  assert.deepEqual(c.map((x) => x.url), [FULL.screenshots[0].path_full, FULL.screenshots[1].path_full], 'path_full, lengkap dengan ?t=');
   const many = { screenshots: Array.from({ length: 30 }, (_, i) => ({ id: i, path_full: `https://shared.akamai.steamstatic.com/s/${i}.jpg` })) };
-  assert.equal(steam.screenshotCandidates(many).length, 30, 'tidak ada batas 1 di tahap parsing');
-  assert.deepEqual(steam.screenshotCandidates({}), []);
-  assert.deepEqual(steam.screenshotCandidates({ screenshots: 'x' }), []);
+  assert.equal(media.screenshotItems(many).length, 30, 'tidak ada batas jumlah');
+  assert.deepEqual(media.screenshotItems({}), []);
+  assert.deepEqual(media.screenshotItems({ screenshots: 'x' }), []);
+  // thumbnail hanya dipakai bila path_full tidak ada
+  assert.equal(media.screenshotItems({ screenshots: [{ id: 0, path_thumbnail: 'https://shared.akamai.steamstatic.com/s/t.jpg' }] })[0].url, 'https://shared.akamai.steamstatic.com/s/t.jpg');
 });
 
 test('video: jumlah & daftar semua video yang tersedia dilaporkan', async () => {
   const two = { ...FULL, movies: [...FULL.movies, { id: 2, name: 'Gameplay', mp4: { 480: 'https://video.akamai.steamstatic.com/b/480.mp4' } }] };
   handler = () => json({ 1: { success: true, data: two } });
   const r = await steam.searchApp('1');
-  assert.equal(r.video.count, 2);
-  assert.equal(r.video.title, 'Trailer', 'trailer highlight didahulukan');
-  assert.deepEqual(r.video.items, [{ index: 0, title: 'Trailer' }, { index: 1, title: 'Gameplay' }]);
+  assert.deepEqual(r.video, { available: true, count: 2 });
+  assert.deepEqual(r.videos.map((v) => v.title), ['Trailer', 'Gameplay'], 'trailer highlight didahulukan');
 });
 
 /* ---------- Trailer berbentuk manifest (tanpa mp4/webm) & pemilihan amplop appdetails ---------- */
@@ -155,57 +169,75 @@ const manifestOnly = (over = {}) => ({
   ...over,
 });
 
-test('video: trailer yang hanya membawa manifest HLS/DASH tetap dikenali; kandidat file MP4/WebM dicari lewat movie ID', () => {
-  const c = steam.movieCandidates({ movies: [manifestOnly()] });
-  assert.equal(c.length, 1, 'dulu dibuang karena tidak ada mp4/webm -> \"video tidak tersedia\"');
-  const [m] = c;
-  assert.equal(m.id, 9001);
-  assert.equal(m.title, 'Trailer Baru');
-  assert.equal(m.streamOnly, true);
-  assert.equal(m.thumbnail, 'https://video.akamai.steamstatic.com/store_trailers/9001/movie.293x165.jpg?t=1');
-  assert.ok(m.sources.length >= 4 && m.sources.every((s) => s.derived));
-  // 480p lebih dulu dari max; MP4 lebih dulu dari WebM pada kualitas yang sama
-  assert.deepEqual(m.sources.map((s) => `${s.format}|${s.quality}`).filter((v, i, a) => a.indexOf(v) === i), ['mp4|480', 'webm|480', 'mp4|max', 'webm|max']);
-  assert.equal(m.sources[0].url, 'https://video.akamai.steamstatic.com/store_trailers/9001/movie480.mp4');
-  for (const s of m.sources) {
-    assert.match(s.url, /^https:\/\/(video|cdn)\.akamai\.steamstatic\.com\/.*\/9001\//, s.url);
-    assert.match(s.url, /\.(mp4|webm)$/, 'manifest .m3u8/.mpd tidak pernah dijadikan sumber <video>');
-  }
-  assert.equal(new Set(m.sources.map((s) => s.url)).size, m.sources.length, 'tidak ada URL ganda');
+test('video: trailer yang hanya membawa manifest HLS/DASH tetap dikenali; HLS dipakai sebagai source, DASH hanya dicatat', () => {
+  const [d] = media.movieDrafts({ movies: [manifestOnly()] });
+  assert.equal(d.id, 9001);
+  assert.deepEqual(d.progressive, [], 'Steam tidak mendeklarasikan MP4/WebM');
+  const item = media.toVideoItem(d);
+  assert.equal(item.poster, 'https://video.akamai.steamstatic.com/store_trailers/9001/movie.293x165.jpg?t=1');
+  assert.deepEqual(item.sources.map((x) => x.format), ['hls', 'dash']);
+  assert.equal(item.url, 'https://video.akamai.steamstatic.com/store_trailers/9001/hls_264_master.m3u8?t=1');
+  // DASH saja = tidak ada yang bisa diputar <video> -> null (dilewati)
+  assert.equal(media.toVideoItem(media.movieDrafts({ movies: [manifestOnly({ hls_h264: undefined })] })[0]), null);
 });
 
-test('video: URL yang dideklarasikan Steam didahulukan; pola movie ID hanya cadangan dan tidak menggandakan URL yang sama', () => {
+test('video: kandidat file berbasis movie ID hanya dipakai bila diverifikasi; yang dideklarasikan Steam tetap lebih dulu', () => {
+  const [d] = media.movieDrafts({ movies: [manifestOnly()] });
+  const ok = { url: 'https://video.akamai.steamstatic.com/store_trailers/9001/movie_max.mp4', format: 'mp4', quality: 'max' };
+  const item = media.toVideoItem(d, [ok]);
+  assert.deepEqual(item.sources.map((x) => x.format), ['mp4', 'hls', 'dash'], 'file progresif terverifikasi sebelum HLS');
+  assert.equal(item.url, ok.url);
+  const tiers = media.derivedMovieUrls(9001);
+  assert.deepEqual(tiers.map((t) => `${t.format}/${t.quality}`), ['mp4/max', 'webm/max', 'mp4/480', 'webm/480']);
+  for (const t of tiers) for (const u of t.urls) assert.match(u, /^https:\/\/(video|cdn)\.akamai\.steamstatic\.com\/.*\/9001\//);
   const declared = 'https://video.akamai.steamstatic.com/store_trailers/9002/movie480.mp4?t=77';
-  const [m] = steam.movieCandidates({ movies: [{ id: 9002, name: 'Lama', mp4: { 480: declared }, webm: { max: 'http://video.akamai.steamstatic.com/x/max.webm' } }] });
-  assert.deepEqual(m.sources[0], { url: declared, format: 'mp4', quality: '480', derived: false });
-  assert.equal(m.sources.filter((s) => s.url.startsWith('https://video.akamai.steamstatic.com/store_trailers/9002/movie480.mp4')).length, 1, 'URL yang sama (tanpa ?t=) tidak muncul dua kali');
-  const declaredWebmMax = m.sources.find((s) => s.format === 'webm' && s.quality === 'max' && !s.derived);
-  assert.equal(declaredWebmMax.url, 'https://video.akamai.steamstatic.com/x/max.webm', 'http:// dinaikkan ke https://');
-  assert.ok(m.sources.some((s) => s.derived), 'cadangan tetap tersedia bila URL yang dideklarasikan 404');
-  assert.equal(m.streamOnly, false);
+  const [d2] = media.movieDrafts({ movies: [{ id: 9002, name: 'Lama', mp4: { 480: declared }, webm: { max: 'http://video.akamai.steamstatic.com/x/max.webm' } }] });
+  const i2 = media.toVideoItem(d2);
+  assert.deepEqual(i2.sources.map((x) => x.url), ['https://video.akamai.steamstatic.com/x/max.webm', declared]);
 });
 
-test('video: manifest tanpa movie ID dan tanpa mp4/webm = tidak ada yang bisa diunduh (dilewati, bukan error); id tidak valid tidak dipakai', () => {
-  assert.deepEqual(steam.movieCandidates({ movies: [{ name: 'x', hls_h264: 'https://video.akamai.steamstatic.com/a.m3u8' }] }), []);
+test('video: movie tanpa mp4/webm/hls dan tanpa movie ID dilewati (bukan error); id tidak valid tidak dipakai', () => {
+  assert.deepEqual(media.movieDrafts({ movies: [{ name: 'x' }] }), []);
   for (const id of [0, -3, 'abc', 1.5, null]) {
-    assert.deepEqual(steam.movieCandidates({ movies: [manifestOnly({ id })] }), [], `id=${id}`);
+    const drafts = media.movieDrafts({ movies: [manifestOnly({ id, hls_h264: undefined, dash_av1: undefined })] });
+    assert.deepEqual(drafts, [], `id=${id}`);
   }
-  // host asing pada manifest tidak membuat entri menjadi streamOnly
-  const [m] = steam.movieCandidates({ movies: [{ id: 9003, name: 'y', hls_h264: 'https://evil.example.com/a.m3u8', mp4: { 480: 'https://video.akamai.steamstatic.com/a/480.mp4' } }] });
-  assert.equal(m.streamOnly, false);
 });
 
 test('video: movie ID yang sama tidak dilaporkan dua kali', () => {
-  const c = steam.movieCandidates({ movies: [manifestOnly(), manifestOnly({ highlight: false }), manifestOnly({ id: 9004, name: 'Lain', highlight: false })] });
+  const c = media.movieDrafts({ movies: [manifestOnly(), manifestOnly({ highlight: false }), manifestOnly({ id: 9004, name: 'Lain', highlight: false })] });
   assert.deepEqual(c.map((m) => m.id), [9001, 9004]);
-  assert.deepEqual(c.map((m) => m.index), [0, 1]);
 });
 
-test('searchApp: game dengan trailer manifest-only dilaporkan punya video (bukan warning \"tidak tersedia\")', async () => {
-  handler = () => json({ 1: { success: true, data: { ...FULL, movies: [manifestOnly()] } } });
+test('searchApp: trailer manifest-only (file MP4/WebM tidak ada di CDN) -> tetap tersedia lewat HLS; tidak ada unduhan', async () => {
+  // Semua permintaan ke CDN (HEAD pengecekan file) dijawab 404; hanya appdetails yang berhasil
+  handler = (url) => (url.startsWith('https://store.steampowered.com/') ? json({ 1: { success: true, data: { ...FULL, movies: [manifestOnly()] } } }) : new Response('', { status: 404 }));
   const r = await steam.searchApp('1');
-  assert.deepEqual(r.video, { available: true, title: 'Trailer Baru', count: 1, items: [{ index: 0, title: 'Trailer Baru' }] });
+  assert.deepEqual(r.video, { available: true, count: 1 });
+  assert.deepEqual(r.videos[0].sources.map((x) => x.format), ['hls', 'dash']);
   assert.ok(!r.warnings.some((w) => w.field === 'video'));
+  assert.ok(calls.filter((u) => !u.startsWith('https://store.steampowered.com/')).every((u) => /movie(_max|480)/.test(u)), 'hanya pengecekan kandidat file video');
+});
+
+test('searchApp: kandidat file berbasis movie ID yang ADA di CDN ikut disimpan (dicek lewat HEAD, tanpa mengunduh isi)', async () => {
+  const methods = [];
+  handler = (url, opts) => {
+    if (url.startsWith('https://store.steampowered.com/')) return json({ 1: { success: true, data: { ...FULL, movies: [manifestOnly()] } } });
+    methods.push(opts?.method);
+    return url.endsWith('/9001/movie_max.mp4') ? new Response('', { status: 200, headers: { 'content-type': 'video/mp4' } }) : new Response('', { status: 404 });
+  };
+  const r = await steam.searchApp('1');
+  assert.deepEqual(r.videos[0].sources.map((x) => x.format), ['mp4', 'hls', 'dash']);
+  assert.equal(r.videos[0].url, 'https://video.akamai.steamstatic.com/store_trailers/9001/movie_max.mp4');
+  assert.ok(methods.length > 0 && methods.every((m) => m === 'HEAD'), 'hanya HEAD, tidak ada GET isi video');
+});
+
+test('searchApp: trailer dengan DASH saja dilewati dengan warning, bukan error', async () => {
+  handler = (url) => (url.startsWith('https://store.steampowered.com/') ? json({ 1: { success: true, data: { ...FULL, movies: [manifestOnly({ hls_h264: undefined })] } } }) : new Response('', { status: 404 }));
+  const r = await steam.searchApp('1');
+  assert.equal(r.videos.length, 0);
+  assert.equal(r.video.available, false);
+  assert.ok(r.warnings.some((w) => w.field === 'video'));
 });
 
 test('appdetails: amplop dipilih dari isinya (steam_appid) bila Steam memberi label kunci appid lain; appid yang dialihkan tetap lewat kunci', async () => {

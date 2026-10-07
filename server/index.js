@@ -46,6 +46,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const ADMIN_DIR = path.join(__dirname, '..', 'admin');
 
+const STEAM_CDN = ['https://*.steamstatic.com', 'https://*.akamaihd.net'];
+
 export function createApp() {
   const app = express();
   app.set('trust proxy', config.trustProxy);
@@ -61,8 +63,9 @@ export function createApp() {
         'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'font-src': ["'self'", 'https://fonts.gstatic.com'],
         // klikqris.com: gambar QRIS (qris_url) dimuat langsung dari KlikQRIS, tidak disalin ke R2
-        'img-src': ["'self'", 'data:', 'blob:', 'https://klikqris.com', ...(r2Origin ? [r2Origin] : [])],
-        'media-src': ["'self'", 'blob:', ...(r2Origin ? [r2Origin] : [])],
+        // CDN Steam (*.steamstatic.com, *.akamaihd.net): screenshot, thumbnail & video Steam dimuat LANGSUNG dari Steam, tidak disalin ke R2
+        'img-src': ["'self'", 'data:', 'blob:', 'https://klikqris.com', ...STEAM_CDN, ...(r2Origin ? [r2Origin] : [])],
+        'media-src': ["'self'", 'blob:', ...STEAM_CDN, ...(r2Origin ? [r2Origin] : [])],
         'connect-src': ["'self'", 'ws:', 'wss:'],
         'object-src': ["'none'"],
         'base-uri': ["'self'"],

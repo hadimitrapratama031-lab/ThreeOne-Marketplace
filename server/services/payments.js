@@ -182,7 +182,7 @@ export async function createCheckout(input, { requestBase }) {
         orderNo: newOrderNo(),
         clientKey: input.clientKey,
         customer: { name: input.name, email: input.email, whatsapp: input.whatsapp },
-        product: { ref: product._id, productId: product.productId, name: product.name, category: product.category?.name || '', imageKey: (product.media || []).find((m) => m.type === 'image')?.key || '', kind: product.kind || 'normal' },
+        product: { ref: product._id, productId: product.productId, name: product.name, category: product.category?.name || '', imageKey: (product.media || []).find((m) => m.type === 'image' && m.key && m.source !== 'steam')?.key || '', kind: product.kind || 'normal' },
         amount: product.price,
         payment: { mode: cfg.mode },
         origin: cfg.publicBaseUrl || requestBase,   // dipakai tautan di notifikasi (tanpa request)

@@ -5,10 +5,20 @@ import { api } from '../api.js';
 // `max` opsional: tanpa `max` jumlah file tidak dibatasi (dipakai galeri produk). Halaman lain tetap memberi batas sendiri.
 // Opsional (hanya bila diisi, perilaku lama tidak berubah): `accept` = daftar MIME yang boleh dipilih (divalidasi di browser,
 // server tetap memeriksa isi file), `formats` = teks format untuk pesan error, `maxMB` = batas ukuran khusus bagian ini.
+// Item galeri: upload manual = { type, key, url } (R2). Media Steam = { type, source:'steam', url, ... } referensi URL asli Steam (tanpa key, tanpa R2).
+const MIME = { mp4: 'video/mp4', webm: 'video/webm', hls: 'application/vnd.apple.mpegurl' };
+const norm = (m) => ({
+  type: m.type || 'image', key: m.key || '', url: m.url,
+  ...(m.source === 'steam' ? { source: 'steam', poster: m.poster || '', title: m.title || '', ref: m.ref || '', sources: Array.isArray(m.sources) ? m.sources : [] } : {}),
+});
+const wire = (m) => (m.source === 'steam'
+  ? { source: 'steam', type: m.type, url: m.url, ...(m.type === 'video' ? { poster: m.poster || '', title: m.title || '', ref: m.ref || '', sources: m.sources || [] } : {}) }
+  : { key: m.key });
+const sourceTags = (m) => (m.sources || []).filter((x) => MIME[x.format]).map((x) => html`<source src="${x.url}" type="${MIME[x.format]}">`);
 const EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', ico: 'image/x-icon' };
 
 export function mediaManager(host, { max = Infinity, folder, video = false, limits, initial = [], showMain = false, addLabel = 'Tambah gambar', addHint = '', replace = false, accept = null, formats = '', maxMB = null, onChange }) {
-  let items = initial.map((m) => ({ type: m.type || 'image', key: m.key, url: m.url }));
+  let items = initial.map(norm);
   let pending = 0;
   let main = { pending: false, preview: null };   // penggantian gambar utama yang sedang diunggah (pratinjau lokal langsung tampil)
   const listeners = new Set();                    // dipanggil setiap daftar berubah (dipakai pemilih gambar utama)
@@ -41,8 +51,12 @@ export function mediaManager(host, { max = Infinity, folder, video = false, limi
     const firstImage = items.findIndex((m) => m.type === 'image');
     const tiles = items.map((m, i) => html`
       <div class="media-tile">
-        ${m.type === 'video' ? html`<video src="${m.url}" muted preload="metadata"></video>` : html`<img src="${m.url}" alt="" loading="lazy">`}
-        ${m.type === 'video' ? html`<span class="badge badge--video">Video</span>` : showMain && i === firstImage ? html`<span class="badge">Utama</span>` : ''}
+        ${m.type === 'video'
+    ? (m.source === 'steam'
+      ? html`<video muted preload="none" ${m.poster ? html`poster="${m.poster}"` : ''}>${sourceTags(m)}</video>`   /* video Steam: thumbnail Steam, tanpa memuat file video di daftar */
+      : html`<video src="${m.url}" muted preload="metadata"></video>`)
+    : html`<img src="${m.url}" alt="" loading="lazy">`}
+        ${m.type === 'video' ? html`<span class="badge badge--video">${m.source === 'steam' ? 'Video · Steam' : 'Video'}</span>` : showMain && i === firstImage ? html`<span class="badge">Utama</span>` : m.source === 'steam' ? html`<span class="badge">Steam</span>` : ''}
         <div class="tools">
           ${max > 1 ? html`<span><button type="button" class="icon-btn" data-mv="${i}:-1" ${i === 0 ? 'disabled' : ''} aria-label="Geser ke kiri">${icon('left')}</button><button type="button" class="icon-btn" data-mv="${i}:1" ${i === items.length - 1 ? 'disabled' : ''} aria-label="Geser ke kanan">${icon('right')}</button></span>` : html`<span></span>`}
           <span>${replace ? html`<button type="button" class="icon-btn" data-rp="${i}" aria-label="Ganti file ini">${icon('upload')}</button>` : ''}<button type="button" class="icon-btn" data-rm="${i}" aria-label="Hapus dari daftar">${icon('x')}</button></span>
@@ -135,9 +149,9 @@ export function mediaManager(host, { max = Infinity, folder, video = false, limi
 
   render();
   return {
-    get: () => items.map((m) => ({ key: m.key })),
+    get: () => items.map(wire),   // upload -> { key }; media Steam -> referensi URL (dikirim apa adanya ke server)
     items: () => items,
-    set(list) { items = list.map((m) => ({ type: m.type || 'image', key: m.key, url: m.url })); render(); },
+    set(list) { items = list.map(norm); render(); },
     busy: () => pending > 0 || main.pending,
     replaceMain,
     mainState: () => main,

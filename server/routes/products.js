@@ -5,6 +5,7 @@ import { productInput, productListQuery, statusInput, moveInput } from '../lib/s
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange, emitAdmin, emitPublic } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
+import { resolveProductMedia, mediaIdent } from '../services/productMedia.js';
 import { soldByProduct, soldOf } from '../services/sales.js';
 import { releaseProductCodes, deleteProductCodes } from '../services/codes.js';
 import { ORDER_SORT, nextTopOrder, moveProduct, positionsFor, ensureProductOrder } from '../services/productOrder.js';
@@ -45,12 +46,6 @@ async function checkCategory(id) {
   const cat = await Category.findById(id);
   if (!cat) throw new HttpError(422, 'Kategori tidak ditemukan.', { fields: { category: 'Kategori tidak ditemukan' } });
   return cat;
-}
-
-async function resolveMedia(keys, ownerRef) {
-  // Tanpa batas jumlah gambar/video (galeri Steam bisa berisi puluhan screenshot dan beberapa trailer).
-  const found = await assets.resolveForOwner(keys, ownerRef, { folders: ['products'], kinds: ['image', 'video'], max: Infinity });
-  return found.map((a) => ({ type: a.kind, key: a.key, url: a.url }));
 }
 
 r.get('/', asyncH(async (req, res) => {
@@ -100,8 +95,7 @@ r.get('/:id', asyncH(async (req, res) => {
 r.post('/', asyncH(async (req, res) => {
   const data = parse(productInput, req.body);
   const cat = await checkCategory(data.category);
-  const keys = data.media.map((m) => m.key);
-  const media = await resolveMedia(keys, owner('new'));
+  const { media, keys } = await resolveProductMedia(data.media, owner('new'));   // upload -> R2, media Steam -> URL asli (tanpa R2)
   const productId = await nextSeq('product');
   const doc = await Product.create({ ...data, media, productId, order: await nextTopOrder() });   // produk baru = paling atas, produk lain tidak bergeser
   await assets.attach(owner(doc._id), keys);
@@ -116,13 +110,12 @@ r.put('/:id', asyncH(async (req, res) => {
   const before = current.toObject();
   const data = parse(productInput, req.body);
   const cat = await checkCategory(data.category);
-  const keys = data.media.map((m) => m.key);
 
   // 1) upload baru sudah ada & valid  2) simpan ke MongoDB  3) cek hasil tersimpan  4) baru hapus gambar lama
-  const media = await resolveMedia(keys, owner(current._id));
+  const { media, keys } = await resolveProductMedia(data.media, owner(current._id));
   const updated = await Product.findOneAndUpdate({ _id: current._id }, { $set: { ...data, media } }, { new: true, runValidators: true });
-  const saved = updated.media.map((m) => m.key).join('|');
-  if (saved !== keys.join('|')) throw new HttpError(500, 'Penyimpanan data gambar tidak konsisten. Gambar lama tidak dihapus.');
+  const saved = updated.media.map(mediaIdent).join('|');
+  if (saved !== media.map(mediaIdent).join('|')) throw new HttpError(500, 'Penyimpanan data gambar tidak konsisten. Gambar lama tidak dihapus.');
   await assets.attach(owner(current._id), keys);
 
   updated.category = cat;

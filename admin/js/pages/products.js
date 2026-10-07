@@ -127,7 +127,7 @@ export default {
       if (!p) return;
       const ok = await confirmDialog({
         title: 'Hapus produk?',
-        message: `“${p.name}” akan dihapus permanen dari database, termasuk ulasannya dan ${p.media.length} file di penyimpanan R2. Tindakan ini tidak bisa dibatalkan.`,
+        message: `“${p.name}” akan dihapus permanen dari database, termasuk ulasannya dan ${p.media.filter((m) => m.key).length} file di penyimpanan R2. Tindakan ini tidak bisa dibatalkan.`,
         confirmLabel: 'Hapus permanen', danger: true,
       });
       if (!ok) return;

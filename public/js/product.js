@@ -67,21 +67,32 @@
 
   // Pratinjau video: frame dari file video itu sendiri (bukan aset poster terpisah), tampil di atas artwork.
   // Bila file gagal dimuat, elemen ini dibuang dan artwork di bawahnya tetap terlihat.
-  const vframe = (m) => (m.src ? `<video class="pd-vframe" src="${esc(m.src)}#t=0.5" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"></video>` : '');
+  // Video Steam membawa thumbnail resmi Steam (poster): dipakai langsung sebagai pratinjau, file video tidak dimuat sebelum diputar.
+  const vframe = (m) => (m.poster
+    ? `<img class="pd-vframe" src="${esc(m.poster)}" alt="" loading="lazy" decoding="async" aria-hidden="true">`
+    : m.src ? `<video class="pd-vframe" src="${esc(m.src)}#t=0.5" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"></video>` : '');
 
   document.addEventListener('error', (e) => {
     const img = e.target;
     if (img.tagName === 'IMG' && img.dataset.seed && !img.closest('.card__media')) {
       img.outerHTML = art({ seed: +img.dataset.seed, alt: img.alt });
-    } else if (img.tagName === 'VIDEO' && img.classList.contains('pd-vframe')) {
+    } else if ((img.tagName === 'VIDEO' || img.tagName === 'IMG') && img.classList.contains('pd-vframe')) {
       img.remove();
     }
   }, true);
 
+  // Source video Steam (MP4/WebM/HLS) -> [{ url, type }] untuk <source>; browser memilih yang bisa diputar. Video upload manual: kosong (pakai src).
+  const VIDEO_MIME = { mp4: 'video/mp4', webm: 'video/webm', hls: 'application/vnd.apple.mpegurl' };
+  const VIDEO_RANK = { mp4: 0, webm: 1, hls: 2 };
+  const playableSources = (m) => (Array.isArray(m.sources) ? m.sources : [])
+    .filter((s) => s && VIDEO_MIME[s.format] && /^https:\/\//i.test(s.url))
+    .sort((a, b) => VIDEO_RANK[a.format] - VIDEO_RANK[b.format])   // sort stabil: kualitas dari server dipertahankan di dalam satu format
+    .map((s) => ({ url: s.url, type: VIDEO_MIME[s.format] }));
+
   const gallery = () => {
     const base = 1000 + p.id * 10;
     const items = p.media.map((m, i) => (m.type === 'video'
-      ? { type: 'video', seed: base + i, src: m.url, poster: null, alt: `Video ${p.name}` }
+      ? { type: 'video', seed: base + i, src: m.url, poster: m.poster || null, sources: playableSources(m), alt: `Video ${p.name}` }
       : { type: 'image', seed: base + i, src: m.url, alt: `${p.name}, tampilan ${i + 1}` }));
     return items.length ? items : [{ type: 'image', seed: base, src: null, alt: p.name }];
   };
@@ -407,10 +418,17 @@
   function playVideo() {
     const m = gallery()[current];
     const slide = $('#pd-slide');
-    slide.innerHTML = `<video controls autoplay playsinline preload="metadata" src="${esc(m.src)}"></video>`;
-    $('video', slide).addEventListener('error', () => {
+    const srcs = m.sources || [];
+    const poster = m.poster ? ` poster="${esc(m.poster)}"` : '';
+    // Video Steam: beberapa <source> (MP4/WebM/HLS) langsung dari CDN Steam; video upload manual: satu src (R2).
+    slide.innerHTML = srcs.length
+      ? `<video controls autoplay playsinline preload="metadata"${poster}>${srcs.map((s) => `<source src="${esc(s.url)}" type="${esc(s.type)}">`).join('')}</video>`
+      : `<video controls autoplay playsinline preload="metadata"${poster} src="${esc(m.src)}"></video>`;
+    // Dengan <source>, kegagalan dilaporkan di elemen <source> terakhir (setelah semua source dicoba), bukan di <video>.
+    const target = srcs.length ? $('source:last-of-type', slide) : $('video', slide);
+    target.addEventListener('error', () => {
       reportImageError(m.src);
-      slide.innerHTML = `${art(m)}<p class="pd-note">Video tidak dapat dimuat. Menampilkan poster.</p>`;
+      slide.innerHTML = `${art(m)}${vframe(m)}<p class="pd-note">Video tidak dapat dimuat. Menampilkan poster.</p>`;
     }, { once: true });
   }
 
