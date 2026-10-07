@@ -280,7 +280,64 @@ redeemCodeSchema.index({ orderNo: 1 });
 redeemCodeSchema.index({ 'customer.email': 1 });
 export const RedeemCode = mongoose.model('RedeemCode', redeemCodeSchema);
 
-export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order, NotificationLog, RedeemCode];
+
+/* LiveChat — satu dokumen per percakapan pelanggan. MongoDB adalah sumber kebenaran (bukan localStorage).
+   - expiresAt = createdAt + 24 jam, dihitung SERVER saat dibuat dan tidak pernah digeser aktivitas apa pun.
+   - Aktif berarti status != expired DAN expiresAt > sekarang (dicek di setiap query), jadi percakapan lewat batas tidak pernah
+     tampil walau worker belum sempat menandainya. Worker backend mengubah status menjadi 'expired', menyiarkan event, lalu
+     menghapus pesan + gambar R2 setelah masa simpan (purgeAt). Sengaja BUKAN TTL index: TTL menghapus diam-diam dan
+     meninggalkan gambar yatim di R2. */
+export const LIVECHAT_STATUSES = ['active', 'closed', 'expired'];
+const waNotify = { status: { type: String, enum: ['none', 'sending', 'sent', 'failed', 'skipped'], default: 'none' }, attempts: { type: Number, default: 0 }, error: { type: String, default: '', maxlength: 300 }, claimedAt: Date, at: Date };
+const liveChatSchema = new Schema({
+  conversationId: { type: String, required: true, unique: true },
+  clientKey: { type: String, maxlength: 64 },                          // idempotensi pembuatan (anti dobel klik / retry jaringan)
+  customer: {
+    name: { type: String, required: true, trim: true, maxlength: 60 },
+    whatsapp: { type: String, default: '', maxlength: 20 },            // sudah dinormalkan (62…) atau kosong; tidak pernah dikarang
+  },
+  status: { type: String, enum: LIVECHAT_STATUSES, default: 'active' },
+  messageSeq: { type: Number, default: 0 },
+  messageCount: { type: Number, default: 0 },
+  unreadAdmin: { type: Number, default: 0 },
+  unreadCustomer: { type: Number, default: 0 },
+  adminReadSeq: { type: Number, default: 0 },
+  customerReadSeq: { type: Number, default: 0 },
+  lastMessage: { type: new Schema({ seq: Number, sender: String, type: String, text: String, at: Date }, { _id: false }), default: null },
+  lastMessageAt: { type: Date, required: true },
+  expiresAt: { type: Date, required: true },
+  closedAt: Date,
+  expiredAt: Date,
+  purgeAt: Date,
+  waCreated: { type: new Schema(waNotify, { _id: false }), default: () => ({}) },
+  waLastNotifiedAt: Date,
+}, { timestamps: true });
+liveChatSchema.index({ status: 1, expiresAt: 1 });
+liveChatSchema.index({ status: 1, lastMessageAt: -1 });
+liveChatSchema.index({ createdAt: -1 });
+liveChatSchema.index({ purgeAt: 1 }, { partialFilterExpression: { status: 'expired' } });
+liveChatSchema.index({ clientKey: 1 }, { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } });
+export const LiveChat = mongoose.model('LiveChat', liveChatSchema);
+
+const liveChatMessageSchema = new Schema({
+  conversation: { type: Schema.Types.ObjectId, ref: 'LiveChat', required: true },
+  conversationId: { type: String, required: true },
+  seq: { type: Number, required: true },                               // urutan pasti per percakapan
+  clientId: { type: String, maxlength: 64 },                           // kunci idempotensi dari pengirim: retry / reconnect tidak menggandakan pesan
+  sender: { type: String, enum: ['customer', 'admin'], required: true },
+  senderName: { type: String, default: '', maxlength: 60 },            // nama admin pembalas (hanya tampil di Admin Web)
+  adminId: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+  type: { type: String, enum: ['text', 'image'], required: true },
+  text: { type: String, default: '', maxlength: 1000 },
+  image: { type: new Schema({ key: String, url: String, mime: String, size: Number }, { _id: false }), default: null },   // hanya referensi R2, bukan binary
+  wa: { type: new Schema(waNotify, { _id: false }), default: () => ({}) },   // kunci idempotensi notifikasi WhatsApp admin untuk pesan ini
+}, { timestamps: true });
+liveChatMessageSchema.index({ conversation: 1, seq: 1 }, { unique: true });
+liveChatMessageSchema.index({ conversation: 1, clientId: 1 }, { unique: true, partialFilterExpression: { clientId: { $type: 'string' } } });
+liveChatMessageSchema.index({ 'wa.status': 1, 'wa.claimedAt': 1 });
+export const LiveChatMessage = mongoose.model('LiveChatMessage', liveChatMessageSchema);
+
+export const ALL_MODELS = [Counter, Admin, Category, Product, Review, Faq, Contact, Setting, Asset, Order, NotificationLog, RedeemCode, LiveChat, LiveChatMessage];
 
 export async function syncAllIndexes() {
   for (const m of ALL_MODELS) await m.syncIndexes();

@@ -16,7 +16,7 @@
  */
 import mongoose from 'mongoose';
 import { config, r2Configured } from '../server/config/env.js';
-import { Product, Category, Review, Order, NotificationLog, Counter, Asset, Faq, Contact, Setting, Admin } from '../server/models/index.js';
+import { Product, Category, Review, Order, NotificationLog, Counter, Asset, Faq, Contact, Setting, Admin, LiveChat, LiveChatMessage } from '../server/models/index.js';
 import { deleteObjects } from '../server/lib/r2.js';
 import { parseArgs, ask, line, rowOut, hostOf } from './_common.js';
 
@@ -25,6 +25,7 @@ const APPLY = flags.has('apply');
 const wipe = [
   ['Produk', Product], ['Kategori', Category], ['Rating / ulasan', Review], ['Pesanan', Order],
   ['Log notifikasi', NotificationLog], ['Penghitung ID (produk)', Counter],
+  ['Percakapan Live Chat', LiveChat], ['Pesan Live Chat', LiveChatMessage],
 ];
 if (flags.has('include-content')) wipe.push(['FAQ', Faq], ['Kontak', Contact]);
 if (flags.has('include-settings')) wipe.push(['Pengaturan (termasuk kredensial pembayaran/Resend/Fonnte)', Setting]);

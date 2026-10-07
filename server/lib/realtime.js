@@ -25,6 +25,10 @@ export const setOrderJoinHandler = (fn) => { orderJoin = fn; };
 let trackJoin = null;   // diisi services/payments.js: (orderNo, watchToken) => tampilan Cek Pesanan ber-masking | null
 export const setTrackJoinHandler = (fn) => { trackJoin = fn; };
 
+let livechatJoin = null;   // diisi services/livechat.js: (conversationId, token) => { ok, snapshot } | { ok:false, reason }
+export const setLivechatJoinHandler = (fn) => { livechatJoin = fn; };
+export const livechatRoom = (conversationId) => `livechat:${conversationId}`;
+
 let changeHook = null;
 /** Dipasang services/stats.js: dipanggil setiap ada perubahan entitas (untuk menyiarkan ulang statistik). */
 export const setChangeHook = (fn) => { changeHook = fn; };
@@ -122,6 +126,33 @@ export function initRealtime(httpServer) {
     });
   });
 
+  io.of('/').on('connection', (socket) => {
+    // Live Chat pelanggan: gabung ke room percakapan hanya bila token valid dan percakapan belum expired.
+    // Room hilang saat reconnect, jadi klien memanggil ini lagi di setiap 'connect' dan memakai snapshot untuk sinkron ulang.
+    socket.on('livechat:join', async (msg, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      try {
+        const id = msg?.conversationId;
+        const joined = (socket.data.livechats ||= new Set());
+        if (!livechatJoin || typeof id !== 'string' || typeof msg?.token !== 'string') return reply({ ok: false, reason: 'invalid' });
+        if (joined.size >= 3 && !joined.has(id)) return reply({ ok: false, reason: 'limit' });
+        const r = await livechatJoin(id, msg.token);
+        if (!r?.ok) { socket.leave(livechatRoom(id)); joined.delete(id); return reply({ ok: false, reason: r?.reason || 'invalid' }); }
+        socket.join(livechatRoom(id));   // join ulang pada room yang sama tidak menggandakan event
+        joined.add(id);
+        reply({ ok: true, snapshot: r.snapshot });
+      } catch {
+        reply({ ok: false, reason: 'error' });
+      }
+    });
+    socket.on('livechat:leave', (msg) => {
+      const id = msg?.conversationId;
+      if (typeof id !== 'string' || !socket.data.livechats?.has(id)) return;
+      socket.leave(livechatRoom(id));
+      socket.data.livechats.delete(id);
+    });
+  });
+
   adminNs = io.of('/admin');
   adminNs.use(authAdminSocket);
   adminNs.on('connection', (socket) => {
@@ -145,6 +176,8 @@ export const emitPublic = (event, payload) => safe(() => io?.of('/').emit(event,
 export const emitAdmin = (event, payload) => safe(() => adminNs?.emit(event, payload));
 export const emitToRoom = (room, event, payload) => safe(() => io?.of('/').to(room).emit(event, payload));
 export const getOnline = publicOnline;
+/** Keluarkan semua socket dari sebuah room (percakapan expired): reconnect/tab lama tidak bisa masuk lagi karena join divalidasi ulang. */
+export const closeRoom = (room) => safe(() => io?.of('/').in(room).socketsLeave(room));
 
 /**
  * Kirim perubahan entitas. Publik hanya menerima data publik, dan transisi visibilitas

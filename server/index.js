@@ -34,6 +34,8 @@ import { integrationsRouter, notificationsRouter } from './routes/integrations.j
 import webhooksRouter from './routes/webhooks.js';
 import { categoriesRouter, faqRouter, contactsRouter } from './routes/content.js';
 import { codeProductsRouter, codesRouter } from './routes/codes.js';
+import { livechatPublicRouter, livechatAdminRouter } from './routes/livechat.js';
+import { startLivechatWorker, stopLivechatWorker } from './services/livechat.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -79,6 +81,7 @@ export function createApp() {
   const apiCors = config.corsOrigins.length ? cors({ origin: config.corsOrigins, credentials: true }) : (_req, _res, next) => next();
   app.use('/api', apiCors);
   app.use('/api/public', publicRouter);
+  app.use('/api/livechat', livechatPublicRouter);                    // Live Chat pelanggan (token percakapan per pelanggan)
   app.use('/api/orders', ordersRouter);                              // checkout + status order (token pelanggan)
   app.use('/api/payments/klikqris/webhook', webhookRouter);
   app.use('/api/webhooks', webhooksRouter);                          // webhook status pengiriman email (Resend)          // callback server-ke-server dari KlikQRIS
@@ -107,6 +110,7 @@ export function createApp() {
   admin.use('/codes', codesRouter);
   admin.use('/integrations', integrationsRouter);
   admin.use('/notifications', notificationsRouter);
+  admin.use('/livechat', livechatAdminRouter);
   app.use('/api/admin', admin);
   app.use('/api', notFoundApi);
 
@@ -151,6 +155,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
 
   sweeper = setInterval(() => sweepAssets().catch((e) => console.error('[sweep]', e.message)), 3600_000);
   sweeper.unref();
+  startLivechatWorker();   // percakapan 24 jam: expire tepat waktu (server-side) + bersihkan riwayat lama
   startPaymentWorker();   // kedaluwarsa tepat waktu + cek status KlikQRIS bila webhook terlambat
   const actualPort = server.address().port;
   if (!quiet) console.log(`Marketplace  http://localhost:${actualPort}\nAdmin Web    http://localhost:${actualPort}/admin`);
@@ -166,6 +171,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
   const stop = async () => {
     clearInterval(sweeper);
     stopPaymentWorker();
+    stopLivechatWorker();
     await closeRealtime();
     if (server.listening) await new Promise((resolve) => server.close(resolve));
     await mongoose.disconnect();

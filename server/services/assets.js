@@ -5,7 +5,7 @@ import { sniff } from '../lib/sniff.js';
 import { HttpError } from '../lib/http.js';
 import { config } from '../config/env.js';
 
-export const FOLDERS = ['products', 'reviews', 'hero', 'branding'];
+export const FOLDERS = ['products', 'reviews', 'hero', 'branding', 'livechat'];
 
 const sameOwner = (a, b) => a?.type === b.type && a?.id === String(b.id);
 
@@ -86,6 +86,15 @@ export async function attach(owner, keys) {
   if (keys.length) await Asset.updateMany({ key: { $in: keys } }, { $set: { status: 'used', owner: ownerDoc } });
   const stale = await Asset.find({ 'owner.type': ownerDoc.type, 'owner.id': ownerDoc.id, key: { $nin: keys } });
   await destroyAssets(stale);
+}
+
+/**
+ * Tandai key terpakai oleh pemilik TANPA menghapus aset lain milik pemilik yang sama (beda dengan attach()).
+ * Dipakai Live Chat: gambar bertambah satu per pesan, jadi daftar milik percakapan terus tumbuh.
+ */
+export async function markUsed(owner, keys) {
+  if (!keys.length) return;
+  await Asset.updateMany({ key: { $in: keys } }, { $set: { status: 'used', owner: { type: owner.type, id: String(owner.id) } } });
 }
 
 /** Entitas dihapus: hapus semua aset miliknya. */

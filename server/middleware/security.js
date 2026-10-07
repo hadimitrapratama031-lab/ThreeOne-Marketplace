@@ -93,3 +93,17 @@ export const webhookLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 600,
   handler: (_req, res) => res.status(429).json({ ok: false, error: 'terlalu banyak permintaan' }),
 });
+
+// Live Chat (pelanggan, tanpa login): pembuatan percakapan ketat, kirim pesan cukup longgar untuk obrolan normal
+export const livechatCreateLimiter = rateLimit({
+  ...limiterOpts, windowMs: 10 * 60_000, limit: config.isProd ? 8 : 200,
+  handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak percakapan dibuat. Coba lagi beberapa menit lagi.')),
+});
+export const livechatSendLimiter = rateLimit({
+  ...limiterOpts, windowMs: 60_000, limit: config.isProd ? 40 : 600,
+  handler: (_req, _res, next) => next(new HttpError(429, 'Pesan terlalu cepat. Tunggu sebentar lalu kirim lagi.')),
+});
+export const livechatReadLimiter = rateLimit({
+  ...limiterOpts, windowMs: 60_000, limit: 240,
+  handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak permintaan. Coba lagi sebentar.')),
+});

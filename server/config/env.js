@@ -46,6 +46,8 @@ export const config = {
   corsOrigins: list(e.CORS_ORIGINS),
   trustProxy: e.TRUST_PROXY !== undefined ? (Number.isNaN(Number(e.TRUST_PROXY)) ? e.TRUST_PROXY : Number(e.TRUST_PROXY)) : (isProd ? 1 : false),
   seedDemo: bool(e.SEED_DEMO),
+  // Live Chat: berapa hari riwayat conversation EXPIRED disimpan (audit) sebelum pesan + gambar R2-nya dihapus. 0 = hapus segera.
+  livechat: { retentionDays: Number.isFinite(Number(e.LIVECHAT_RETENTION_DAYS)) && e.LIVECHAT_RETENTION_DAYS !== undefined && e.LIVECHAT_RETENTION_DAYS !== '' ? Math.max(0, Number(e.LIVECHAT_RETENTION_DAYS)) : 7 },
   // Tidak ada batas JUMLAH media produk (gambar maupun video): hanya ukuran per file. Galeri Steam bisa berisi puluhan screenshot + banyak trailer.
   limits: { imageBytes: 8 * 1024 * 1024, videoBytes: 30 * 1024 * 1024 },
 };

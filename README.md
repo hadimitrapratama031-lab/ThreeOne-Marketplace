@@ -88,6 +88,24 @@ Toast kecil di kiri bawah Marketplace (`/`) yang menampilkan order sukses terbar
 | Klien (`public/js/orderfeed.js`) | Antrean maksimal 5, terbaru di depan. Tampil 3 detik, hilang 1 detik, lalu order berikutnya; setelah yang terakhir kembali ke yang terbaru. Order baru masuk ke posisi pertama dan menjadi yang berikutnya tampil (notifikasi yang sedang tampil tidak disela). Dedup lewat `id`. Berhenti saat tab tersembunyi dan lanjut saat kembali. |
 | Indeks | `orders: { status: 1, 'payment.paidAt': -1 }`. |
 
+## Live Chat
+
+Floating Live Chat di Marketplace (kanan-bawah) + halaman **Live Chat** di Admin Web, seluruhnya memakai sistem yang sudah ada:
+MongoDB (sumber kebenaran), Socket.IO (namespace `/` untuk pelanggan, `/admin` untuk admin), Cloudflare R2 (gambar), Fonnte (WhatsApp admin).
+
+- **Pelanggan** mengisi nama (wajib) + WhatsApp (opsional, tidak pernah dikarang) -> percakapan baru dengan `conversationId` unik (`LC-XXXXXXXXXX`).
+  Akses dijaga token HMAC per percakapan (header `x-livechat-token`); `localStorage` hanya menyimpan penunjuk sesi dan selalu divalidasi ke server.
+- **Expired 24 jam**: `expiresAt = createdAt + 24 jam` (waktu server, tidak bergeser). Worker backend (5 detik) menandai `expired` lewat transisi atomic,
+  menyiarkan `livechat:expired` ke Marketplace + Admin, lalu menghapus pesan + gambar R2 setelah `LIVECHAT_RETENTION_DAYS` (default 7).
+  Setiap query juga memfilter `expiresAt > sekarang`, jadi percakapan lewat batas tidak pernah dilayani walau worker belum jalan.
+  Sengaja bukan TTL index: TTL menghapus diam-diam dan meninggalkan gambar yatim di R2.
+- **Anti dobel**: pesan idempoten lewat `(conversation, clientId)`; listener socket didaftarkan sekali, room di-join ulang di setiap `connect` dengan snapshot dari server;
+  suara admin dideduplikasi per id pesan (dan antar tab lewat Web Locks); WhatsApp admin di-claim atomic per pesan sebelum Fonnte dipanggil.
+- **Event Socket.IO**: `livechat:conversation:created|updated|expired`, `livechat:message:new`, `livechat:read`, `livechat:unread`, `livechat:status`, `livechat:expired`, `livechat:settings`.
+- **Admin**: Live Chat -> Percakapan (daftar, filter Aktif/Belum dibaca/Ditutup/Expired, balas, emoji, gambar, tutup/buka kembali) dan Pengaturan Live Chat.
+- **Endpoint**: pelanggan `/api/livechat/*`; admin `/api/admin/livechat/*` (login Admin Web wajib).
+- Gambar chat bisa dibuka lewat URL publik R2 yang tidak bisa ditebak (UUID), sama seperti foto ulasan.
+
 ## Struktur
 
 ```

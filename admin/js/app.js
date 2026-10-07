@@ -1,5 +1,6 @@
 import { $, $$, html, mount, icon, toast, toastError } from './ui.js';
 import { api, auth, onUnauthorized } from './api.js';
+import { chatCore } from './chatCore.js';
 
 /* Menu hanya berisi fitur yang benar-benar ada di Marketplace dan sudah berfungsi. */
 const ROUTES = [
@@ -10,6 +11,8 @@ const ROUTES = [
   { group: 'Penjualan', path: 'orders', title: 'Pesanan', icon: 'receipt', load: () => import('./pages/orders.js') },
   { group: 'Penjualan', path: 'codes', title: 'Laporan Code', icon: 'key', load: () => import('./pages/codes.js') },
   { group: 'Penjualan', path: 'payment', title: 'Pembayaran', icon: 'wallet', load: () => import('./pages/payment.js') },
+  { group: 'Live Chat', path: 'livechat', title: 'Percakapan', icon: 'chat', load: () => import('./pages/livechat.js') },
+  { group: 'Live Chat', path: 'livechat-settings', title: 'Pengaturan Live Chat', icon: 'sliders', load: () => import('./pages/livechat-settings.js') },
   { group: 'Integrasi', path: 'integrations', title: 'Email & WhatsApp', icon: 'plug', load: () => import('./pages/integrations.js') },
   { group: 'Integrasi', path: 'notifications', title: 'Log Notifikasi', icon: 'bell', load: () => import('./pages/notifications.js') },
   { group: 'Konten', path: 'hero', title: 'Hero', icon: 'layout', load: () => import('./pages/hero.js') },
@@ -31,6 +34,8 @@ const LIVE_EVENTS = [
   'order:update', 'payment-settings:update',
   'integrations:update', 'notification:log',
   'code:update', 'code:stats', 'code:refresh',
+  'livechat:conversation:created', 'livechat:conversation:updated', 'livechat:conversation:expired',
+  'livechat:message:new', 'livechat:read', 'livechat:unread', 'livechat:settings',
 ];
 
 const ctx = { admin: null, meta: null, online: 0, go: (path) => { location.hash = `#/${path}`; } };
@@ -59,6 +64,7 @@ function teardown() {
   navToken++;
   current?.instance?.destroy?.();
   current = null;
+  chatCore.setUnread(0);
   socket?.disconnect();   // socket lama dibuang beserta listener-nya -> login ulang tidak menumpuk listener
   socket = null;
   $('#view').replaceChildren();
@@ -73,6 +79,7 @@ async function showApp(admin) {
   show('shell');
   buildNav();
   connectSocket();
+  chatCore.init();   // badge unread Live Chat di sidebar + judul tab, di halaman admin mana pun
   await navigate();
 }
 
@@ -88,8 +95,9 @@ function buildNav() {
   mount($('#nav'), groups.map((g) => html`
     <div class="nav__group">
       ${g.label ? html`<span class="nav__label">${g.label}</span>` : ''}
-      ${g.items.map((r) => html`<a class="nav__link" href="#/${r.path}" data-route="${r.path}">${icon(r.icon)}<span>${r.title}</span></a>`)}
+      ${g.items.map((r) => html`<a class="nav__link" href="#/${r.path}" data-route="${r.path}">${icon(r.icon)}<span>${r.title}</span>${r.path === 'livechat' ? html`<b class="nav__badge" data-chat-badge hidden></b>` : ''}</a>`)}
     </div>`));
+  chatCore.paint();
   mount($('#open-store'), html`${icon('external')}<span>Buka Marketplace</span>`);
   mount($('#menu-btn'), icon('menu'));
   mount($('#menu-account'), html`${icon('user')}<span>Akun Admin</span>`);
@@ -105,7 +113,7 @@ async function navigate() {
   current?.instance?.destroy?.();
   current = null;
   $('#page-title').textContent = route.title;
-  document.title = `${route.title} — Admin Marketplace`;
+  chatCore.setTitle(`${route.title} — Admin Marketplace`);
   $$('.nav__link[data-route]').forEach((a) => (a.dataset.route === route.path ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
   closeSidebar();
 
@@ -141,7 +149,10 @@ function connectSocket() {
   setLive('connecting');
   let hadConnection = false;
   socket = io('/admin', { transports: ['websocket', 'polling'], reconnectionDelayMax: 8000 });
-  const dispatch = (event, payload) => current?.instance?.onLive?.(event, payload);
+  const dispatch = (event, payload) => {
+    if (event === 'resync' || event.startsWith('livechat:')) chatCore.onLive(event, payload);   // global: berlaku di semua halaman
+    current?.instance?.onLive?.(event, payload);
+  };
 
   LIVE_EVENTS.forEach((name) => socket.on(name, (payload) => dispatch(name, payload)));
   socket.on('presence:update', ({ online }) => { ctx.online = online; if (socket.connected) setLive('online'); dispatch('presence:update', { online }); });
