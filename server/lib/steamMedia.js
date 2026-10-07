@@ -146,21 +146,6 @@ export function orderGallery(list) {
 }
 
 /**
- * Poster video Steam: `thumbnail` di appdetails hanya 293x165 (terlalu kecil untuk panggung galeri).
- * Kembalikan kandidat yang lebih besar dengan pola nama file yang sama (movie.WxH.jpg), terbesar dulu.
- * Kandidat BELUM tentu ada: pemanggil wajib memverifikasinya (HEAD) dan jatuh kembali ke thumbnail asli.
- */
-export function posterUpgrades(thumbnail) {
-  const m = String(thumbnail || '').match(/^(.*\/movie)\.(\d+)x(\d+)\.jpg(\?.*)?$/i);
-  if (!m) return [];
-  const [, head, w, , query = ''] = m;
-  return [[600, 337]]
-    .filter(([cw]) => cw > Number(w))
-    .map(([cw, ch]) => steamUrl(`${head}.${cw}x${ch}.jpg${query}`))
-    .filter(Boolean);
-}
-
-/**
  * Validasi + normalisasi satu referensi media Steam yang dikirim klien (dipakai skema zod).
  * Mengembalikan objek bersih atau string pesan error. Host selain CDN Steam ditolak, jadi data Steam palsu/URL sembarang tidak bisa masuk.
  */

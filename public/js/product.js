@@ -69,13 +69,21 @@
   // Bila file gagal dimuat, elemen ini dibuang dan artwork di bawahnya tetap terlihat.
   // Video Steam membawa thumbnail resmi Steam (poster): dipakai langsung sebagai pratinjau, file video tidak dimuat sebelum diputar.
   const vframe = (m) => (m.poster
-    ? `<img class="pd-vframe" src="${esc(m.poster)}" alt="" loading="lazy" decoding="async" aria-hidden="true">`
+    ? `<img class="pd-vframe" src="${esc(m.poster)}"${m.src ? ` data-vsrc="${esc(m.src)}"` : ''} alt="" loading="lazy" decoding="async" aria-hidden="true">`
     : m.src ? `<video class="pd-vframe" src="${esc(m.src)}#t=0.5" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"></video>` : '');
 
   document.addEventListener('error', (e) => {
     const img = e.target;
     if (img.tagName === 'IMG' && img.dataset.seed && !img.closest('.card__media')) {
       img.outerHTML = art({ seed: +img.dataset.seed, alt: img.alt });
+    } else if (img.tagName === 'IMG' && img.classList.contains('pd-vframe') && img.dataset.vsrc) {
+      // Poster gagal dimuat: tampilkan frame pertama dari file videonya sendiri (bukan artwork kosong)
+      const v = document.createElement('video');
+      v.className = 'pd-vframe';
+      v.src = `${img.dataset.vsrc}#t=0.5`;
+      Object.assign(v, { muted: true, playsInline: true, preload: 'metadata', tabIndex: -1 });
+      v.setAttribute('aria-hidden', 'true');
+      img.replaceWith(v);
     } else if ((img.tagName === 'VIDEO' || img.tagName === 'IMG') && img.classList.contains('pd-vframe')) {
       img.remove();
     }

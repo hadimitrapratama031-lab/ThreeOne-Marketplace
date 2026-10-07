@@ -19,7 +19,7 @@ import { HttpError } from '../lib/http.js';
 import { config, r2Configured } from '../config/env.js';
 import { uploadAsset, destroyAssets } from './assets.js';
 import { aboutText, shortDescription, parsePcRequirements, parseGameInfo } from '../lib/steamParse.js';
-import { cdnUrl, steamUrl, screenshotItems, movieDrafts, derivedMovieUrls, posterUpgrades, toVideoItem } from '../lib/steamMedia.js';
+import { cdnUrl, steamUrl, screenshotItems, movieDrafts, derivedMovieUrls, toVideoItem } from '../lib/steamMedia.js';
 
 const STORE_API = 'https://store.steampowered.com/api/appdetails';
 const TTL_FOUND = 10 * 60_000;     // data lama tidak boleh permanen
@@ -217,17 +217,10 @@ async function resolveMovies(data) {
     // File "max" yang tidak dideklarasikan Steam dicari lewat movie ID (diverifikasi HEAD); yang tidak ada dibuang.
     const hasMax = d.progressive.some((s) => s.quality === 'max');
     const extra = !hasMax && d.id ? await verifiedDerived(d.id) : [];
-    const poster = await bestPoster(d.poster);
-    return toVideoItem({ ...d, poster }, extra);
+    return toVideoItem(d, extra);   // poster = thumbnail asli dari respons Steam (tanpa tebakan URL)
   });
   const videos = items.filter(Boolean);
   return { videos, skipped: drafts.length - videos.length };
-}
-
-/** Poster video: thumbnail Steam yang lebih besar bila CDN benar-benar punya (HEAD), kalau tidak thumbnail asli dari respons Steam. */
-async function bestPoster(thumbnail) {
-  for (const url of posterUpgrades(thumbnail)) if (await probe(url)) return url;
-  return thumbnail || '';
 }
 
 /** Cocokkan genre/kategori Steam dengan kategori toko yang sudah ada (nama sama, tanpa peduli huruf). Tidak pernah membuat kategori baru. */
