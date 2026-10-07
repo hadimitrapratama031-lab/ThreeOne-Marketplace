@@ -65,10 +65,16 @@
     ? `<img src="${esc(m.src)}" alt="${esc(m.alt)}"${lazy ? ' loading="lazy"' : ''}${high ? ' fetchpriority="high"' : ''} decoding="async" data-seed="${m.seed}">`
     : art(m);
 
+  // Pratinjau video: frame dari file video itu sendiri (bukan aset poster terpisah), tampil di atas artwork.
+  // Bila file gagal dimuat, elemen ini dibuang dan artwork di bawahnya tetap terlihat.
+  const vframe = (m) => (m.src ? `<video class="pd-vframe" src="${esc(m.src)}#t=0.5" muted playsinline preload="metadata" tabindex="-1" aria-hidden="true"></video>` : '');
+
   document.addEventListener('error', (e) => {
     const img = e.target;
     if (img.tagName === 'IMG' && img.dataset.seed && !img.closest('.card__media')) {
       img.outerHTML = art({ seed: +img.dataset.seed, alt: img.alt });
+    } else if (img.tagName === 'VIDEO' && img.classList.contains('pd-vframe')) {
+      img.remove();
     }
   }, true);
 
@@ -88,7 +94,7 @@
 
   function slideHTML(m) {
     if (m.type !== 'video') return pic(m, false, true);   // gambar utama: prioritas tertinggi
-    return art(m) + (m.src
+    return art(m) + vframe(m) + (m.src
       ? `<button class="pd-play" type="button" aria-label="Putar video">${PLAY}</button>`
       : '<p class="pd-note">Pratinjau video belum tersedia.</p>');
   }
@@ -229,7 +235,7 @@
     // Slide yang sama (mis. render ulang karena data lengkap tiba): pakai ulang node-nya agar gambar tidak berkedip
     const slideKey = `${items[current].type}|${items[current].src || ''}`;
     const prev = $('#pd-slide');
-    const keep = prev && prev.dataset.key === slideKey && !$('video', prev) ? [...prev.childNodes] : null;
+    const keep = prev && prev.dataset.key === slideKey && !$('video:not(.pd-vframe)', prev) ? [...prev.childNodes] : null;
     root.innerHTML = `
       <nav class="pd-crumb enter" aria-label="Breadcrumb" style="--d:.05s">
         <ol>
@@ -253,7 +259,7 @@
             ${items.map((m, i) => `
               <button class="pd-thumb${i === current ? ' on' : ''}" type="button" data-i="${i}"
                       aria-label="${m.type === 'video' ? 'Video produk' : 'Gambar ' + (i + 1)}"${i === current ? ' aria-current="true"' : ''}>
-                ${m.type === 'video' ? art(m) : pic(m, i > 0)}${m.type === 'video' ? `<span class="pd-thumb__play">${PLAY}</span>` : ''}
+                ${m.type === 'video' ? art(m) + vframe(m) : pic(m, i > 0)}${m.type === 'video' ? `<span class="pd-thumb__play">${PLAY}</span>` : ''}
               </button>`).join('')}
           </div>` : ''}
         </div>

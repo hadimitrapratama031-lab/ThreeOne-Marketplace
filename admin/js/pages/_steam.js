@@ -79,8 +79,8 @@ function askEdit({ fields, gallery }) {
           <fieldset class="merge-media">
             <legend>Galeri sudah berisi ${gallery} media</legend>
             <label><input type="radio" name="media" value="keep" checked><span>Biarkan galeri seperti sekarang</span></label>
-            <label><input type="radio" name="media" value="append"><span>Tambahkan media Steam di belakang <small>Gambar utama tidak berubah.</small></span></label>
-            <label><input type="radio" name="media" value="replace"><span>Ganti seluruh galeri dengan media Steam <small>File lama baru dilepas saat Anda menekan Simpan perubahan.</small></span></label>
+            <label><input type="radio" name="media" value="append"><span>Tambahkan media Steam di belakang <small>Gambar utama tidak berubah; trailer Steam yang sudah ada di galeri tidak digandakan.</small></span></label>
+            <label><input type="radio" name="media" value="replace"><span>Ganti gambar galeri dengan media Steam <small>Video yang sudah ada tetap dipertahankan. File gambar lama baru dilepas saat Anda menekan Simpan perubahan.</small></span></label>
           </fieldset>` : ''}
         <p class="muted">Hasil Steam masih bisa Anda ubah sebelum disimpan. Menutup dialog ini tidak mengubah apa pun.</p>`,
       foot: fields.length
@@ -267,7 +267,9 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing =
    *   fill    : Tambah produk / galeri kosong. File manual tidak disentuh dan tetap di belakang; hasil Steam sebelumnya diganti.
    *   keep    : (Ubah) galeri tidak disentuh sama sekali.
    *   append  : (Ubah) media Steam ditambahkan di belakang; urutan dan gambar utama yang ada tidak berubah.
-   *   replace : (Ubah) galeri diganti media Steam. Hanya bila ada gambar Steam yang berhasil disiapkan, supaya galeri tidak pernah dikosongkan.
+   *   replace : (Ubah) GAMBAR galeri diganti media Steam. Hanya bila ada gambar Steam yang berhasil disiapkan, supaya galeri tidak pernah dikosongkan.
+   *             Video yang sudah ada (manual, atau salinan Steam dari penyimpanan sebelumnya) TIDAK dihapus: Steam yang tidak menyediakan
+   *             trailer tidak boleh menghilangkan video admin, dan trailer Steam yang sama tidak digandakan (lihat loadVideos).
    *  Mengembalikan mode yang benar-benar dipakai. */
   function applyMedia(item, mode = 'fill') {
     const take = [...(item.image ? [item.image] : []), ...item.screenshots];
@@ -281,7 +283,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing =
       if (item.image) heroKey = item.image.key;
       if (fresh.length) media.set([...media.items(), ...fresh]);
     } else {
-      const manual = mode === 'replace' ? [] : media.items().filter((m) => !steamKeys.has(m.key));
+      const manual = media.items().filter((m) => !steamKeys.has(m.key) && (mode !== 'replace' || m.type === 'video'));
       steamKeys.clear(); heroKey = null;
       for (const m of take) steamKeys.add(m.key);
       if (item.image) heroKey = item.image.key;
@@ -298,9 +300,15 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing =
     videoLoading = true; view.videoMsg = ''; renderCard();
     for (let movie = 0; movie < total; movie++) {
       let res = null; let err = '';
-      try { res = await api.post(`/steam/${item.appId}/video`, { movie }); } catch (e) { err = e.message || ''; }
+      // `have`: video yang saat ini ada di galeri. Server mengenali salinan movie Steam yang sama (mis. produk sudah menyimpan trailer ini) dan tidak mengunduhnya lagi.
+      const have = media.items().filter((m) => m.type === 'video').map((m) => m.key);
+      try { res = await api.post(`/steam/${item.appId}/video`, { movie, have }); } catch (e) { err = e.message || ''; }
       if (mySeq !== seq) return;   // sudah ada pencarian baru: hasil ini dibuang (aset 'temp' dibersihkan sweeper)
-      if (res?.video) {
+      if (res?.duplicate) {
+        // Trailer ini sudah ada di galeri: dihitung tersedia, tidak ditambahkan lagi
+        if (res.existing && !view.videoKeys.includes(res.existing) && media.items().some((m) => m.key === res.existing)) view.videoKeys.push(res.existing);
+        view.videoLoaded++;
+      } else if (res?.video) {
         // Search ulang memakai aset 'temp' yang sama (key identik): jangan masukkan dua kali (server menolak key ganda)
         if (!media.items().some((m) => m.key === res.video.key)) media.set([...media.items(), res.video]);
         steamKeys.add(res.video.key);

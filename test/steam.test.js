@@ -275,3 +275,71 @@ test('produk: galeri TIDAK dibatasi jumlahnya di server (30 gambar + 3 video), k
   assert.equal(bad.status, 422);
   assert.ok(bad.body.error.details?.fields?.['gameInfo.metacritic'] ?? bad.body.error.fields?.['gameInfo.metacritic']);
 });
+
+/* ---------- Trailer berbentuk manifest (appdetails tanpa mp4/webm) ---------- */
+// Fixture: id & URL hanya contoh bentuk data. Stub CDN di atas menjawab path *480.mp4 dengan MP4 uji.
+const manifestMovie = (over = {}) => ({
+  id: 9101, name: 'Trailer Baru', highlight: true,
+  thumbnail: 'https://video.akamai.steamstatic.com/store_trailers/9101/movie.293x165.jpg?t=1',
+  hls_h264: 'https://video.akamai.steamstatic.com/store_trailers/9101/hls_264_master.m3u8?t=1',
+  dash_av1: 'https://video.akamai.steamstatic.com/store_trailers/9101/dash_av1.mpd?t=1',
+  ...over,
+});
+
+test('steam: trailer manifest-only -> file diambil lewat movie ID, tersimpan di produk, dan Search ulang tidak menggandakan video', async () => {
+  appdetails = data({ movies: [manifestMovie()] });
+  const it = (await a.get('/steam/7')).body.item;
+  assert.equal(it.video.available, true, 'dulu dianggap tidak punya video');
+  assert.equal(it.video.count, 1);
+  assert.ok(!it.warnings.some((w) => w.field === 'video'));
+
+  const v = await a.post('/steam/7/video', { movie: 0, have: [] });
+  assert.equal(v.status, 200, JSON.stringify(v.body));
+  assert.equal(v.body.video.type, 'video');
+  assert.equal(v.body.video.title, 'Trailer Baru');
+  assert.ok(t.inBucket(v.body.video.key));
+  const { Asset } = await import('../server/models/index.js');
+  assert.equal((await Asset.findOne({ key: v.body.video.key }).lean()).originalName, 'steam-7-movie-9101.mp4', 'nama aset memuat movie ID (dasar pengenalan duplikat)');
+
+  const cat = (await a.post('/categories', { name: 'Manifest' })).body.item;
+  const saved = await a.post('/products', { name: it.name, category: cat.id, price: 1000, stock: 1, media: [{ key: it.image.key }, { key: v.body.video.key }] });
+  assert.equal(saved.status, 201, JSON.stringify(saved.body));
+  assert.deepEqual(saved.body.item.media.map((m) => m.type), ['image', 'video']);
+
+  // Buka Edit lagi -> Search ulang: video Steam yang sama sudah ada di galeri, tidak diunduh dan tidak digandakan
+  const edit = (await a.get(`/products/${saved.body.item.id}`)).body.item;
+  const have = edit.media.filter((m) => m.type === 'video').map((m) => m.key);
+  assert.deepEqual(have, [v.body.video.key], 'video tetap ada setelah dibuka kembali');
+  const before = await Asset.countDocuments({ kind: 'video' });
+  const dup = await a.post('/steam/7/video', { movie: 0, have });
+  assert.equal(dup.status, 200);
+  assert.equal(dup.body.video, null);
+  assert.equal(dup.body.duplicate, true);
+  assert.equal(dup.body.existing, v.body.video.key);
+  assert.equal(await Asset.countDocuments({ kind: 'video' }), before, 'tidak ada aset video baru');
+
+  // Key yang bukan salinan movie ini (atau `have` yang bentuknya salah) tidak menghalangi unduhan, dan tidak membuat error
+  for (const bogus of [['products/2099/01/not-a-steam-copy.mp4'], 'abc', { x: 1 }, [null, 5], undefined]) {
+    const r = await a.post('/steam/7/video', { movie: 0, have: bogus });
+    assert.equal(r.status, 200, JSON.stringify(bogus));
+    assert.ok(r.body.video, `diunduh walau have=${JSON.stringify(bogus)}`);
+    assert.notEqual(r.body.video.key, v.body.video.key);
+  }
+});
+
+test('steam: trailer manifest-only yang file MP4/WebM-nya tidak ada di CDN -> 200 dengan pesan jelas (bukan error), screenshot tetap masuk', async () => {
+  const movie = manifestMovie({ id: 9102, name: 'Hanya Stream' });
+  appdetails = data({ movies: [movie] });
+  const { movieCandidates } = await import('../server/services/steam.js');
+  for (const s of movieCandidates({ movies: [movie] })[0].sources) failUrls.add(s.url.split('?')[0]);
+
+  const r = await a.post('/steam/7/video', { movie: 0 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.video, null);
+  assert.match(r.body.message, /Video tidak tersedia, silakan upload manual/);
+  assert.match(r.body.message, /HLS\/DASH/);
+
+  const it = (await a.get('/steam/7')).body.item;
+  assert.ok(it.image, 'gambar utama tetap masuk');
+  assert.equal(it.screenshots.length, 8, 'screenshot tetap masuk');
+});

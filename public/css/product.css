@@ -126,6 +126,21 @@
   background: #000;
 }
 
+/* Frame pratinjau trailer (tampil di atas artwork, di bawah tombol putar). Tidak menangkap klik: tombol putar/thumbnail tetap yang bekerja. */
+.pd-vframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  pointer-events: none;
+}
+
+.pd-thumb .pd-vframe {
+  object-fit: cover;
+}
+
 .pd-play {
   position: absolute;
   left: 50%;
