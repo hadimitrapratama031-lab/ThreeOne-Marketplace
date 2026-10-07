@@ -19,7 +19,7 @@ import { HttpError } from '../lib/http.js';
 import { config, r2Configured } from '../config/env.js';
 import { uploadAsset, destroyAssets } from './assets.js';
 import { aboutText, shortDescription, parsePcRequirements, parseGameInfo } from '../lib/steamParse.js';
-import { cdnUrl, screenshotItems, movieDrafts, derivedMovieUrls, toVideoItem } from '../lib/steamMedia.js';
+import { cdnUrl, steamUrl, screenshotItems, movieDrafts, derivedMovieUrls, posterUpgrades, toVideoItem } from '../lib/steamMedia.js';
 
 const STORE_API = 'https://store.steampowered.com/api/appdetails';
 const TTL_FOUND = 10 * 60_000;     // data lama tidak boleh permanen
@@ -142,9 +142,16 @@ async function stage(srcUrl, { kind, maxBytes, timeoutMs, name }) {
 
 /* ---------- Media Steam (referensi eksternal) ---------- */
 
-// capsule_imagev5 (616x353, hampir 16:9) lebih tajam & pas di galeri daripada header_image (460x215); header_image jadi cadangan.
 // Gambar utama = SATU-SATUNYA media Steam yang masih disalin ke R2 (sistem lama, lihat header file).
-const heroCandidates = (d) => [d.capsule_imagev5, d.header_image, d.capsule_image].filter((u) => typeof u === 'string' && cdnUrl(u));
+// Di appdetails, capsule_imagev5 = capsule_184x69 dan capsule_image = capsule_231x87: thumbnail kecil, BUKAN gambar galeri.
+// Urutan kandidat dari resolusi asli terbesar: capsule_616x353 (di folder aset yang sama dengan header_image; tidak ada di semua game,
+// jadi bila gagal diunduh dicoba berikutnya) -> header_image (460x215) -> capsule kecil hanya sebagai jalan terakhir.
+const heroCandidates = (d) => {
+  const header = typeof d.header_image === 'string' ? steamUrl(d.header_image) : null;
+  const large = header ? header.replace(/[^/?]+(\?.*)?$/, 'capsule_616x353.jpg') : null;
+  const out = [large, header, d.capsule_imagev5, d.capsule_image].filter((u) => typeof u === 'string' && cdnUrl(u));
+  return [...new Set(out)];
+};
 
 /** Jalankan fn untuk tiap item dengan paralelisme terbatas; hasil berurutan sesuai input. fn tidak boleh melempar. */
 async function mapLimit(items, limit, fn) {
@@ -207,11 +214,20 @@ async function verifiedDerived(id) {
 async function resolveMovies(data) {
   const drafts = movieDrafts(data);
   const items = await mapLimit(drafts, 4, async (d) => {
-    const extra = !d.progressive.length && d.id ? await verifiedDerived(d.id) : [];
-    return toVideoItem(d, extra);
+    // File "max" yang tidak dideklarasikan Steam dicari lewat movie ID (diverifikasi HEAD); yang tidak ada dibuang.
+    const hasMax = d.progressive.some((s) => s.quality === 'max');
+    const extra = !hasMax && d.id ? await verifiedDerived(d.id) : [];
+    const poster = await bestPoster(d.poster);
+    return toVideoItem({ ...d, poster }, extra);
   });
   const videos = items.filter(Boolean);
   return { videos, skipped: drafts.length - videos.length };
+}
+
+/** Poster video: thumbnail Steam yang lebih besar bila CDN benar-benar punya (HEAD), kalau tidak thumbnail asli dari respons Steam. */
+async function bestPoster(thumbnail) {
+  for (const url of posterUpgrades(thumbnail)) if (await probe(url)) return url;
+  return thumbnail || '';
 }
 
 /** Cocokkan genre/kategori Steam dengan kategori toko yang sudah ada (nama sama, tanpa peduli huruf). Tidak pernah membuat kategori baru. */

@@ -81,6 +81,22 @@
     }
   }, true);
 
+  // Panggung & thumbnail berrasio tetap 16:9, jadi layout tidak bergeser apa pun ukuran medianya.
+  // Gambar yang rasionya mendekati 16:9 (selisih <= 8%) diisi penuh (cover, pemotongan tipis). Rasio lain (header Steam 2,1:1,
+  // banner sangat lebar, gambar portrait) tampil UTUH (contain) di atas salinan gambar yang sama yang diburamkan, tanpa bar kosong dan tanpa gepeng.
+  const FIT_RATIO = 16 / 9;
+  const FIT_TOLERANCE = 0.08;
+  document.addEventListener('load', (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !img.naturalWidth || !img.naturalHeight || !img.closest('.pd-slide, .pd-thumb')) return;
+    img.dataset.fit = Math.abs(img.naturalWidth / img.naturalHeight / FIT_RATIO - 1) <= FIT_TOLERANCE ? 'cover' : 'contain';
+  }, true);
+  // Sumber latar buram: gambar itu sendiri, atau poster untuk video. Dipasang sebagai custom property pada wadah.
+  const backdrop = (m) => {
+    const src = m && (m.type === 'video' ? m.poster : m.src);
+    return src && /^https?:\/\//i.test(src) ? `--bd:url('${encodeURI(src).replace(/'/g, '%27')}')` : '';
+  };
+
   // Source video Steam (MP4/WebM/HLS) -> [{ url, type }] untuk <source>; browser memilih yang bisa diputar. Video upload manual: kosong (pakai src).
   const VIDEO_MIME = { mp4: 'video/mp4', webm: 'video/webm', hls: 'application/vnd.apple.mpegurl' };
   const VIDEO_RANK = { mp4: 0, webm: 1, hls: 2 };
@@ -259,7 +275,7 @@
       <div class="pd-top">
         <div class="pd-media enter" style="--d:.15s">
           <div class="pd-stage" id="pd-stage" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Galeri ${esc(p.name)}">
-            <div class="pd-slide" id="pd-slide" data-key="${esc(slideKey)}">${slideHTML(items[current])}</div>
+            <div class="pd-slide" id="pd-slide" data-key="${esc(slideKey)}" style="${esc(backdrop(items[current]))}">${slideHTML(items[current])}</div>
             ${items.length > 1 ? `
             <button class="pd-nav pd-nav--prev" id="pd-prev" type="button" aria-label="Media sebelumnya">${I.prev}</button>
             <button class="pd-nav pd-nav--next" id="pd-next" type="button" aria-label="Media berikutnya">${I.next}</button>
@@ -269,7 +285,7 @@
           <div class="pd-thumbs" id="pd-thumbs">
             ${items.map((m, i) => `
               <button class="pd-thumb${i === current ? ' on' : ''}" type="button" data-i="${i}"
-                      aria-label="${m.type === 'video' ? 'Video produk' : 'Gambar ' + (i + 1)}"${i === current ? ' aria-current="true"' : ''}>
+                      aria-label="${m.type === 'video' ? 'Video produk' : 'Gambar ' + (i + 1)}"${i === current ? ' aria-current="true"' : ''} style="${esc(backdrop(m))}">
                 ${m.type === 'video' ? art(m) + vframe(m) : pic(m, i > 0)}${m.type === 'video' ? `<span class="pd-thumb__play">${PLAY}</span>` : ''}
               </button>`).join('')}
           </div>` : ''}
@@ -409,6 +425,7 @@
     slide.classList.add('is-out');
     slideTimer = setTimeout(() => {
       slide.innerHTML = slideHTML(items[current]);
+      slide.style.cssText = backdrop(items[current]);
       slide.dataset.key = `${items[current].type}|${items[current].src || ''}`;
       slide.classList.remove('is-out');
     }, prefersReducedMotion ? 0 : 200);

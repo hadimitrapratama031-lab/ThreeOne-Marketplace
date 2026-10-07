@@ -127,6 +127,40 @@ export function toVideoItem(draft, verifiedDerived = []) {
 }
 
 /**
+ * Urutan media Steam yang berlaku di SEMUA tempat (Tambah, Ubah, Product Detail, thumbnail):
+ *   gambar utama -> video/trailer -> screenshot lainnya.
+ * Hanya item bersumber Steam yang disusun ulang, dan hanya di dalam "slot" yang sudah ditempati item Steam.
+ * Posisi media upload manual Admin tidak bergeser; urutan relatif sesama video / sesama screenshot dipertahankan.
+ * Data lama (video di belakang screenshot) otomatis terbaca benar tanpa migrasi. Fungsi murni, tidak mengubah input.
+ */
+export function orderGallery(list) {
+  const items = Array.from(list || []);
+  const slots = [];
+  items.forEach((m, i) => { if (m?.source === 'steam') slots.push(i); });
+  if (slots.length < 2) return items;
+  const steam = slots.map((i) => items[i]);
+  const sorted = [...steam.filter((m) => m.type === 'video'), ...steam.filter((m) => m.type !== 'video')];
+  const out = [...items];
+  slots.forEach((at, k) => { out[at] = sorted[k]; });
+  return out;
+}
+
+/**
+ * Poster video Steam: `thumbnail` di appdetails hanya 293x165 (terlalu kecil untuk panggung galeri).
+ * Kembalikan kandidat yang lebih besar dengan pola nama file yang sama (movie.WxH.jpg), terbesar dulu.
+ * Kandidat BELUM tentu ada: pemanggil wajib memverifikasinya (HEAD) dan jatuh kembali ke thumbnail asli.
+ */
+export function posterUpgrades(thumbnail) {
+  const m = String(thumbnail || '').match(/^(.*\/movie)\.(\d+)x(\d+)\.jpg(\?.*)?$/i);
+  if (!m) return [];
+  const [, head, w, , query = ''] = m;
+  return [[600, 337]]
+    .filter(([cw]) => cw > Number(w))
+    .map(([cw, ch]) => steamUrl(`${head}.${cw}x${ch}.jpg${query}`))
+    .filter(Boolean);
+}
+
+/**
  * Validasi + normalisasi satu referensi media Steam yang dikirim klien (dipakai skema zod).
  * Mengembalikan objek bersih atau string pesan error. Host selain CDN Steam ditolak, jadi data Steam palsu/URL sembarang tidak bisa masuk.
  */

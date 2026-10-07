@@ -4,7 +4,7 @@
  *   - media Steam     { source:'steam', url...} -> REFERENSI URL asli Steam; tidak ada aset, tidak ada R2, tidak ada batas MB
  */
 import * as assets from './assets.js';
-import { urlKey } from '../lib/steamMedia.js';
+import { urlKey, orderGallery } from '../lib/steamMedia.js';
 
 /** Identitas satu item galeri (dipakai membandingkan hasil simpan): key R2 untuk upload, URL untuk Steam. */
 export const mediaIdent = (m) => (m.source === 'steam' ? `steam:${urlKey(m.url)}` : m.key);
@@ -34,5 +34,5 @@ export async function resolveProductMedia(refs, ownerRef) {
       media.push({ type: a.kind, source: 'upload', key: a.key, url: a.url });
     }
   }
-  return { media, keys };
+  return { media: orderGallery(media), keys };   // urutan Steam: gambar utama -> video -> screenshot (upload manual tidak bergeser)
 }

@@ -1,6 +1,7 @@
 import { CONTACT_ICONS } from '../models/index.js';
 import { config } from '../config/env.js';
 import { publicUrl } from './r2.js';
+import { orderGallery } from './steamMedia.js';
 
 // URL selalu dibentuk dari key + R2_PUBLIC_URL saat ini, jadi pindah ke custom domain tidak merusak data lama
 const mediaUrl = (m) => (config.r2.publicUrl && m.key && m.source !== 'steam' ? publicUrl(m.key) : m.url);
@@ -52,7 +53,7 @@ export function pubProductDetail(p, catName, sold = 0) {
     discount: hasOld ? Math.round((1 - p.price / p.oldPrice) * 100) : 0,
     about: String(p.about || '').split(/\n{2,}/).map((s) => s.trim()).filter(Boolean),
     specs: { min: p.specs?.min || [], rec: p.specs?.rec || [], source: p.specs?.source || '' },
-    media: (p.media || []).map((m) => ({ type: m.type, url: mediaUrl(m), ...steamExtra(m) })),
+    media: orderGallery(p.media).map((m) => ({ type: m.type, url: mediaUrl(m), ...steamExtra(m) })),   // data lama (video di belakang) ikut terbaca benar
   };
 }
 
@@ -107,7 +108,7 @@ export function admProduct(p, cat, sold = null) {
       genres: p.gameInfo?.genres ? [...p.gameInfo.genres] : [],
       metacritic: p.gameInfo?.metacritic ?? null,
     },
-    media: (p.media || []).map((m) => ({ type: m.type, key: m.key || null, url: mediaUrl(m), ...steamExtra(m) })),
+    media: orderGallery(p.media).map((m) => ({ type: m.type, key: m.key || null, url: mediaUrl(m), ...steamExtra(m) })),
     createdAt: iso(p.createdAt),
     updatedAt: iso(p.updatedAt),
   };

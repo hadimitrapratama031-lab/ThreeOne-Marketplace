@@ -23,6 +23,18 @@ const MEDIA_FIELDS = new Set(['image', 'screenshots', 'video', 'videoSkipped']);
 const isSteam = (m) => m.source === 'steam';
 const base = (u) => String(u || '').split('?')[0];            // `?t=` berubah tiap Steam memperbarui aset; path tetap
 const sameSteam = (a, b) => isSteam(a) && a.type === b.type && (a.type === 'video' && a.ref && b.ref ? a.ref === b.ref : base(a.url) === base(b.url));
+/** Urutan media Steam: gambar utama -> video -> screenshot. Hanya item Steam yang disusun ulang, di dalam slot yang sudah mereka tempati
+ *  (media upload manual tidak bergeser). Sama persis dengan orderGallery() di server/lib/steamMedia.js, jadi Tambah, Ubah, dan data lama konsisten. */
+function arrangeSteam(list) {
+  const slots = [];
+  list.forEach((m, i) => { if (isSteam(m)) slots.push(i); });
+  if (slots.length < 2) return list;
+  const steam = slots.map((i) => list[i]);
+  const sorted = [...steam.filter((m) => m.type === 'video'), ...steam.filter((m) => m.type !== 'video')];
+  const out = [...list];
+  slots.forEach((at, k) => { out[at] = sorted[k]; });
+  return out;
+}
 const MIME = { mp4: 'video/mp4', webm: 'video/webm', hls: 'application/vnd.apple.mpegurl' };
 
 // Kolom teks yang diisi dari Steam: [nama input, label untuk dialog timpa, nilai dari hasil Search]
@@ -203,10 +215,10 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing =
           </ul>
           ${notes.length ? html`<ul class="steam-notes">${notes.map((m) => html`<li>${m}</li>`)}</ul>` : ''}
         </div>
-        ${shots.length ? html`<ul class="steam-card__shots" aria-label="Screenshot dari Steam">${shots.map((m, i) => html`<li><img src="${m.url}" alt="Screenshot ${i + 1}" loading="lazy"></li>`)}</ul>` : ''}
         ${vids.length ? html`<div class="steam-card__video">
           ${vids.map((v, i) => html`<video controls preload="none" ${v.poster ? html`poster="${v.poster}"` : ''} aria-label="Pratinjau video Steam ${i + 1}">${sourceTags(v)}</video>`)}
         </div>` : ''}
+        ${shots.length ? html`<ul class="steam-card__shots" aria-label="Screenshot dari Steam">${shots.map((m, i) => html`<li><img src="${m.url}" alt="Screenshot ${i + 1}" loading="lazy"></li>`)}</ul>` : ''}
       </div>`);
   }
 
@@ -261,7 +273,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing =
   }
 
   /** Media Steam masuk galeri sebagai REFERENSI URL asli Steam (tanpa unduh, tanpa R2). Hanya gambar utama yang berupa aset R2 'temp'.
-   *  Gambar utama (bila ada) = urutan pertama, lalu SEMUA screenshot, lalu SEMUA video, sesuai urutan Steam.
+   *  Urutan: gambar utama (bila ada) -> SEMUA video/trailer -> SEMUA screenshot, sesuai urutan Steam di dalam tiap kelompok.
    *  Mode:
    *   fill    : Tambah produk / galeri kosong. Media upload manual tidak disentuh dan tetap di belakang; hasil Search sebelumnya diganti.
    *   keep    : (Ubah) galeri tidak disentuh sama sekali.
@@ -271,7 +283,7 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing =
    *             supaya galeri tidak pernah dikosongkan.
    *  Mengembalikan mode yang benar-benar dipakai. */
   function applyMedia(item, mode = 'fill') {
-    const fresh = [...item.screenshots, ...item.videos];
+    const fresh = [...item.videos, ...item.screenshots];   // video/trailer SEBELUM screenshot
     if (mode === 'replace' && !fresh.length) mode = 'append';
     if (mode === 'keep') return 'keep';
     const current = media.items();
@@ -282,16 +294,16 @@ export function initSteam(f, { media, setSpecRows, readSpecs, onCount, editing =
         const at = next.findIndex((x) => sameSteam(x, m));
         if (at >= 0) next[at] = m; else next.push(m);
       }
-      media.set(next);
+      media.set(arrangeSteam(next));   // media Steam lama (urutan lama: video di belakang) ikut dirapikan
     } else if (mode === 'replace') {
       const kept = current.filter((m) => !isSteam(m));
       const needHero = item.image && !kept.some((m) => m.type === 'image');   // tidak ada gambar manual: gambar utama Steam jadi yang pertama
       if (needHero) heroKey = item.image.key;
-      media.set([...(needHero ? [item.image] : []), ...kept, ...fresh]);
+      media.set(arrangeSteam([...(needHero ? [item.image] : []), ...kept, ...fresh]));
     } else {
       const manual = current.filter((m) => !isSteam(m) && !(m.key && m.key === heroKey));   // hasil Search sebelumnya (hero R2 + media Steam) diganti
       heroKey = item.image ? item.image.key : null;
-      media.set([...(item.image ? [item.image] : []), ...fresh, ...manual]);
+      media.set(arrangeSteam([...(item.image ? [item.image] : []), ...fresh, ...manual]));
     }
     if (media.items().some(isSteam) || heroKey) mark('media'); else unmark(labelOf.media());
     return mode;
