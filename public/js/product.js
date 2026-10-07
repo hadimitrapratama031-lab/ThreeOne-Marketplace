@@ -88,12 +88,12 @@
   const FIT_TOLERANCE = 0.08;
   document.addEventListener('load', (e) => {
     const img = e.target;
-    if (!(img instanceof HTMLImageElement) || !img.naturalWidth || !img.naturalHeight || !img.closest('.pd-slide, .pd-thumb')) return;
+    if (!(img instanceof HTMLImageElement) || !img.naturalWidth || !img.naturalHeight || img.classList.contains('pd-vframe') || !img.closest('.pd-slide, .pd-thumb')) return;
     img.dataset.fit = Math.abs(img.naturalWidth / img.naturalHeight / FIT_RATIO - 1) <= FIT_TOLERANCE ? 'cover' : 'contain';
   }, true);
-  // Sumber latar buram: gambar itu sendiri, atau poster untuk video. Dipasang sebagai custom property pada wadah.
+  // Sumber latar buram: hanya untuk GAMBAR. Video (poster/pratinjau) tidak diberi blur; tampilannya tetap seperti semula.
   const backdrop = (m) => {
-    const src = m && (m.type === 'video' ? m.poster : m.src);
+    const src = m && m.type !== 'video' ? m.src : '';
     return src && /^https?:\/\//i.test(src) ? `--bd:url('${encodeURI(src).replace(/'/g, '%27')}')` : '';
   };
 

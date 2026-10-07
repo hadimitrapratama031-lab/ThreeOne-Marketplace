@@ -157,12 +157,11 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: transparent;
+  background: #000;
   pointer-events: none;
 }
 
-.pd-vframe[data-fit="cover"],
-.pd-thumb video.pd-vframe {
+.pd-thumb .pd-vframe {
   object-fit: cover;
 }
 
