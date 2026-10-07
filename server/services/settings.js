@@ -34,8 +34,8 @@ const MEDIA_FOLDERS = { branding: ['branding'], hero: ['hero'] };
 const BRANDING_MEDIA = {
   logo: { label: 'Store logo', mimes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'] },
   footerLogo: { label: 'Footer logo', mimes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'] },
-  // Favicon: ICO + format gambar yang didukung semua browser (AVIF dan SVG sengaja tidak dipakai), maks. 1 MB
-  favicon: { label: 'Favicon', mimes: ['image/png', 'image/x-icon', 'image/webp', 'image/jpeg', 'image/gif'], maxBytes: 1048576 },
+  // Favicon: ICO + format gambar yang didukung semua browser (AVIF dan SVG sengaja tidak dipakai), maks. 5 MB
+  favicon: { label: 'Favicon', mimes: ['image/png', 'image/x-icon', 'image/webp', 'image/jpeg', 'image/gif'], maxBytes: 5 * 1048576 },
 };
 const BRANDING_FIELDS = Object.keys(BRANDING_MEDIA);
 const mediaRef = (m) => (m?.key ? { key: m.key, url: publicUrl(m.key) } : null);

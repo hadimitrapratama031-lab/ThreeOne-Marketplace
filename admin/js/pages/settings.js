@@ -64,7 +64,7 @@ export default {
 
         ${mediaCard({ card: 'footerLogo', field: 'footerLogo', title: 'Footer logo', desc: 'Logo di footer', hint: 'Tampil di footer semua halaman. Kosong = footer memakai Store logo. Tinggi ditampilkan 26 px.' })}
 
-        ${mediaCard({ card: 'favicon', field: 'favicon', title: 'Favicon', desc: 'Ikon tab browser', tile: 120, hint: 'PNG atau ICO persegi, minimal 32 × 32 px (disarankan 48 × 48 atau lebih). Maksimal 1 MB. Format lain yang bisa: WebP, JPG, GIF. SVG tidak didukung.' })}
+        ${mediaCard({ card: 'favicon', field: 'favicon', title: 'Favicon', desc: 'Ikon tab browser', tile: 120, hint: 'PNG atau ICO persegi, minimal 32 × 32 px (disarankan 48 × 48 atau lebih). Maksimal 5 MB. Format lain yang bisa: WebP, JPG, GIF. SVG tidak didukung.' })}
 
         <section class="card" id="contact-icons">
           <div class="card__head"><h3>Ikon kontak</h3></div>
@@ -143,7 +143,7 @@ export default {
         max: 1, folder: 'branding', limits: ctx.meta.limits, replace: true,
         accept: isIco ? FAVICON_MIMES : IMG_MIMES,
         formats: isIco ? 'PNG, ICO, WebP, JPG, atau GIF' : IMG_FORMATS,
-        maxMB: isIco ? 1 : null,
+        maxMB: isIco ? 5 : null,
         addLabel: isIco ? 'Unggah favicon' : 'Unggah logo',
         initial: s.branding[field] ? [{ ...s.branding[field], type: 'image' }] : [],
         onChange: () => { fieldErrors(form, {}); setState(form, 'Perubahan belum disimpan', true); },
