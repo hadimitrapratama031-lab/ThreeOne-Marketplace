@@ -49,6 +49,9 @@ const productSchema = new Schema({
   oldPrice: { ...int, default: null, min: 0 },
   stock: { ...int, required: true, min: 0, default: 0 },
   sold: { ...int, min: 0, default: 0 },
+  // Penyesuaian "Terjual" HANYA dari migrasi project lama: angka terjual lama dikurangi jumlah pesanan SUCCESS yang ikut diimpor
+  // (di project lama sold naik sebesar quantity, di sini satu pesanan = satu terjual). Dipakai services/sales.js; 0 = tidak ada penyesuaian.
+  soldAdjust: { ...int, default: 0 },
   active: { type: Boolean, default: true },
   // 'code' = Sistem Code: stok = jumlah RedeemCode berstatus available (dijaga services/codes.js), bukan angka manual.
   kind: { type: String, enum: ['normal', 'code'], default: 'normal' },

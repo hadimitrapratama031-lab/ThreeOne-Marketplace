@@ -10,17 +10,37 @@ mongodump --uri="$MONGODB_URI" --out=backup-sebelum-reset
 npm run reset:data                 # hanya laporan
 npm run reset:data -- --apply      # hapus (ketik nama database untuk konfirmasi)
 
-# 2) Migrasi dari database lama (dry-run dulu)
-OLD_MONGODB_URI="mongodb+srv://user:pass@host/NAMA_DB_LAMA" npm run migrate:old
-OLD_MONGODB_URI="…" npm run migrate:old -- --apply
+# 2) Migrasi dari project lama (dry-run dulu)
+npm run migrate:old                # hanya laporan (juga memeriksa gambar lama ada)
+npm run migrate:old -- --apply     # tulis ke MongoDB + R2 baru
 ```
 
-Reset menghapus produk, kategori, rating, pesanan, log notifikasi, penghitung ID, dan semua gambar terdaftar.
-Akun admin, pengaturan (pembayaran/Resend/Fonnte/branding/hero) beserta logo/cover, FAQ, dan kontak dipertahankan.
+## Isi .env untuk migrasi (sumber LAMA)
+
+```
+OLD_MONGODB_URI=mongodb+srv://user:pass@host/?appName=...
+OLD_MONGODB_DB=test                      # project lama yang URI-nya tanpa nama database memakai "test"
+OLD_R2_ACCOUNT_ID=...                    # salin dari R2_* di .env project lama
+OLD_R2_ACCESS_KEY_ID=...
+OLD_R2_SECRET_ACCESS_KEY=...
+OLD_R2_BUCKET_NAME=...
+OLD_R2_PUBLIC_URL=...                    # opsional (cadangan unduh lewat URL)
+```
+`MONGODB_URI` dan `R2_*` biasa = tujuan BARU. Tanpa `OLD_R2_*`, gambar diunduh lewat URL publik lama (lebih lambat).
+
+## Reset
+
+Menghapus produk, kategori, rating, pesanan, log notifikasi, penghitung ID, dan semua gambar terdaftar.
+Akun admin, pengaturan, FAQ, dan kontak dipertahankan.
 Opsi: `--include-content`, `--include-settings`, `--include-admins`, `--keep-images`, `--yes=<nama-db>`.
 
-Migrasi: kategori, produk (nama, harga, stok, terjual, status), pesanan + data pembeli (termasuk pesanan dari produk yang sudah dihapus di sistem lama), rating (termasuk yang tanpa produk, jadi ulasan umum). Deskripsi/gambar produk tidak diambil dari project lama.
-Opsi: `--skip-orders`, `--skip-reviews`, `--verbose`. Aman dijalankan berulang.
+## Migrasi
 
-Pesanan lama yang sudah terlanjur diimpor dengan status salah (mis. selesai tapi tercatat EXPIRED) ikut diperbaiki saat migrasi dijalankan ulang dengan `--apply`.
-Laporan migrasi menampilkan jumlah pesanan lama, rincian status lama → status baru, dan pesanan yang dilewati beserta alasannya. Angka "Pesanan Selesai" di Marketplace = jumlah pesanan berstatus SUCCESS.
+- **Kategori**: nama, urutan, aktif/nonaktif.
+- **Produk**: nama, harga, stok, status, kategori, deskripsi singkat + "Tentang produk", dan **semua gambar** (utama + tambahan) disalin dari R2 lama ke R2 baru.
+- **Pesanan**: hanya yang **sukses**, beserta data pembeli. Tidak mengubah stok, tidak mengirim notifikasi. (`--all-orders` = semua status.)
+- **Terjual per produk**: sama dengan project lama. Project baru menghitung Terjual dari jumlah pesanan sukses, jadi selisihnya disimpan di `Product.soldAdjust`.
+- **Rating**: semua; approved → tayang, hidden/pending → tersembunyi.
+
+Opsi: `--apply`, `--verbose`, `--skip-orders`, `--skip-reviews`, `--skip-images`, `--old-uri=…`, `--old-db=…`.
+Aman dijalankan berulang (tidak ada data atau gambar dobel). Produk bernama sama hanya diperbarui harga/stok/status/kategori; deskripsi diisi bila kosong; gambar tidak menimpa gambar yang sudah diatur manual.

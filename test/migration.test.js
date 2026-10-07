@@ -4,15 +4,18 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import mongoose from 'mongoose';
-import { boot } from './helpers/boot.js';
+import { boot, PNG } from './helpers/boot.js';
+import { startS3Mock } from './helpers/s3mock.js';
 
 const run = promisify(execFile);
-let t; let a; let oldUri; let oldConn; let newName;
+let oldS3; let t; let a; let oldUri; let oldConn; let newName;
 const OID = () => new mongoose.Types.ObjectId();
 const node = (script, args = [], env = {}) => run('node', [script, ...args], { env: { ...process.env, ...env }, cwd: process.cwd() }).then((r) => r.stdout, (e) => { throw new Error(`${script} gagal: ${e.stdout}\n${e.stderr}`); });
 
 before(async () => {
   t = await boot();
+  oldS3 = await startS3Mock();   // R2 LAMA tiruan (bucket "oldbkt")
+  for (const k of ['products/111-aaa.png', 'products/222-bbb.png']) oldS3.store.set(`oldbkt/${k}`, { body: PNG, type: 'image/png' });
   a = await t.admin();
   newName = t.name;
   const base = process.env.TEST_MONGODB_URI || 'mongodb://127.0.0.1:27017';
@@ -22,7 +25,7 @@ before(async () => {
   const d = oldConn.db;
   await d.collection('categories').insertMany([{ _id: cat1, name: 'Game', sortOrder: 1, status: 'active' }, { _id: cat2, name: 'Aplikasi', sortOrder: 2, status: 'inactive' }]);
   await d.collection('products').insertMany([
-    { _id: p1, name: 'Game A', categoryId: cat1, price: 50000, stock: 7, sold: 12, status: 'active', description: 'DESKRIPSI LAMA' },
+    { _id: p1, name: 'Game A', categoryId: cat1, price: 50000, stock: 7, sold: 12, status: 'active', description: 'DESKRIPSI LAMA', shortDescription: 'Ringkas lama', imageKey: 'products/111-aaa.png', image: `${oldS3.url}/oldbkt/products/111-aaa.png`, additionalImages: [{ key: 'products/222-bbb.png', url: `${oldS3.url}/oldbkt/products/222-bbb.png` }, { key: 'products/hilang.png', url: `${oldS3.url}/oldbkt/products/hilang.png` }] },
     { _id: p2, name: 'App B', categoryId: cat2, price: 25000, stock: 0, sold: 3, status: 'inactive' },
     { _id: p3, name: 'Game C', categoryId: OID(), price: 1, stock: 1, sold: 0, status: 'active' },   // kategori hilang -> dilewati
   ]);
@@ -39,9 +42,9 @@ before(async () => {
     { user: 'Umum', rating: 5, review: 'Tanpa produk', status: 'approved' },
   ]);
 });
-after(async () => { await oldConn.dropDatabase(); await oldConn.close(); await t.stop(); });
+after(async () => { await oldConn.dropDatabase(); await oldConn.close(); await oldS3.close(); await t.stop(); });
 
-const env = () => ({ OLD_MONGODB_URI: oldUri, MONGODB_URI: process.env.MONGODB_URI });
+const env = () => ({ OLD_MONGODB_URI: oldUri, MONGODB_URI: process.env.MONGODB_URI, OLD_R2_ENDPOINT: oldS3.url, OLD_R2_FORCE_PATH_STYLE: 'true', OLD_R2_ACCESS_KEY_ID: 'AKIAOLD', OLD_R2_SECRET_ACCESS_KEY: 'OLD-SECRET', OLD_R2_BUCKET_NAME: 'oldbkt' });
 const counts = async () => ({
   products: (await a.get('/products?limit=100')).body.items.length,
   orders: (await a.get('/orders?limit=100')).body.total,
@@ -51,6 +54,7 @@ const counts = async () => ({
 test('dry-run tidak menulis apa pun', async () => {
   const out = await node('scripts/migrate-from-old.js', [], env());
   assert.match(out, /DRY-RUN/);
+  assert.match(out, /ditemukan di R2 lama\s+2/); assert.match(out, /hilang\.png/);
   assert.deepEqual(await counts(), { products: 0, orders: 0, reviews: 0 });
 });
 
@@ -61,18 +65,19 @@ test('apply: kategori, produk (harga/stok/terjual), pesanan+pembeli, rating; pro
   assert.equal(prods.length, 2);
   const g = prods.find((p) => p.name === 'Game A');
   assert.equal(g.price, 50000); assert.equal(g.stock, 7); assert.equal(g.sold, 12); assert.equal(g.active, true);
-  assert.equal(g.description, '', 'deskripsi TIDAK diambil dari project lama');
+  assert.equal(g.description, 'Ringkas lama'); assert.equal(g.about, 'DESKRIPSI LAMA');
+  assert.equal(g.media.length, 2, 'gambar utama + tambahan (yang hilang dilaporkan, bukan menggagalkan)');
+  for (const m of g.media) { assert.ok(m.key.startsWith('products/legacy/') && t.inBucket(m.key)); assert.ok(t.s3.store.get(`bkt/${m.key}`).body.equals(PNG)); }
+  assert.equal(prods.find((p) => p.name === 'App B').sold, 3, 'terjual lama dipertahankan walau tanpa pesanan sukses');
   assert.equal(prods.find((p) => p.name === 'App B').active, false);
 
   const orders = (await a.get('/orders?limit=100')).body.items;
-  assert.equal(orders.length, 3, 'pesanan dengan produk terhapus TETAP diimpor (snapshot nama produk)');
+  assert.equal(orders.length, 2, 'hanya pesanan SUKSES yang diimpor (produk terhapus tetap ikut lewat snapshot nama)');
   const o3 = orders.find((o) => o.orderNo === 'ORD-20260103-CCCCCC');
   assert.equal(o3.status, 'SUCCESS'); assert.equal(o3.product.name, 'Produk Terhapus');
   const o1 = orders.find((o) => o.orderNo === 'ORD-20260101-AAAAAA');
   assert.equal(o1.status, 'SUCCESS'); assert.equal(o1.customer.email, 'budi@mail.com'); assert.equal(o1.mode, 'sandbox'); assert.equal(o1.totalAmount, 50016);
-  const o2 = orders.find((o) => o.orderNo === 'ORD-20260102-BBBBBB');
-  assert.equal(o2.status, 'EXPIRED', 'PENDING lama tidak pernah menjadi PENDING');
-  assert.equal(o2.customer.whatsapp, '6281211112222'); assert.equal(o2.customer.name, 'Pelanggan');
+  assert.equal(orders.find((o) => o.orderNo === 'ORD-20260102-BBBBBB'), undefined, 'pesanan PENDING lama tidak diimpor');
 
   const reviews = (await a.get('/reviews?limit=100')).body.items;
   assert.equal(reviews.length, 3, 'rating tanpa produk diimpor sebagai ulasan umum');
@@ -84,8 +89,9 @@ test('tanpa efek samping: stok tetap, tidak ada notifikasi, jalan ulang tidak me
   await new Promise((r) => setTimeout(r, 6000));   // beri worker pembayaran kesempatan memproses (seharusnya tidak ada yang PENDING)
   assert.equal((await a.get('/notifications')).body.total, 0);
   const before = await counts();
+  const puts = () => t.s3.log.filter((l) => l.startsWith('PUT bkt/products/legacy/')).length; const p0 = puts();
   await node('scripts/migrate-from-old.js', ['--apply'], env());
-  assert.deepEqual(await counts(), before);
+  assert.deepEqual(await counts(), before); assert.equal(puts(), p0, 'gambar tidak diunggah ulang');
   const g = (await a.get('/products?limit=100')).body.items.find((p) => p.name === 'Game A');
   assert.equal(g.stock, 7);
 });
