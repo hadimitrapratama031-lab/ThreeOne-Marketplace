@@ -548,10 +548,13 @@ h2 {
   list-style: none;
 }
 
-/* Grid produk di halaman marketplace dikecilkan 5% (hanya #product-groups; grid "produk terkait" di product.html tidak ikut berubah) */
+/* Grid produk di halaman marketplace dikecilkan jadi 85% (hanya #product-groups; grid "produk terkait" di product.html tidak ikut berubah).
+   Lebar minimum kolom & gap ikut diskalakan 0.85 supaya jumlah kolom per baris tetap sama seperti semula. */
 #product-groups .product-grid {
-  width: 95%;
+  width: 85%;
   margin-inline: auto;
+  grid-template-columns: repeat(auto-fill, minmax(max(187px, calc(227.8 * var(--unit))), 1fr));
+  gap: calc(15.3 * var(--unit));
 }
 
 /* Kartu produk */
