@@ -1,6 +1,8 @@
 /* ==========================================================================
    product.js — Product Detail  (product.html?id=ID)
    Data dari /api/public/products/:id (MongoDB) dan diperbarui realtime.
+   Halaman TIDAK menunggu jaringan untuk tampil: struktur langsung digambar dari data yang sudah ada (hasil prefetch / kunjungan
+   sebelumnya / kartu produk dari cache daftar), lalu detail lengkap + ulasan halaman 1 (SATU request) melengkapi di belakang layar.
    Memakai DATA, PRODUCTS, api, esc, formatRupiah, artwork, productCard,
    observeReveals, settleIn, stockInfo, LOGO_SVG, $, $$ dari script.js.
    Daftar isi:
@@ -17,6 +19,9 @@
   const REVIEWS_PER_PAGE = 3;
 
   let view = 'loading';            // loading | ready | missing | error
+  let partial = false;             // true = baru data kartu (galeri/spesifikasi/ulasan menyusul)
+  let shownSig = '';               // pengaturan yang dipakai render terakhir
+  const settingsSig = () => JSON.stringify([DATA.settings.productPage, DATA.settings.branding.name, DATA.settings.branding.logoUrl]);
   let p = null;                    // produk
   let summary = { avg: null, total: 0, dist: {} };
   let reviews = { items: [], page: 1, totalPages: 1 };
@@ -56,8 +61,8 @@
 
   // Media: gambar asli bila ada, kalau tidak (atau gagal dimuat) artwork placeholder
   const art = (m) => `<div class="pd-art" role="img" aria-label="${esc(m.alt)}">${artwork(m.seed)}</div>`;
-  const pic = (m, lazy) => m.src
-    ? `<img src="${esc(m.src)}" alt="${esc(m.alt)}"${lazy ? ' loading="lazy"' : ''} decoding="async" data-seed="${m.seed}">`
+  const pic = (m, lazy, high) => m.src
+    ? `<img src="${esc(m.src)}" alt="${esc(m.alt)}"${lazy ? ' loading="lazy"' : ''}${high ? ' fetchpriority="high"' : ''} decoding="async" data-seed="${m.seed}">`
     : art(m);
 
   document.addEventListener('error', (e) => {
@@ -82,7 +87,7 @@
     </div>`;
 
   function slideHTML(m) {
-    if (m.type !== 'video') return pic(m);
+    if (m.type !== 'video') return pic(m, false, true);   // gambar utama: prioritas tertinggi
     return art(m) + (m.src
       ? `<button class="pd-play" type="button" aria-label="Putar video">${PLAY}</button>`
       : '<p class="pd-note">Pratinjau video belum tersedia.</p>');
@@ -97,20 +102,29 @@
 
   /* 2. Muat data
      -------------------------------------------------------------------------- */
+  // Terapkan respons detail (produk + ringkasan rating + ulasan halaman 1)
+  function applyDetail(d) {
+    p = d.product;
+    summary = d.reviews;
+    if (d.reviewPage && page === 1) reviews = d.reviewPage;
+    partial = false;
+    view = 'ready';
+  }
+
   async function loadDetail() {
     try {
-      const d = await api('/products/' + pid);
-      p = d.product;
-      summary = d.reviews;
-      view = 'ready';
+      const d = await loadProductDetail(pid);   // satu request bersama (hover/klik/halaman tidak pernah dobel)
+      applyDetail(d);
+      return d;
     } catch (err) {
-      if (err.status === 404) { view = 'missing'; p = null; }
-      else if (view !== 'ready') view = 'error';        // kegagalan sementara: tetap tampilkan data terakhir
+      if (err.status === 404) { view = 'missing'; p = null; partial = false; }
+      else if (view !== 'ready' || partial) { view = 'error'; partial = false; }   // kegagalan sementara: data lengkap terakhir tetap tampil
     }
+    return null;
   }
 
   async function loadReviews() {
-    if (view !== 'ready') return;
+    if (view !== 'ready' || partial) return;
     try {
       reviews = await api(`/products/${pid}/reviews?page=${page}&limit=${REVIEWS_PER_PAGE}`);
       if (page > reviews.totalPages) { page = reviews.totalPages; reviews = await api(`/products/${pid}/reviews?page=${page}&limit=${REVIEWS_PER_PAGE}`); }
@@ -118,15 +132,39 @@
   }
 
   async function refresh({ settle = true } = {}) {
-    await loadDetail();          // ulasan bergantung pada produk yang sudah valid
-    await loadReviews();
+    const d = await loadDetail();
+    // Ulasan halaman 1 sudah ikut di respons detail; request tambahan hanya bila sedang di halaman ulasan lain
+    if (view === 'ready' && !(d?.reviewPage && page === 1)) await loadReviews();
     render({ settle });
   }
+
+  // Produk dari kartu (daftar / cache): cukup untuk menggambar judul, harga, stok, kategori, gambar utama
+  const fromCard = (c) => ({
+    ...c, oldPrice: null, discount: 0, about: [], specs: { min: [], rec: [], source: '' },
+    media: c.imageUrl ? [{ type: 'image', url: c.imageUrl }] : [],
+  });
 
 
   /* 3. Render halaman
      -------------------------------------------------------------------------- */
+  const skeletonHTML = () => `
+      <div class="pd-top" role="status" aria-busy="true" aria-label="Memuat produk">
+        <div class="pd-media"><div class="pd-stage"><span class="pd-skel pd-skel--fill"></span></div></div>
+        <aside class="pd-buy" aria-hidden="true">
+          <span class="pd-skel pd-skel--title"></span>
+          <span class="pd-skel pd-skel--line"></span>
+          <span class="pd-skel pd-skel--price"></span>
+          <span class="pd-skel pd-skel--btn"></span>
+          <span class="pd-skel pd-skel--btn"></span>
+        </aside>
+      </div>`;
+
   function renderState() {
+    if (view === 'loading') {
+      root.innerHTML = skeletonHTML();
+      document.title = `Memuat produk… — ${DATA.brand}`;
+      return;
+    }
     const title = view === 'loading' ? 'Memuat produk…' : view === 'error' ? 'Produk belum bisa dimuat' : 'Produk tidak ditemukan';
     const text = view === 'loading' ? '' : view === 'error'
       ? 'Periksa koneksi Anda, lalu coba lagi.'
@@ -188,6 +226,10 @@
     const trustTitle = pp.completedOrders > 0 ? `${pp.completedOrders.toLocaleString('id-ID')} pesanan selesai` : summary.total ? `${summary.avg.toFixed(1)} dari 5` : '';
 
     document.title = `${p.name} — ${DATA.brand}`;
+    // Slide yang sama (mis. render ulang karena data lengkap tiba): pakai ulang node-nya agar gambar tidak berkedip
+    const slideKey = `${items[current].type}|${items[current].src || ''}`;
+    const prev = $('#pd-slide');
+    const keep = prev && prev.dataset.key === slideKey && !$('video', prev) ? [...prev.childNodes] : null;
     root.innerHTML = `
       <nav class="pd-crumb enter" aria-label="Breadcrumb" style="--d:.05s">
         <ol>
@@ -200,7 +242,7 @@
       <div class="pd-top">
         <div class="pd-media enter" style="--d:.15s">
           <div class="pd-stage" id="pd-stage" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Galeri ${esc(p.name)}">
-            <div class="pd-slide" id="pd-slide">${slideHTML(items[current])}</div>
+            <div class="pd-slide" id="pd-slide" data-key="${esc(slideKey)}">${slideHTML(items[current])}</div>
             ${items.length > 1 ? `
             <button class="pd-nav pd-nav--prev" id="pd-prev" type="button" aria-label="Media sebelumnya">${I.prev}</button>
             <button class="pd-nav pd-nav--next" id="pd-next" type="button" aria-label="Media berikutnya">${I.next}</button>
@@ -211,7 +253,7 @@
             ${items.map((m, i) => `
               <button class="pd-thumb${i === current ? ' on' : ''}" type="button" data-i="${i}"
                       aria-label="${m.type === 'video' ? 'Video produk' : 'Gambar ' + (i + 1)}"${i === current ? ' aria-current="true"' : ''}>
-                ${pic(m, i > 0)}${m.type === 'video' ? `<span class="pd-thumb__play">${PLAY}</span>` : ''}
+                ${m.type === 'video' ? art(m) : pic(m, i > 0)}${m.type === 'video' ? `<span class="pd-thumb__play">${PLAY}</span>` : ''}
               </button>`).join('')}
           </div>` : ''}
         </div>
@@ -284,8 +326,10 @@
         <ul class="product-grid" data-stagger>${related.map(productCard).join('')}</ul>
       </section>` : ''}`;
 
+    if (keep) $('#pd-slide').replaceChildren(...keep);
     renderReviews();
-    if (settle) settleIn(root); else observeReveals();
+    shownSig = settingsSig();
+    if (settle) { $$('.enter', root).forEach((el) => el.classList.remove('enter')); settleIn(root); } else observeReveals();   // pembaruan: tanpa animasi masuk ulang
   }
 
 
@@ -348,6 +392,7 @@
     slide.classList.add('is-out');
     slideTimer = setTimeout(() => {
       slide.innerHTML = slideHTML(items[current]);
+      slide.dataset.key = `${items[current].type}|${items[current].src || ''}`;
       slide.classList.remove('is-out');
     }, prefersReducedMotion ? 0 : 200);
   }
@@ -370,6 +415,11 @@
     const list = $('#pd-reviews');
     if (!list) return;
     $('#pd-summary').innerHTML = summaryHTML();
+    if (partial) {   // ulasan belum dimuat: skeleton, bukan "belum ada ulasan"
+      list.innerHTML = '<div role="status" aria-busy="true" aria-label="Memuat ulasan"><span class="pd-skel pd-skel--line"></span><span class="pd-skel pd-skel--line"></span><span class="pd-skel pd-skel--line pd-skel--short"></span></div>';
+      $('#pd-pager').innerHTML = '';
+      return;
+    }
     list.innerHTML = reviews.items.length ? reviews.items.map((r, n) => `
       <article class="review">
         <span class="review__av" aria-hidden="true">${esc(r.name[0] || '?')}</span>
@@ -427,17 +477,29 @@
       if (action === 'delete') { view = 'missing'; render(); } else refreshSoon();
     } else if (entity === 'review') {
       if (payload.productId === pid) refreshSoon();
-    } else if (entity === 'category' || entity === 'sync') {
+    } else if (entity === 'category') {
       refreshSoon();
+    } else if (entity === 'sync') {
+      // Bootstrap pertama (cuma melengkapi pengaturan & "Produk Lainnya") tidak perlu mengambil ulang detail
+      if (!payload?.initial) refreshSoon();
+      else if (view === 'ready') { if (settingsSig() !== shownSig) render({ settle: true }); else updateRelated(); }
     } else if (entity === 'settings') {
-      if (view === 'ready') render({ settle: true });
+      if (view === 'ready' && settingsSig() !== shownSig) render({ settle: true });
     }
   });
 
-  /* Mulai */
+  /* Mulai: gambar dulu, jaringan menyusul */
   if (!Number.isInteger(pid) || pid < 1) { view = 'missing'; renderState(); }
   else {
-    renderState();
-    window.MP.ready.then(() => refresh({ settle: false })).then(() => { started = true; });
+    const cached = pdStore.get(pid);                       // hasil prefetch / kunjungan sebelumnya dalam sesi
+    const card = PRODUCTS.find((x) => x.id === pid);       // kartu dari cache daftar produk
+    let drawn = true;
+    if (cached) applyDetail(cached.d);
+    else if (card) { p = fromCard(card); partial = true; view = 'ready'; }
+    else drawn = false;                                    // tanpa data apa pun: skeleton ringan
+
+    render();
+    if (cached && Date.now() - cached.t < 4000) started = true;   // baru diambil (mis. prefetch hover): tidak perlu request ulang
+    else refresh({ settle: drawn }).then(() => { started = true; });
   }
 })();

@@ -481,8 +481,9 @@
   // tidak pernah menghasilkan ulasan duplikat. Perubahan identik tidak menggambar ulang (lihat load()).
   document.addEventListener('mp:change', (e) => {
     if (!started) return;
-    const { entity } = e.detail;
+    const { entity, payload } = e.detail;
     if (entity === 'review') loadSoon();
+    else if (entity === 'sync' && payload?.initial) { populateProducts(); renderBar(); }   // bootstrap pertama: daftar ulasan sudah diambil sendiri oleh load()
     else if (entity === 'product' || entity === 'category' || entity === 'sync') { populateProducts(); renderBar(); loadSoon(); }
     else if (entity === 'settings') document.title = `Rating & ulasan — ${DATA.brand}`;
   });
@@ -492,12 +493,20 @@
      -------------------------------------------------------------------------- */
   render();                                      // kerangka pemuatan
   renderPhotos();
-  window.MP.ready.then(() => {
+
+  let formReady = false;
+  const applyProductsAndUrl = () => {
     document.title = `Rating & ulasan — ${DATA.brand}`;
     populateProducts();
+    if (formReady) return;                       // pilihan produk dari URL / buka form: sekali saja
+    formReady = true;
     const params = new URLSearchParams(location.search);
     const wanted = params.get('product');
     if (wanted && [...el.product.options].some((o) => o.value === wanted)) el.product.value = wanted;
     if (location.hash === '#tulis' || wanted) openForm({ product: wanted });
-  }).catch(() => {}).then(load).then(() => { started = true; });
+  };
+  if (window.MP.hydrated) applyProductsAndUrl();   // daftar produk dari cache lokal: form langsung siap
+  window.MP.ready.then(applyProductsAndUrl).catch(() => {});   // data segar: opsi produk diperbarui (form dari URL tidak dibuka dua kali)
+  // Daftar ulasan tidak bergantung pada bootstrap seluruh katalog: langsung diambil (sebelumnya menunggu bootstrap dulu)
+  load().then(() => { started = true; });
 })();

@@ -172,7 +172,13 @@ export async function closeRealtime() {
 const safe = (fn) => {
   try { fn(); } catch (err) { console.error('[realtime] emit gagal:', err.message); }
 };
-export const emitPublic = (event, payload) => safe(() => io?.of('/').emit(event, payload));
+const publicListeners = new Set();
+/** Dipanggil setiap ada event publik (perubahan data Marketplace). Dipakai cache memori publik untuk membuang data lama. */
+export const onPublicEmit = (fn) => { publicListeners.add(fn); return () => publicListeners.delete(fn); };
+export const emitPublic = (event, payload) => {
+  safe(() => publicListeners.forEach((fn) => fn(event)));   // invalidasi cache SEBELUM klien menerima event, jadi fetch ulang pasti segar
+  safe(() => io?.of('/').emit(event, payload));
+};
 export const emitAdmin = (event, payload) => safe(() => adminNs?.emit(event, payload));
 export const emitToRoom = (room, event, payload) => safe(() => io?.of('/').to(room).emit(event, payload));
 export const getOnline = publicOnline;

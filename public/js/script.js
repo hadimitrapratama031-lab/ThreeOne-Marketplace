@@ -30,6 +30,9 @@ const formatRupiah = (n) => 'Rp ' + n.toLocaleString('id-ID');
 
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// CSS font Google dimuat tanpa memblokir render pertama (link bermedia "print" dulu, lalu diaktifkan di sini)
+$$('link[data-async-css]').forEach((l) => { l.media = 'all'; });
+
 // Semua teks dari admin WAJIB lewat esc() sebelum masuk innerHTML
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const safeHref = (h) => (/^(https?:\/\/|mailto:|tel:|#|\/)/i.test(h || '') ? h : '');
@@ -140,7 +143,7 @@ function productCard(p) {
   const [stockClass, stockLabel] = stockCount(p.stock);
 
   const media = p.imageUrl
-    ? `<img loading="lazy" alt="${esc(p.name)}" src="${esc(p.imageUrl)}" data-seed="${p.id}">`
+    ? `<img loading="lazy" decoding="async" alt="${esc(p.name)}" src="${esc(p.imageUrl)}" data-seed="${p.id}">`
     : artwork(p.id);
 
   return `
@@ -517,12 +520,61 @@ function setupCardGlow() {
    setelah koneksi putus lalu tersambung lagi, seluruh data diambil ulang dari API.
    Halaman lain (product.js) ikut mendengar lewat event DOM "mp:change".
    -------------------------------------------------------------------------- */
-let loaded = false;
+let loaded = false;      // true = data SEGAR dari server sudah diterima (cache lokal tidak dihitung)
+let hydrated = false;    // true = tampilan sudah terisi dari cache lokal (stale-while-revalidate)
 let rendered = false;
 let syncing = null;
+let firstSync = true;
 
 const announce = (entity, action, payload) =>
   document.dispatchEvent(new CustomEvent('mp:change', { detail: { entity, action, payload } }));
+
+/* Cache lokal (localStorage): kunjungan berikutnya & pindah halaman langsung tampil dari data terakhir,
+   lalu SELALU divalidasi ulang ke server (dan realtime tetap jalan). Cache hanya dipakai untuk tampilan awal;
+   MP.ready tetap berarti "data segar dari server sudah ada", jadi Checkout/Payment tidak pernah memutuskan dari data lama. */
+const BOOT_KEY = 'mp_boot_v1';
+const snapshot = () => ({ settings: DATA.settings, categories: DATA.categories, products: PRODUCTS, faq: DATA.faq, contacts: DATA.contacts });
+const sigOf = () => JSON.stringify(snapshot());
+
+function readBootCache() {
+  try {
+    const o = JSON.parse(localStorage.getItem(BOOT_KEY) || 'null');
+    const d = o?.v === 1 ? o.data : null;
+    return d && Array.isArray(d.products) && Array.isArray(d.categories) && d.settings ? d : null;
+  } catch { return null; }
+}
+let saveTimer;
+function saveBootCache() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(BOOT_KEY, JSON.stringify({ v: 1, t: Date.now(), data: snapshot() })); }
+    catch { try { localStorage.removeItem(BOOT_KEY); } catch { /* penyimpanan penuh / mode privat */ } }
+  }, 400);
+}
+
+/* Detail produk: disimpan per tab (sessionStorage) supaya klik produk -> Detail langsung terisi, dan prefetch saat hover
+   tidak hilang ketika pindah halaman. Selalu divalidasi ulang oleh product.js. */
+const PD_KEY = 'mp_pd_v1:';
+const pdStore = {
+  get(id) {
+    try { const o = JSON.parse(sessionStorage.getItem(PD_KEY + id) || 'null'); return o?.d?.product ? o : null; } catch { return null; }
+  },
+  set(id, d) {
+    try { sessionStorage.setItem(PD_KEY + id, JSON.stringify({ t: Date.now(), d })); }
+    catch { try { Object.keys(sessionStorage).filter((k) => k.startsWith(PD_KEY)).forEach((k) => sessionStorage.removeItem(k)); } catch { /* abaikan */ } }
+  },
+};
+const pdInflight = new Map();
+/** Satu-satunya jalan mengambil detail produk (+ulasan halaman 1): request yang sama tidak pernah dobel (hover + klik + halaman). */
+function loadProductDetail(id) {
+  if (!pdInflight.has(id)) {
+    const req = api(`/products/${id}?reviews=1&limit=3`)
+      .then((d) => { pdStore.set(id, d); return d; })
+      .finally(() => pdInflight.delete(id));
+    pdInflight.set(id, req);
+  }
+  return pdInflight.get(id);
+}
 
 function applyBootstrap(d) {
   DATA.settings = Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((k) => [k, { ...DEFAULT_SETTINGS[k], ...(d.settings?.[k] || {}) }]));
@@ -530,7 +582,6 @@ function applyBootstrap(d) {
   replaceList(PRODUCTS, d.products);
   DATA.faq = d.faq;
   DATA.contacts = d.contacts;
-  loaded = true;
 }
 
 function renderAll(settle) {
@@ -547,11 +598,20 @@ function renderAll(settle) {
 }
 
 function sync({ settle = rendered } = {}) {
-  syncing ||= api('/bootstrap').then(applyBootstrap).finally(() => { syncing = null; });
-  return syncing.then(() => {
-    renderAll(settle);
+  // Satu request bersama untuk semua pemanggil; `changed` dihitung sekali (bandingkan keadaan sebelum/sesudah)
+  syncing ||= api('/bootstrap').then((d) => {
+    const before = rendered ? sigOf() : null;
+    applyBootstrap(d);
+    loaded = true;
+    const initial = firstSync;
+    firstSync = false;
+    return { changed: before === null || before !== sigOf(), initial };
+  }).finally(() => { syncing = null; });
+  return syncing.then(({ changed, initial }) => {
+    if (changed) renderAll(settle);          // data sama dengan yang sudah tampil (mis. dari cache) -> tidak menggambar ulang
     rendered = true;
-    announce('sync', 'done');
+    saveBootCache();
+    announce('sync', 'done', { initial, changed });
   });
 }
 
@@ -606,6 +666,7 @@ function onLiveEvent(name, p) {
     if (entity === 'faq') renderFaq(true); else renderContacts(true);
   }
 
+  saveBootCache();
   announce(entity, action, p);                  // product.js & review: ikut menyesuaikan
 }
 
@@ -618,19 +679,57 @@ if (isHome) {
   setupProductControls();
 }
 
-const ready = sync({ settle: false }).catch((err) => { renderLoadError(err); });
+// Tampilan awal dari cache lokal (bila ada) SEBELUM menunggu jaringan; data segar menyusul di belakang layar
+const cachedBoot = readBootCache();
+if (cachedBoot) {
+  applyBootstrap(cachedBoot);
+  renderAll(false);
+  rendered = true;
+  hydrated = true;
+}
+
+let resolveReady;
+const ready = new Promise((resolve) => { resolveReady = resolve; });
+const startSync = () => sync({ settle: false }).catch(renderLoadError).finally(() => resolveReady());
+// Dengan cache: validasi ulang dijalankan setelah skrip halaman (mis. product.js) sempat memulai request utamanya.
+// Tanpa cache: langsung jalan, karena tampilan menunggu data ini.
+if (cachedBoot) setTimeout(startSync, 0); else startSync();
+
 let poller;
 const socket = Live.start({
   onEvent: onLiveEvent,
   onSync: () => sync().catch(() => {}),
   onStatus: (status) => {
     document.documentElement.dataset.live = status;
-    if (status === 'online' && !loaded) sync({ settle: false }).catch(renderLoadError);  // server baru hidup setelah halaman dibuka
+    if (status === 'online' && !loaded && !syncing) sync({ settle: false }).catch(renderLoadError);  // server baru hidup setelah halaman dibuka
   },
 });
 if (!socket) poller = setInterval(() => sync().catch(() => {}), 30000);   // tanpa Socket.IO: polling pelan
 
-window.MP = { ready, sync, get loaded() { return loaded; } };
+window.MP = { ready, sync, get loaded() { return loaded; }, get hydrated() { return hydrated; } };
+
+/* Prefetch saat niat membuka produk (hover / sentuh / fokus): data Detail sudah ada ketika halaman produk terbuka */
+const pdIdOf = (el) => {
+  const link = el.closest?.('.card')?.querySelector('a.card__link');
+  const m = /product\.html\?id=(\d+)/.exec(link?.getAttribute('href') || '');
+  return m ? Number(m[1]) : null;
+};
+function prefetchProduct(id) {
+  if (!id || pdInflight.has(id)) return;
+  const hit = pdStore.get(id);
+  if (hit && Date.now() - hit.t < 15000) return;
+  loadProductDetail(id).catch(() => {});
+}
+let hoverTimer;
+document.addEventListener('pointerover', (e) => {
+  if (e.pointerType !== 'mouse') return;
+  const id = pdIdOf(e.target);
+  clearTimeout(hoverTimer);
+  if (id) hoverTimer = setTimeout(() => prefetchProduct(id), 65);   // jeda singkat: sapuan mouse melintas tidak memicu request
+}, { passive: true });
+document.addEventListener('pointerout', () => clearTimeout(hoverTimer), { passive: true });
+document.addEventListener('touchstart', (e) => prefetchProduct(pdIdOf(e.target)), { passive: true });
+document.addEventListener('focusin', (e) => prefetchProduct(pdIdOf(e.target)));
 
 // Tombol Beli pada kartu membuka Product Detail
 document.addEventListener('click', (e) => {

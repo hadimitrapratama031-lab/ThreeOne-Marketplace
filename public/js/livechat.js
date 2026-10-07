@@ -608,12 +608,17 @@
     updateTeaser();
     if (v && !was && !S.conv) restore();
   }
-  async function loadConfig() {
-    try {
-      const c = await req('/config');
-      if (typeof c.serverTime === 'string') S.skew = Date.parse(c.serverTime) - Date.now();
-      setEnabled(Boolean(c.enabled));
-    } catch { /* coba lagi saat socket tersambung */ }
+  let configInflight = null;
+  function loadConfig() {
+    // Satu request bersama: pemanggilan awal + event 'connect' socket tidak lagi menghasilkan request ganda
+    configInflight ||= (async () => {
+      try {
+        const c = await req('/config');
+        if (typeof c.serverTime === 'string') S.skew = Date.parse(c.serverTime) - Date.now();
+        setEnabled(Boolean(c.enabled));
+      } catch { /* coba lagi saat socket tersambung */ }
+    })().finally(() => { configInflight = null; });
+    return configInflight;
   }
 
   /* ---------- pulihkan sesi (refresh / tab baru) ---------- */
@@ -632,6 +637,7 @@
 
   /* ---------- mulai ---------- */
   wire();
-  loadConfig();
+  // Widget chat bukan konten utama: cek konfigurasinya saat browser senggang (event 'connect' socket juga memicunya bila lebih dulu)
+  (window.requestIdleCallback ? (fn) => requestIdleCallback(fn, { timeout: 1200 }) : (fn) => setTimeout(fn, 200))(loadConfig);
   setTimeout(() => { S.teaserReady = true; updateTeaser(); }, 1400);   // satu kemunculan halus setelah halaman tenang
 })();

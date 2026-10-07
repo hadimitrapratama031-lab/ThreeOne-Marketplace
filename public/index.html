@@ -9,12 +9,21 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" media="print" data-async-css>
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
   <link rel="stylesheet" href="css/theme.css">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/background.css">
   <link rel="stylesheet" href="css/livechat.css">
   <link rel="stylesheet" href="css/orderfeed.css">
+  <script defer src="/socket.io/socket.io.js"></script>
+  <script defer src="js/live.js"></script>
+  <script defer src="js/script.js"></script>
+  <script defer src="js/orderfeed.js"></script>
+  <script defer src="js/livechat.js"></script>
+  <script defer src="js/background.js"></script>
+  <link rel="prefetch" href="css/product.css" as="style">
+  <link rel="prefetch" href="js/product.js" as="script">
 </head>
 <body>
 
@@ -163,11 +172,5 @@
     </div>
   </footer>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="js/live.js"></script>
-  <script src="js/script.js"></script>
-  <script src="js/orderfeed.js"></script>
-  <script src="js/livechat.js"></script>
-  <script src="js/background.js"></script>
 </body>
 </html>

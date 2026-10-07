@@ -175,8 +175,12 @@
   document.addEventListener('mp:change', (e) => {
     const { entity, action, payload } = e.detail || {};
     if (entity === 'sale' && action === 'create') ingest([payload]);
-    else if (entity === 'sync' && action === 'done' && Date.now() - lastFetch > REFETCH_GUARD_MS) load();   // reconnect / sinkron ulang
+    else if (entity === 'sync' && action === 'done' && !payload?.initial && Date.now() - lastFetch > REFETCH_GUARD_MS) load();   // reconnect / sinkron ulang (bootstrap pertama sudah ditangani load() di bawah)
   });
 
-  load();
+  // Notifikasi hanyalah pelengkap: ambil datanya setelah halaman selesai dimuat & browser senggang,
+  // supaya tidak berebut jaringan dengan data yang menentukan tampilan halaman
+  const idle = window.requestIdleCallback ? (fn) => requestIdleCallback(fn, { timeout: 2000 }) : (fn) => setTimeout(fn, 300);
+  const startLoad = () => idle(load);
+  if (document.readyState === 'complete') startLoad(); else addEventListener('load', startLoad, { once: true });
 })();

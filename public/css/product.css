@@ -914,3 +914,30 @@
 .pd-reviewcta a:not(.btn):hover {
   color: var(--purple-text);
 }
+
+
+/* Skeleton ringan: hanya tampil sementara data belum ada (Detail Product terbuka dulu, data melengkapi setelahnya)
+   -------------------------------------------------------------------------- */
+.pd-skel {
+  display: block;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, .04) 25%, rgba(167, 139, 250, .12) 50%, rgba(255, 255, 255, .04) 75%);
+  background-size: 200% 100%;
+  animation: pd-skel 1.3s linear infinite;
+}
+
+.pd-skel--fill { position: absolute; inset: 0; border-radius: 0; }
+.pd-skel--title { height: 30px; width: 78%; margin-bottom: 14px; }
+.pd-skel--line { height: 14px; width: 100%; margin: 0 0 12px; }
+.pd-skel--short { width: 55%; }
+.pd-skel--price { height: 34px; width: 46%; margin: 18px 0; }
+.pd-skel--btn { height: 46px; width: 100%; margin-bottom: 10px; border-radius: 999px; }
+.pd-buy > .pd-skel--line { width: 40%; }
+
+@keyframes pd-skel {
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pd-skel { animation: none; }
+}

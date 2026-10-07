@@ -138,3 +138,7 @@ docs/PLATFORM.md           feature inventory, koleksi, indeks, endpoint, event, 
 ```
 
 Detail lengkap (koleksi, indeks, seluruh endpoint, event Socket.IO, struktur R2, fitur yang sengaja tidak punya kontrol Admin): **[docs/PLATFORM.md](docs/PLATFORM.md)**.
+
+
+## Performa
+Ringkasan audit dan perubahan optimasi: lihat `PERFORMANCE.md`.

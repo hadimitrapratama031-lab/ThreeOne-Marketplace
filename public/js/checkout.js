@@ -295,6 +295,7 @@
   document.addEventListener('mp:change', (e) => {
     const { entity, action, payload } = e.detail;
     if (view === 'loading') return;
+    if (entity === 'sync' && payload?.initial) return;   // bootstrap pertama: produk sudah diambil segar oleh start()
     const relevant = (entity === 'product' && payload.id === pid) || entity === 'category' || entity === 'sync';
     if (!relevant) return;
     if (entity === 'product' && action === 'delete') { view = 'missing'; render(); return; }
@@ -308,8 +309,8 @@
     if (!Number.isInteger(pid) || pid < 1) { view = 'missing'; render(); return; }
     view = 'loading';
     render();
-    await Promise.all([window.MP.ready, loadConfig()]);
-    await loadProduct();
+    // Paralel (sebelumnya berurutan: bootstrap -> produk). Produk TETAP diambil segar dari server, bukan dari cache.
+    await Promise.all([window.MP.ready, loadConfig(), loadProduct()]);
     render();
   }
   start();

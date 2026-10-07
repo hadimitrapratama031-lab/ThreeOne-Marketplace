@@ -22,14 +22,14 @@ export async function liveStats() {
 }
 
 /** Gabungkan angka hidup ke pengaturan stats (sisanya, mis. `support`, tetap dari pengaturan admin). */
-export async function withLiveStats(stats = {}) {
+export async function withLiveStats(stats = {}, live) {
   const { customers, ...rest } = stats;   // `customers` bawaan data lama tidak dipakai lagi
-  return { ...rest, ...(await liveStats()) };
+  return { ...rest, ...(live ?? await liveStats()) };
 }
 
 /** "N pesanan selesai" di halaman produk = angka yang sama dengan beranda. */
-export async function withLiveProductPage(pp = {}) {
-  return { ...pp, completedOrders: (await liveStats()).orders };
+export async function withLiveProductPage(pp = {}, live) {
+  return { ...pp, completedOrders: (live ?? await liveStats()).orders };
 }
 
 /** Umumkan statistik terbaru ke Marketplace + Admin. */

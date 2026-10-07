@@ -1,5 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
@@ -11,6 +13,7 @@ import mongoose from 'mongoose';
 import { config, checkConfig } from './config/env.js';
 import { Admin, syncAllIndexes } from './models/index.js';
 import { initRealtime, closeRealtime } from './lib/realtime.js';
+import { invalidate as invalidatePublicCache } from './lib/memo.js';
 import { requireAdmin, originGuard, adminLimiter } from './middleware/security.js';
 import { notFoundApi, errorHandler } from './middleware/errors.js';
 import { sweepAssets } from './services/assets.js';
@@ -126,11 +129,51 @@ export function createApp() {
   app.use('/api/admin', admin);
   app.use('/api', notFoundApi);
 
-  // HTML, JS, dan CSS selalu divalidasi ulang (ETag): setelah deploy, Admin/Marketplace langsung memakai kode terbaru
-  // dan tidak tertahan di cache browser selama 1 jam. File lain (gambar, font) tetap memakai maxAge.
-  const html = { setHeaders: (res, p) => { if (/\.(html|js|css)$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); } };
-  app.use('/admin', express.static(ADMIN_DIR, { index: 'index.html', maxAge: config.isProd ? '1h' : 0, ...html }));
-  app.use(express.static(PUBLIC_DIR, { maxAge: config.isProd ? '1h' : 0, ...html }));
+  // Aset Marketplace (css/js) diberi versi berdasarkan isi file: HTML menautkan `css/style.css?v=<hash>` dan URL itu di-cache
+  // 1 tahun (immutable). Setelah deploy, HTML (selalu divalidasi ulang) membawa hash baru, jadi pengunjung langsung mendapat kode
+  // terbaru TANPA harus mengunduh ulang aset yang tidak berubah di setiap halaman.
+  const htmlCache = new Map();
+  const hashCache = new Map();   // file -> { sig, hash }
+  const hashOf = (file) => {
+    const st = fs.statSync(file);
+    const sig = `${st.mtimeMs}:${st.size}`;
+    const hit = hashCache.get(file);
+    if (hit?.sig === sig) return hit.hash;
+    const hash = crypto.createHash('md5').update(fs.readFileSync(file)).digest('hex').slice(0, 10);
+    hashCache.set(file, { sig, hash });
+    return hash;
+  };
+  const ASSET_REF = /\b(href|src)="((?:css|js)\/[A-Za-z0-9._-]+\.(?:css|js))"/g;
+  const renderHtml = (file) => {
+    const st = fs.statSync(file);
+    const hit = htmlCache.get(file);
+    if (config.isProd && hit) return hit.html;
+    const sig = `${st.mtimeMs}:${st.size}`;
+    if (hit?.sig === sig && hit.deps.every((d) => hashOf(d.file) === d.hash)) return hit.html;
+    const deps = [];
+    const html = fs.readFileSync(file, 'utf8').replace(ASSET_REF, (m, attr, ref) => {
+      const abs = path.join(PUBLIC_DIR, ref);
+      try { const hash = hashOf(abs); deps.push({ file: abs, hash }); return `${attr}="${ref}?v=${hash}"`; } catch { return m; }
+    });
+    htmlCache.set(file, { sig, html, deps });
+    return html;
+  };
+  app.get(/^\/(?:([A-Za-z0-9-]+)\.html)?$/, (req, res, next) => {
+    const file = path.join(PUBLIC_DIR, `${req.params[0] || 'index'}.html`);
+    if (!fs.existsSync(file)) return next();
+    res.set('Cache-Control', 'no-cache');   // HTML selalu divalidasi ulang (ETag -> 304): deploy baru langsung terpakai
+    res.type('html').send(renderHtml(file));
+  });
+
+  // File ber-versi (?v=...) = isinya tidak akan berubah di URL itu -> cache panjang. Tanpa ?v= tetap divalidasi ulang seperti semula.
+  const assets = {
+    setHeaders: (res, p) => {
+      if (!/\.(html|js|css)$/.test(p)) return;
+      res.setHeader('Cache-Control', /\.(js|css)$/.test(p) && res.req?.query?.v ? 'public, max-age=31536000, immutable' : 'no-cache');
+    },
+  };
+  app.use('/admin', express.static(ADMIN_DIR, { index: 'index.html', maxAge: config.isProd ? '1h' : 0, ...assets, setHeaders: (res, p) => { if (/\.(html|js|css)$/.test(p)) res.setHeader('Cache-Control', 'no-cache'); } }));
+  app.use(express.static(PUBLIC_DIR, { maxAge: config.isProd ? '1h' : 0, index: false, ...assets }));
 
   app.use(errorHandler);
   return app;
@@ -155,6 +198,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
 
   await mongoose.connect(config.mongoUri, { serverSelectionTimeoutMS: 10_000 });
   await syncAllIndexes();
+  invalidatePublicCache();   // cache memori publik tidak boleh membawa data dari koneksi/database sebelumnya
   await ensureAdmin();
   if (config.seedDemo) {
     const r = await seedDemo();
@@ -185,6 +229,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
     stopPaymentWorker();
     stopLivechatWorker();
     await closeRealtime();
+    invalidatePublicCache();
     if (server.listening) await new Promise((resolve) => server.close(resolve));
     await mongoose.disconnect();
   };

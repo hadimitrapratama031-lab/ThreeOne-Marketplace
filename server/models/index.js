@@ -99,6 +99,7 @@ reviewSchema.index({ product: 1, status: 1, date: -1 });
 reviewSchema.index({ status: 1, date: -1 });
 reviewSchema.index({ stars: 1 });
 reviewSchema.index({ productId: 1 });
+reviewSchema.index({ status: 1, productId: 1, stars: 1 });   // ringkasan rating (summarize): terpenuhi dari index, tanpa membaca dokumen ulasan
 export const Review = mongoose.model('Review', reviewSchema);
 
 /* FAQ */
