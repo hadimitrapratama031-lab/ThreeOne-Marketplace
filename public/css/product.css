@@ -131,9 +131,9 @@
 /* Panggung 16:9 tetap; media menyesuaikan di dalamnya tanpa mengubah rasio aslinya.
    Default = contain (utuh, tidak ada yang terpotong, tidak gepeng). product.js menandai data-fit="cover" hanya untuk gambar
    yang rasionya mendekati 16:9 (selisih <= 8%), supaya screenshot Steam 1920x1080 memenuhi panggung tanpa bar. */
-.pd-slide > img,
-.pd-thumb img {
-  position: relative;   /* di atas latar buram */
+.pd-slide > img:not(.pd-vframe),
+.pd-thumb img:not(.pd-vframe) {
+  position: relative;   /* di atas latar buram (bukan untuk .pd-vframe: itu harus absolute menutupi artwork) */
   object-fit: contain;
   object-position: center;
 }
@@ -144,7 +144,7 @@
   object-fit: cover;
 }
 
-.pd-slide > video {
+.pd-slide > video:not(.pd-vframe) {
   position: relative;
   object-fit: contain;   /* trailer 16:9 memenuhi panggung; rasio lain tetap utuh, kontrol tetap bisa dipakai */
   background: #000;
