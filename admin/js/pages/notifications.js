@@ -2,11 +2,11 @@ import { $, html, mount, icon, dateTime, pagerHTML, emptyState, skeletonRows, de
 import { api } from '../api.js';
 
 const EVENT = { orderCreated: 'Pesanan dibuat', paymentSuccess: 'Pembayaran berhasil', paymentFailed: 'Pembayaran gagal', paymentExpired: 'Pembayaran kedaluwarsa' };
-const CHANNEL = { whatsapp: 'WhatsApp', email: 'Email' };
+const CHANNEL = { whatsapp: 'WhatsApp', email: 'Email', discord: 'Discord' };
 const STATUS = { sent: ['Terkirim', 'pill--ok'], failed: ['Gagal', 'pill--danger'], sending: ['Mengirim', 'pill--warn'], pending: ['Antre', 'pill--mute'] };
 const DELIVERY = { delivered: ['Sampai di inbox', 'pill--ok'], bounced: ['Memantul', 'pill--danger'], complained: ['Ditandai spam', 'pill--danger'], delayed: ['Tertunda', 'pill--warn'] };
 
-/** Log pengiriman WhatsApp & Email. Baris diperbarui realtime lewat event notification:log (Socket.IO admin yang sudah ada). */
+/** Log pengiriman WhatsApp, Email, dan Discord. Baris diperbarui realtime lewat event notification:log (Socket.IO admin yang sudah ada). */
 export default {
   async mount(root) {
     const q = { page: 1, limit: 25, orderNo: '', event: '', channel: '', status: '' };

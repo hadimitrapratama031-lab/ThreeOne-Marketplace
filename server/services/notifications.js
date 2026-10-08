@@ -5,11 +5,12 @@ import { tokenFor } from '../lib/orderToken.js';
 import { pageUrl, resolvePublicOrigin } from '../lib/urls.js';
 import { isValidWhatsApp, isValidEmail } from '../lib/phone.js';
 import { emitAdmin } from '../lib/realtime.js';
-import { getNotificationPrefs } from './integrationSettings.js';
+import { getNotificationPrefs, getDiscordConfig } from './integrationSettings.js';
 import { getPaymentConfig } from './paymentSettings.js';
 import { getSetting } from './settings.js';
 import * as fonnte from './fonnte.js';
 import * as resend from './resend.js';
+import * as discord from './discord.js';
 import { embedContextImages } from './emailImages.js';
 import * as T from './notificationTemplates.js';
 import { codeOfOrder } from './codes.js';
@@ -21,7 +22,10 @@ import { codeOfOrder } from './codes.js';
  *   Event → bangun template → validasi tujuan → claim slot → kirim → simpan hasil → log + Socket.IO (admin)
  *
  * Empat event, sama dengan project lama: orderCreated, paymentSuccess, paymentFailed, paymentExpired.
- * Tiap event punya dua channel dengan status sendiri; satu channel gagal tidak mempengaruhi channel lain.
+ * Discord = channel ketiga (port discord.service.js lama), HANYA untuk paymentSuccess — batas yang sama dengan project lama:
+ * orderCreated, paymentFailed, dan paymentExpired tidak pernah sampai ke Discord. Tujuannya channel server toko (Admin Web),
+ * jadi yang divalidasi adalah keberadaan konfigurasi, bukan format nomor/email.
+ * Tiap event punya channel dengan status sendiri; satu channel gagal tidak mempengaruhi channel lain.
  * Dipanggil HANYA setelah status order tersimpan, dan hanya oleh pemenang transisi status (lihat payments.js).
  */
 export const SUPPORTED_EVENTS = NOTIFICATION_EVENTS;
@@ -68,9 +72,9 @@ const logLine = (level, meta) => console[level]('[Notification]', JSON.stringify
 /* --------------------------------------------------------------- delivery */
 async function deliverChannel({ order, event, channel, recipient, templateSource, send }) {
   const base = { orderId: order._id, orderCode: order.orderNo, event, channel, recipient };
-  const valid = channel === 'whatsapp' ? isValidWhatsApp(recipient) : isValidEmail(recipient);
+  const valid = channel === 'whatsapp' ? isValidWhatsApp(recipient) : channel === 'discord' ? Boolean(recipient) : isValidEmail(recipient);
   if (!valid) {   // tujuan tidak valid = kesalahan data, tercatat sebagai gagal permanen tanpa memanggil provider
-    const error = `Tujuan ${channel} tidak valid: ${recipient || '(kosong)'}`;
+    const error = channel === 'discord' ? 'Channel Discord belum dikonfigurasi (token bot / Channel ID kosong).' : `Tujuan ${channel} tidak valid: ${recipient || '(kosong)'}`;
     const claim = await claimSlot(base);
     if (claim.claimed) await finish(claim.doc, { status: 'failed', permanentFailure: true, error, failedAt: new Date() });
     logLine('error', { orderCode: order.orderNo, event, channel, status: 'FAILED', error });
@@ -114,7 +118,7 @@ async function deliverChannel({ order, event, channel, recipient, templateSource
 const httpUrl = (u) => (/^https?:\/\//i.test(u || '') ? String(u).trim() : '');
 
 async function loadContextInputs(order) {
-  const [branding, pay, discord] = await Promise.all([
+  const [branding, pay, discordContact] = await Promise.all([
     getSetting('branding'),
     getPaymentConfig(),
     Contact.findOne({ active: true, icon: 'discord' }).sort({ order: 1 }).lean(),
@@ -127,7 +131,7 @@ async function loadContextInputs(order) {
   const origin = resolvePublicOrigin({ configured: [pay.publicBaseUrl, config.publicBaseUrl], requestOrigin: order.origin });
   // Sistem Code: code dibaca dari database saat pesan dibangun (bukan disalin ke log). Hanya dipakai event paymentSuccess.
   const redeemCode = order.product?.kind === 'code' ? await codeOfOrder(order._id) : '';
-  return { branding, pay, discordHref: httpUrl(discord?.href), imageKey, redeemCode, origin };
+  return { branding, pay, discordHref: httpUrl(discordContact?.href), imageKey, redeemCode, origin };
 }
 
 /** Data mentah (Order + pengaturan) -> satu objek datar untuk WhatsApp dan Email. Semua nilai dari database. */
@@ -215,6 +219,21 @@ export async function notifyOrderEvent(order, eventKey) {
     }));
   } else results.push({ channel: 'email', status: 'SKIPPED' });
 
+  // Discord: HANYA paymentSuccess (lihat catatan di atas). Dibaca dari MongoDB tiap kali, jadi token/channel baru langsung dipakai.
+  // Discord mati/error tidak pernah mengubah status order/payment: kegagalan hanya tercatat di NotificationLog.
+  if (eventKey === 'paymentSuccess') {
+    const dc = await getDiscordConfig();
+    if (dc.ready) {
+      results.push(await deliverChannel({
+        order, event: eventKey, channel: 'discord', recipient: `channel:${dc.channelId}`, templateSource: 'builtin',
+        send: () => discord.sendPaymentSuccess(ctx),
+      }));
+    } else {
+      logLine('warn', { orderCode: order.orderNo, event: eventKey, channel: 'discord', status: 'SKIPPED', error: dc.enabled ? 'Channel ID Discord belum diisi' : 'Discord dinonaktifkan/belum dikonfigurasi di Admin Web' });
+      results.push({ channel: 'discord', status: 'SKIPPED' });
+    }
+  }
+
   return { event: eventKey, orderCode: order.orderNo, results };
 }
 
@@ -258,6 +277,9 @@ export async function retryLog(logId) {
   if (log.channel === 'whatsapp') {
     const wa = T.resolveWhatsApp(ctx, prefs.templates.whatsapp[log.event]);
     result = await deliverChannel({ order, event: log.event, channel: 'whatsapp', recipient: ctx.customerWhatsApp, templateSource: wa.source, send: () => fonnte.sendWhatsApp(ctx.customerWhatsApp, wa.text) });
+  } else if (log.channel === 'discord') {
+    const dc = await getDiscordConfig();
+    result = await deliverChannel({ order, event: log.event, channel: 'discord', recipient: dc.ready ? `channel:${dc.channelId}` : '', templateSource: 'builtin', send: () => discord.sendPaymentSuccess(ctx) });
   } else {
     const { mail, attachments } = await buildEmailPayload(ctx, prefs.templates.email[log.event], order.orderNo);
     result = await deliverChannel({

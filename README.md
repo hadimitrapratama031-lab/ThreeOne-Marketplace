@@ -188,3 +188,14 @@ Ringkasan audit dan perubahan optimasi: lihat `PERFORMANCE.md`.
 | Marketplace | Urutan default "Rekomendasi" = urutan Admin. Opsi Terbaru / Harga / Nama tetap ada. |
 | Socket.IO | `product:reorder` (admin: `{ items:[{id,productId,order}] }`, publik: `{ items:[{id,order}] }`, hanya produk yang tampil). Marketplace menerapkan posisi baru tanpa refresh. |
 | Gambar utama | Form Ubah Produk (dan Produk Code) punya bagian **Gambar utama**: tombol "Ganti Gambar Utama" mengunggah ke R2 lewat jalur upload yang sama dan menggantikan item gambar utama di posisinya; galeri lain tidak bergeser. Berkas lama dibersihkan oleh `assets.attach()` saat produk disimpan. |
+
+## Notifikasi Discord
+
+Port dari `discord.service.js` project lama, dipasang sebagai channel ketiga di `services/notifications.js` (setelah WhatsApp dan Email) — bukan sistem notifikasi baru.
+
+- **Event**: `paymentSuccess` → embed ke channel toko (sama seperti project lama; `orderCreated`, `paymentFailed`, `paymentExpired` tidak dikirim ke Discord) dan pesan baru Live Chat dari pelanggan → DM ke admin.
+- **Idempotency**: pembayaran memakai `NotificationLog` (unique `orderId + event + channel`, di-claim sebelum Discord dipanggil); DM Live Chat di-claim atomic per pesan (`LiveChatMessage.discord`). Webhook ganda, reconnect, dan refresh tidak mengirim dua kali.
+- **Kegagalan**: Discord mati/error hanya tercatat di Log Notifikasi (bisa dikirim ulang dari Admin Web); status order/payment dan pesan Live Chat tidak pernah ikut berubah.
+- **Konfigurasi**: Admin Web → Integrasi → Discord (`/api/admin/integrations/discord*`, hanya admin). Disimpan di dokumen `settings` key `integrations` (field `discord`); token dienkripsi AES-256-GCM dengan kunci turunan `APP_SECRET`, sama seperti token Fonnte. Ganti `APP_SECRET` = token harus diisi ulang.
+- **Realtime**: perubahan dan status koneksi disiarkan lewat event `integrations:update` pada Socket.IO admin yang sudah ada.
+- **ENV** (opsional, nilai awal saja): `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_CHANNEL_ID`, `DISCORD_ADMIN_USER_ID`. Lihat `.env.example`.

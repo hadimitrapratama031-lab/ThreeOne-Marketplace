@@ -5,6 +5,9 @@ import { getLivechatSettings } from './livechatSettings.js';
 import { getPaymentConfig } from './paymentSettings.js';
 import { resolvePublicOrigin } from '../lib/urls.js';
 import * as fonnte from './fonnte.js';
+import * as discord from './discord.js';
+import { getDiscordConfig } from './integrationSettings.js';
+import { getSetting } from './settings.js';
 
 /**
  * Notifikasi WhatsApp ke Admin untuk Live Chat — memakai integrasi Fonnte yang sudah ada (services/fonnte.js:
@@ -90,6 +93,56 @@ export async function notifyCustomerMessage(conv, msg, { origin } = {}) {
   await deliver({ Model: LiveChatMessage, id: msg._id, path: 'wa', target: s.waNumber, text, conversationId: conv.conversationId });
 }
 
+/* ----------------------------------------------------------------------------------------------------------------
+ * DM Discord ke admin untuk pesan customer — port dispatchDiscordNotification project lama. Aturan yang sama dengan WhatsApp di atas:
+ * slot di-CLAIM atomic pada pesan (`discord`) sebelum Discord dipanggil, jadi reconnect / event ganda tidak menghasilkan DM dobel;
+ * kegagalan hanya tercatat di sub-dokumen pesan dan tidak pernah membatalkan pesan pelanggan. Retry hanya untuk gangguan sementara
+ * (timeout, 5xx, 429); kesalahan permanen (ID salah, DM ditutup, token ditolak) berhenti di percobaan pertama.
+ * -------------------------------------------------------------------------------------------------------------- */
+const DISCORD_MAX_ATTEMPTS = 3;
+const httpUrl = (u) => (/^https?:\/\//i.test(u || '') ? String(u).trim() : '');
+
+async function sendDiscordWithRetry(ctx) {
+  let last;
+  for (let i = 1; i <= DISCORD_MAX_ATTEMPTS; i += 1) {
+    last = await discord.sendLiveChatDM(ctx);
+    if (last.success || last.permanent) return last;
+    if (i < DISCORD_MAX_ATTEMPTS) await sleep(1200 * i);   // jeda singkat dan bertambah, bukan retry tanpa batas
+  }
+  return last;
+}
+
+export async function notifyCustomerMessageDiscord(conv, msg, { origin } = {}) {
+  const skip = (why) => LiveChatMessage.updateOne({ _id: msg._id, 'discord.status': 'none' }, { $set: { 'discord.status': 'skipped', 'discord.error': why, 'discord.at': new Date() } });
+  const [cfg, lc] = await Promise.all([getDiscordConfig(), getLivechatSettings()]);
+  if (!lc.enabled) return skip('Live Chat dinonaktifkan');
+  if (!cfg.enabled || !cfg.liveChatDm) return skip('Notifikasi Discord Live Chat nonaktif');
+  if (!cfg.adminUserId) return skip('User ID Discord admin belum diisi');
+  if (!(await claim(LiveChatMessage, { _id: msg._id }, 'discord'))) return;   // pesan ini sudah ditangani
+
+  let name = 'Live Chat'; let logo = '';
+  try { const b = await getSetting('branding'); name = b?.name || name; logo = httpUrl(b?.logo?.url); } catch { /* branding tidak wajib untuk notifikasi */ }
+  const link = await adminLink(origin, conv.conversationId);
+  const ctx = {
+    storeName: name, storeLogo: logo,
+    customerName: conv.customer?.name || 'Pengunjung',
+    userId: conv.conversationId,   // ID percakapan, bukan kontak pelanggan: cukup untuk membuka thread yang benar
+    text: msg.type === 'image' ? '' : clip(msg.text, 900),
+    hasImage: msg.type === 'image',
+    imageUrl: msg.type === 'image' ? httpUrl(msg.image?.url) : '',
+    time: new Date(msg.createdAt || Date.now()).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta' }),
+    openUrl: link,
+  };
+  try {
+    const r = await sendDiscordWithRetry(ctx);
+    if (r.success) { await settle(LiveChatMessage, msg._id, 'discord', 'sent'); return; }
+    await settle(LiveChatMessage, msg._id, 'discord', r.disabled ? 'skipped' : 'failed', r.message);
+    if (!r.disabled) console.warn(`[livechat] DM Discord gagal (${conv.conversationId}): ${r.message}`);
+  } catch (err) {
+    await settle(LiveChatMessage, msg._id, 'discord', 'failed', err?.message || 'error').catch(() => {});
+  }
+}
+
 /** Pesan uji dari Admin Web (menghormati saklar Fonnte). */
 export async function sendTestNotification() {
   const s = await getLivechatSettings();
@@ -103,5 +156,6 @@ export async function failStaleNotifications() {
   const before = new Date(Date.now() - STALE_CLAIM_MS);
   const patch = { $set: { 'wa.status': 'failed', 'wa.error': 'Proses berhenti sebelum pengiriman selesai' } };
   await LiveChatMessage.updateMany({ 'wa.status': 'sending', 'wa.claimedAt': { $lt: before } }, patch);
+  await LiveChatMessage.updateMany({ 'discord.status': 'sending', 'discord.claimedAt': { $lt: before } }, { $set: { 'discord.status': 'failed', 'discord.error': 'Proses berhenti sebelum pengiriman selesai' } });
   await LiveChat.updateMany({ 'waCreated.status': 'sending', 'waCreated.claimedAt': { $lt: before } }, { $set: { 'waCreated.status': 'failed', 'waCreated.error': 'Proses berhenti sebelum pengiriman selesai' } });
 }

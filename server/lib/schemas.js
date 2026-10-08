@@ -318,6 +318,16 @@ export const templatesInput = z.object({
   whatsapp: z.object(Object.fromEntries(evKeys.map((k) => [k, z.string().max(4000).optional()]))).partial().optional(),
   email: z.object(Object.fromEntries(evKeys.map((k) => [k, z.object({ subject: z.string().max(200).optional(), html: z.string().max(60000).optional() }).optional()]))).partial().optional(),
 });
+/* Discord: ID server/channel/user adalah snowflake numerik; token tidak pernah dikembalikan ke browser */
+export const discordSettingsInput = z.object({
+  enabled: z.boolean(),
+  token: opt(200),
+  clearToken: z.boolean().optional().default(false),
+  guildId: opt(25),
+  channelId: opt(25),
+  adminUserId: opt(25),
+  liveChatDm: z.boolean().optional().default(true),
+});
 export const testFonnteInput = z.object({ testTarget: z.string().trim().max(25).optional().default('') });
 export const testResendInput = z.object({ testTo: z.string().trim().max(120).optional().default('') });
 export const notificationLogQuery = z.object({
@@ -325,6 +335,6 @@ export const notificationLogQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   orderNo: z.string().trim().max(40).optional().default(''),
   event: z.enum(evKeys).optional(),
-  channel: z.enum(['whatsapp', 'email']).optional(),
+  channel: z.enum(['whatsapp', 'email', 'discord']).optional(),
   status: z.enum(['pending', 'sending', 'sent', 'failed']).optional(),
 });

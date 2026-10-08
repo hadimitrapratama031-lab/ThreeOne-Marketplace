@@ -19,6 +19,7 @@ const lastTest = () => ({ status: 'untested', at: null, message: '' });
 const DEFAULT = () => ({
   fonnte: { enabled: false, tokenEnc: '', testTarget: '', lastTest: lastTest() },
   resend: { enabled: false, apiKeyEnc: '', fromEmail: '', fromName: '', replyTo: '', webhookSecretEnc: '', testTo: '', lastTest: lastTest() },
+  discord: { enabled: false, tokenEnc: '', guildId: '', channelId: '', adminUserId: '', liveChatDm: true, connection: { status: 'unchecked', botName: '', botId: '', at: null, message: '' }, lastTest: lastTest() },
   notifications: { whatsappEnabled: true, emailEnabled: true, events: Object.fromEntries(EVENTS.map((e) => [e, true])) },
   templates: {
     whatsapp: Object.fromEntries(EVENTS.map((e) => [e, ''])),
@@ -33,6 +34,7 @@ async function load() {
   return {
     fonnte: { ...d.fonnte, ...(v.fonnte || {}), lastTest: { ...d.fonnte.lastTest, ...(v.fonnte?.lastTest || {}) } },
     resend: { ...d.resend, ...(v.resend || {}), lastTest: { ...d.resend.lastTest, ...(v.resend?.lastTest || {}) } },
+    discord: { ...d.discord, ...(v.discord || {}), connection: { ...d.discord.connection, ...(v.discord?.connection || {}) }, lastTest: { ...d.discord.lastTest, ...(v.discord?.lastTest || {}) } },
     notifications: { ...d.notifications, ...(v.notifications || {}), events: { ...d.notifications.events, ...(v.notifications?.events || {}) } },
     templates: {
       whatsapp: { ...d.templates.whatsapp, ...(v.templates?.whatsapp || {}) },
@@ -58,6 +60,26 @@ export async function getResendConfig() {
     fromEmail: s.fromEmail || e.resendFromEmail,
     fromName: s.fromName || e.resendFromName,
     replyTo: s.replyTo || e.resendReplyTo || '',   // kosong = header Reply-To tidak dikirim
+  };
+}
+/**
+ * Konfigurasi Discord untuk backend (tidak pernah ke browser). Nilai Admin Web menang atas ENV; token dibaca dari MongoDB
+ * (terenkripsi) setiap kali, jadi token/channel baru langsung dipakai tanpa restart. REST-only: tidak ada proses bot yang hidup terus.
+ *   enabled = saklar Admin Web + token ada; ready = enabled + channel ada (cukup untuk notifikasi order);
+ *   usable  = token + channel ada walau saklar mati (dipakai tombol uji agar kredensial baru bisa diverifikasi dulu).
+ */
+export async function getDiscordConfig() {
+  const s = (await load()).discord;
+  const e = config.envFallback;
+  const token = (s.tokenEnc ? decryptSecret(s.tokenEnc) : '') || e.discordBotToken;
+  const channelId = s.channelId || e.discordChannelId;
+  return {
+    enabled: Boolean(s.enabled) && Boolean(token), token,
+    guildId: s.guildId || e.discordGuildId, channelId,
+    adminUserId: s.adminUserId || e.discordAdminUserId,
+    liveChatDm: s.liveChatDm !== false,
+    ready: Boolean(s.enabled) && Boolean(token) && Boolean(channelId),
+    usable: Boolean(token) && Boolean(channelId),
   };
 }
 export async function getResendWebhookSecret() {
@@ -94,6 +116,19 @@ export async function getAdminView() {
       webhookSecretSet: Boolean(s.resend.webhookSecretEnc) || Boolean(e.resendWebhookSecret), webhookSecretHint: hint(hook),
       testTo: s.resend.testTo, lastTest: s.resend.lastTest,
     },
+    discord: (() => {
+      const d = s.discord;
+      const dtoken = d.tokenEnc ? decryptSecret(d.tokenEnc) : '';
+      return {
+        enabled: d.enabled,
+        tokenSet: Boolean(d.tokenEnc), tokenReadable: !d.tokenEnc || Boolean(dtoken), tokenHint: hint(dtoken),
+        fromEnv: !d.tokenEnc && Boolean(e.discordBotToken),
+        configured: Boolean((dtoken || e.discordBotToken) && (d.channelId || e.discordChannelId)),
+        guildId: d.guildId || e.discordGuildId, channelId: d.channelId || e.discordChannelId, adminUserId: d.adminUserId || e.discordAdminUserId,
+        liveChatDm: d.liveChatDm !== false,
+        connection: d.connection, lastTest: d.lastTest,
+      };
+    })(),
     notifications: s.notifications,
     templates: s.templates,
   };
@@ -147,6 +182,55 @@ export async function saveResend(input) {
     if (Object.keys(fields).length) throw bad(fields, 'Lengkapi pengaturan Resend sebelum mengaktifkan.');
   }
   await persist({ ...s, resend: r });
+  return getAdminView();
+}
+
+const SNOWFLAKE = /^\d{17,20}$/;   // ID Discord (server/channel/user) selalu numerik, 17–20 digit
+/** Token bot: tempelan "Bot xxx" dirapikan; bentuknya dicek longgar (3 bagian dipisah titik) agar format baru Discord tidak ikut ditolak. */
+const cleanBotToken = (t) => String(t || '').trim().replace(/^bot\s+/i, '');
+const looksLikeBotToken = (t) => /^[\w-]{15,}\.[\w-]{4,}\.[\w-]{20,}$/.test(t) && t.length <= 150;
+
+export async function saveDiscord(input) {
+  const s = await load();
+  const d = { ...s.discord };
+  const before = { token: d.tokenEnc, guildId: d.guildId, channelId: d.channelId };
+  const fields = {};
+
+  if (input.clearToken) d.tokenEnc = '';
+  if (input.token) {
+    const t = cleanBotToken(input.token);
+    if (!looksLikeBotToken(t)) fields.token = 'Format token bot tidak dikenali. Salin ulang dari Discord Developer Portal → Bot → Reset Token.';
+    else d.tokenEnc = encryptSecret(t);
+  }
+  for (const [k, label] of [['guildId', 'Guild ID'], ['channelId', 'Channel ID'], ['adminUserId', 'User ID admin']]) {
+    if (input[k] === undefined) continue;
+    const v = String(input[k]).trim();
+    if (v && !SNOWFLAKE.test(v)) fields[k] = `${label} harus berupa angka 17–20 digit (Discord → Pengaturan → Advanced → Developer Mode → klik kanan → Copy ID).`;
+    else d[k] = v;
+  }
+  d.liveChatDm = input.liveChatDm !== false;
+  d.enabled = Boolean(input.enabled);
+  if (Object.keys(fields).length) throw bad(fields);
+
+  if (d.enabled) {
+    const e = config.envFallback;
+    if (!d.tokenEnc && !e.discordBotToken) fields.token = 'Isi token bot sebelum mengaktifkan';
+    if (!(d.channelId || e.discordChannelId)) fields.channelId = 'Wajib diisi untuk mengaktifkan';
+    if (Object.keys(fields).length) throw bad(fields, 'Lengkapi pengaturan Discord sebelum mengaktifkan.');
+  }
+  // Kredensial/tujuan berubah: status koneksi lama tidak lagi berlaku sampai diperiksa ulang
+  if (before.token !== d.tokenEnc || before.guildId !== d.guildId || before.channelId !== d.channelId) {
+    d.connection = { status: 'unchecked', botName: '', botId: '', at: null, message: '' };
+  }
+  await persist({ ...s, discord: d });
+  return getAdminView();
+}
+
+/** Hasil pemeriksaan koneksi terakhir (token valid, bot ada di server, channel terjangkau). */
+export async function recordDiscordConnection({ ok, botName = '', botId = '', message = '' }) {
+  const s = await load();
+  s.discord.connection = { status: ok ? 'connected' : 'error', botName, botId, at: new Date(), message: String(message || '').slice(0, 300) };
+  await persist(s);
   return getAdminView();
 }
 

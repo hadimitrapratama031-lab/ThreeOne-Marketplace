@@ -7,7 +7,7 @@ import { emitAdmin, emitToRoom, closeRoom, livechatRoom, setLivechatJoinHandler 
 import { livechatTokenFor, livechatTokenOk, newConversationId, CONVERSATION_ID_RE } from '../lib/livechatToken.js';
 import { isLivechatEnabled } from './livechatSettings.js';
 import * as assets from './assets.js';
-import { notifyConversationCreated, notifyCustomerMessage, failStaleNotifications } from './livechatNotify.js';
+import { notifyConversationCreated, notifyCustomerMessage, notifyCustomerMessageDiscord, failStaleNotifications } from './livechatNotify.js';
 
 /**
  * Live Chat — satu-satunya sumber logika percakapan untuk Marketplace (pelanggan) dan Admin Web.
@@ -187,6 +187,7 @@ export async function postMessage({ conv, sender, admin = null, clientId, type, 
 
   if (sender === 'customer') {
     setImmediate(() => notifyCustomerMessage(reserved, msg, { origin }).catch((e) => console.error('[livechat] notifikasi WA:', e?.message)));
+    setImmediate(() => notifyCustomerMessageDiscord(reserved, msg, { origin }).catch((e) => console.error('[livechat] notifikasi Discord:', e?.message)));   // channel terpisah: salah satu gagal tidak mempengaruhi yang lain
   }
   return { message: msg, conversation: reserved, duplicate: false };
 }

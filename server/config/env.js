@@ -45,6 +45,11 @@ export const config = {
     resendFromName: clean(e.RESEND_FROM_NAME),
     resendReplyTo: clean(e.RESEND_REPLY_TO),
     resendWebhookSecret: clean(e.RESEND_WEBHOOK_SECRET),
+    // Discord: hanya nilai awal bila Admin Web belum mengisi. Yang tersimpan di Admin Web (terenkripsi di MongoDB) selalu menang.
+    discordBotToken: clean(e.DISCORD_BOT_TOKEN),
+    discordGuildId: clean(e.DISCORD_GUILD_ID),
+    discordChannelId: clean(e.DISCORD_CHANNEL_ID),
+    discordAdminUserId: clean(e.DISCORD_ADMIN_USER_ID),
   },
   corsOrigins: list(e.CORS_ORIGINS),
   trustProxy: e.TRUST_PROXY !== undefined ? (Number.isNaN(Number(e.TRUST_PROXY)) ? e.TRUST_PROXY : Number(e.TRUST_PROXY)) : (isProd ? 1 : false),

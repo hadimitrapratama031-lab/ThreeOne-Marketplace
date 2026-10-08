@@ -248,7 +248,7 @@ export const Order = mongoose.model('Order', orderSchema);
    di-claim SEBELUM provider dipanggil, jadi webhook ganda / reconnect / refresh tidak pernah mengirim dua kali.
    Struktur dan arti status sama dengan project Marketplace lama. */
 export const NOTIFICATION_EVENTS = ['orderCreated', 'paymentSuccess', 'paymentFailed', 'paymentExpired'];
-export const NOTIFICATION_CHANNELS = ['whatsapp', 'email'];
+export const NOTIFICATION_CHANNELS = ['whatsapp', 'email', 'discord'];
 const notificationLogSchema = new Schema({
   orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
   orderCode: { type: String, default: '' },
@@ -357,10 +357,12 @@ const liveChatMessageSchema = new Schema({
   text: { type: String, default: '', maxlength: 1000 },
   image: { type: new Schema({ key: String, url: String, mime: String, size: Number }, { _id: false }), default: null },   // hanya referensi R2, bukan binary
   wa: { type: new Schema(waNotify, { _id: false }), default: () => ({}) },   // kunci idempotensi notifikasi WhatsApp admin untuk pesan ini
+  discord: { type: new Schema(waNotify, { _id: false }), default: () => ({}) },   // kunci idempotensi DM Discord admin untuk pesan ini
 }, { timestamps: true });
 liveChatMessageSchema.index({ conversation: 1, seq: 1 }, { unique: true });
 liveChatMessageSchema.index({ conversation: 1, clientId: 1 }, { unique: true, partialFilterExpression: { clientId: { $type: 'string' } } });
 liveChatMessageSchema.index({ 'wa.status': 1, 'wa.claimedAt': 1 });
+liveChatMessageSchema.index({ 'discord.status': 1, 'discord.claimedAt': 1 });
 export const LiveChatMessage = mongoose.model('LiveChatMessage', liveChatMessageSchema);
 
 /* ReportReset — penanda "Hapus Rekap Bulan" di halaman Keuntungan Per Bulan. BUKAN data rekap: angka tetap dihitung langsung dari Order

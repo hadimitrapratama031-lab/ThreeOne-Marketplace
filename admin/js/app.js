@@ -15,6 +15,7 @@ const ROUTES = [
   { group: 'Live Chat', path: 'livechat', title: 'Percakapan', icon: 'chat', load: () => import('./pages/livechat.js') },
   { group: 'Live Chat', path: 'livechat-settings', title: 'Pengaturan Live Chat', icon: 'sliders', load: () => import('./pages/livechat-settings.js') },
   { group: 'Integrasi', path: 'integrations', title: 'Email & WhatsApp', icon: 'plug', load: () => import('./pages/integrations.js') },
+  { group: 'Integrasi', path: 'discord', title: 'Discord', icon: 'chat', load: () => import('./pages/discord.js') },
   { group: 'Integrasi', path: 'notifications', title: 'Log Notifikasi', icon: 'bell', load: () => import('./pages/notifications.js') },
   { group: 'Konten', path: 'hero', title: 'Hero', icon: 'layout', load: () => import('./pages/hero.js') },
   { group: 'Konten', path: 'faq', title: 'FAQ', icon: 'help', load: () => import('./pages/faq.js') },

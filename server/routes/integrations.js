@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { asyncH, parse, HttpError, objectIdStr, pageMeta } from '../lib/http.js';
-import { fonnteSettingsInput, resendSettingsInput, notificationPrefsInput, templatesInput, testFonnteInput, testResendInput, notificationLogQuery } from '../lib/schemas.js';
-import { getAdminView, saveFonnte, saveResend, saveNotificationPrefs, saveTemplates, recordTest } from '../services/integrationSettings.js';
+import { fonnteSettingsInput, resendSettingsInput, discordSettingsInput, notificationPrefsInput, templatesInput, testFonnteInput, testResendInput, notificationLogQuery } from '../lib/schemas.js';
+import { getAdminView, saveFonnte, saveResend, saveDiscord, saveNotificationPrefs, saveTemplates, recordTest, recordDiscordConnection } from '../services/integrationSettings.js';
 import * as fonnte from '../services/fonnte.js';
 import * as resend from '../services/resend.js';
+import * as discord from '../services/discord.js';
 import { listLogs, retryLog, previewTemplates } from '../services/notifications.js';
 import { emitAdmin } from '../lib/realtime.js';
 import { config } from '../config/env.js';
@@ -24,6 +25,34 @@ integrationsRouter.get('/', asyncH(async (req, res) => res.json({ settings: awai
 
 integrationsRouter.put('/fonnte', asyncH(async (req, res) => res.json({ settings: await publish(await saveFonnte(parse(fonnteSettingsInput, req.body)), req) })));
 integrationsRouter.put('/resend', asyncH(async (req, res) => res.json({ settings: await publish(await saveResend(parse(resendSettingsInput, req.body)), req) })));
+// Discord: semua perubahan dan uji lewat sini (hanya Admin — router ini dipasang di bawah autentikasi admin). Token tidak pernah ada di respons.
+// Pemeriksaan koneksi dijalankan di latar belakang setelah simpan: status bot ikut tersiarkan realtime tanpa menahan request,
+// dan kegagalannya tidak pernah menggagalkan penyimpanan.
+async function checkDiscord(req) {
+  const r = await discord.verifyConnection().catch((err) => ({ ok: false, message: 'Pemeriksaan koneksi gagal: ' + (err?.message || 'error') }));
+  const view = await publish(await recordDiscordConnection(r), req);
+  return { r, view };
+}
+integrationsRouter.put('/discord', asyncH(async (req, res) => {
+  const view = await publish(await saveDiscord(parse(discordSettingsInput, req.body)), req);
+  if (view.discord.configured) setImmediate(() => checkDiscord(req).catch(() => {}));
+  res.json({ settings: view });
+}));
+integrationsRouter.post('/discord/check', asyncH(async (req, res) => {
+  const { r, view } = await checkDiscord(req);
+  res.status(r.ok ? 200 : 422).json({ ok: r.ok, message: r.message, settings: view });
+}));
+integrationsRouter.post('/discord/test', asyncH(async (req, res) => {
+  const r = await discord.sendTestNotification();
+  await publish(await recordTest('discord', r.success, r.message), req);
+  res.status(r.success ? 200 : 422).json({ ok: r.success, message: r.message });
+}));
+integrationsRouter.post('/discord/test-dm', asyncH(async (req, res) => {
+  const r = await discord.sendTestDirectMessage();
+  await publish(await recordTest('discord', r.success, r.message), req);
+  res.status(r.success ? 200 : 422).json({ ok: r.success, message: r.message });
+}));
+
 integrationsRouter.put('/notifications', asyncH(async (req, res) => res.json({ settings: await publish(await saveNotificationPrefs(parse(notificationPrefsInput, req.body)), req) })));
 integrationsRouter.put('/templates', asyncH(async (req, res) => res.json({ settings: await publish(await saveTemplates(parse(templatesInput, req.body)), req) })));
 
