@@ -278,15 +278,17 @@ export async function revealCode(id) {
   return admCode(c, { reveal: true });
 }
 
-/** Menghapus produk code: ditolak bila sudah ada code terjual (riwayat penjualan tidak boleh hilang). */
+/**
+ * Menghapus produk code: semua code produk itu (tersedia maupun terjual) ikut dihapus. Order & Payment tidak dihapus.
+ * Satu-satunya penghalang: pesanan yang sudah dibayar dan masih menunggu code, karena tanpa produk ia tidak akan pernah terpenuhi.
+ */
 export async function releaseProductCodes(product) {
-  const used = await RedeemCode.countDocuments({ product: product._id, status: 'sold' });
-  if (used) throw new HttpError(409, `Produk ini sudah punya ${used} code terjual, jadi tidak bisa dihapus. Nonaktifkan saja agar tidak tampil di Marketplace.`);
   const waiting = await Order.countDocuments({ 'product.ref': product._id, codeState: 'waiting', status: 'SUCCESS' });
   if (waiting) throw new HttpError(409, `Ada ${waiting} pesanan yang sudah dibayar dan menunggu code untuk produk ini. Tambah stok code dulu agar pesanan terpenuhi.`);
 }
 export async function deleteProductCodes(product) {
-  await RedeemCode.deleteMany({ product: product._id, status: 'available' });
+  const res = await RedeemCode.deleteMany({ product: product._id });   // semua status; relasi ke produk ini sudah tidak ada artinya
   scheduleStats();
-  emitAdmin('code:refresh', { productId: product.productId });
+  emitAdmin('code:refresh', { productId: product.productId });          // Laporan Code memuat ulang daftar & ringkasan
+  return res.deletedCount ?? 0;
 }

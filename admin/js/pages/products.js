@@ -127,11 +127,11 @@ export default {
       if (!p) return;
       const ok = await confirmDialog({
         title: 'Hapus produk?',
-        message: `“${p.name}” akan dihapus permanen dari database, termasuk ulasannya dan ${p.media.filter((m) => m.key).length} file di penyimpanan R2. Tindakan ini tidak bisa dibatalkan.`,
+        message: `“${p.name}” akan dihapus permanen dari database, termasuk ulasannya${p.kind === 'code' ? ', semua code redeem produk ini (tersedia maupun yang sudah terjual),' : ''} dan ${p.media.filter((m) => m.key).length} file di penyimpanan R2. Data pesanan dan pembayaran tidak dihapus.${p.kind === 'code' ? ' Pelanggan yang sudah menerima code tidak akan melihatnya lagi di halaman pesanan.' : ''} Tindakan ini tidak bisa dibatalkan.`,
         confirmLabel: 'Hapus permanen', danger: true,
       });
       if (!ok) return;
-      try { const r = await api.del(`/products/${p.id}`); toast('Produk dihapus', { detail: r.removedReviews ? `${r.removedReviews} ulasan ikut dihapus.` : '' }); load(); }
+      try { const r = await api.del(`/products/${p.id}`); toast('Produk dihapus', { detail: [r.removedReviews ? `${r.removedReviews} ulasan` : '', r.removedCodes ? `${r.removedCodes} code` : ''].filter(Boolean).join(' dan ') + (r.removedReviews || r.removedCodes ? ' ikut dihapus.' : '') }); load(); }
       catch (err) { toastError(err, 'Gagal menghapus'); }
     }
 

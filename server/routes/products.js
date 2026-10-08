@@ -137,18 +137,18 @@ r.patch('/:id/status', asyncH(async (req, res) => {
 
 r.delete('/:id', asyncH(async (req, res) => {
   const doc = await loadProduct(req.params.id);
-  if (doc.kind === 'code') await releaseProductCodes(doc);   // ditolak (409) bila ada code terjual atau pesanan menunggu code
+  if (doc.kind === 'code') await releaseProductCodes(doc);   // ditolak (409) hanya bila ada pesanan dibayar yang masih menunggu code
   const before = doc.toObject();
   const reviews = await Review.find({ product: doc._id }).select('_id').lean();
 
   await Product.deleteOne({ _id: doc._id }); // data dulu, file R2 sesudahnya (kalau gagal -> ditandai orphan dan dicoba ulang)
   await Review.deleteMany({ product: doc._id });
-  if (doc.kind === 'code') await deleteProductCodes(doc);
+  const removedCodes = doc.kind === 'code' ? await deleteProductCodes(doc) : 0;   // semua code produk ini ikut terhapus
   for (const rv of reviews) await assets.releaseOwner({ type: 'review', id: rv._id });
   await assets.releaseOwner(owner(doc._id));
 
   emitChange('product', { before, after: null, ...events });
-  res.json({ ok: true, removedReviews: reviews.length });
+  res.json({ ok: true, removedReviews: reviews.length, removedCodes });
 }));
 
 export default r;
