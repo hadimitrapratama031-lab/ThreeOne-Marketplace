@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { Product, Category, nextSeq } from '../models/index.js';
 import { asyncH, parse, HttpError, objectIdStr, pageMeta } from '../lib/http.js';
-import { codeProductInput, codeProductUpdateInput, addCodesInput, codeListQuery } from '../lib/schemas.js';
+import { codeProductInput, codeProductUpdateInput, addCodesInput, codeListQuery, codeEditInput } from '../lib/schemas.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
 import { soldOf } from '../services/sales.js';
-import { addCodes, validateCodeInput, listCodes, revealCode, codeStats, productCounts, broadcastProduct } from '../services/codes.js';
-import { fulfillWaitingOrders } from '../services/redeem.js';
+import { addCodes, validateCodeInput, listCodes, revealCode, codeStats, productCounts, broadcastProduct, admCode } from '../services/codes.js';
+import { fulfillWaitingOrders, editCode, removeCode } from '../services/redeem.js';
 import { nextTopOrder } from '../services/productOrder.js';
 
 const owner = (id) => ({ type: 'product', id: String(id) });
@@ -109,4 +109,22 @@ codesRouter.get('/:id/reveal', asyncH(async (req, res) => {
   if (!objectIdStr.safeParse(req.params.id).success) throw new HttpError(404, 'Code tidak ditemukan.');
   res.set('Cache-Control', 'no-store');
   res.json({ item: await revealCode(req.params.id) });
+}));
+
+const codeId = (raw) => {
+  if (!objectIdStr.safeParse(raw).success) throw new HttpError(404, 'Code tidak ditemukan.');
+  return raw;
+};
+
+// Edit isi satu code. Code yang sudah diberikan ke pelanggan wajib `confirm: true` (UI menampilkan peringatan dulu).
+codesRouter.put('/:id', asyncH(async (req, res) => {
+  const data = parse(codeEditInput, req.body);
+  const { item, changed } = await editCode(codeId(req.params.id), data);
+  res.json({ item: admCode(item), changed });
+}));
+
+// Hapus satu code. Order & Payment terkait tidak dihapus. Code yang sudah diberikan wajib ?confirm=sold.
+codesRouter.delete('/:id', asyncH(async (req, res) => {
+  const r = await removeCode(codeId(req.params.id), { confirm: req.query.confirm === 'sold' });
+  res.json({ ok: true, ...r });
 }));

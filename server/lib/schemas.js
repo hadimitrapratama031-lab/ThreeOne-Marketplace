@@ -87,6 +87,12 @@ export const codeProductInput = z.object({
 export const codeProductUpdateInput = codeProductInput.omit({ codes: true });
 export const addCodesInput = z.object({ codes: z.string({ required_error: 'Masukkan minimal satu code' }).max(400_000) });
 
+// Edit satu code di Laporan Code. `confirm` wajib true bila code sudah diberikan ke pelanggan (dicek ulang di server).
+export const codeEditInput = z.object({
+  code: z.string({ required_error: 'Masukkan code' }).max(200),
+  confirm: z.boolean().optional().default(false),
+});
+
 const codeStatus = z.enum(['available', 'sold']);   // sold = sudah diberikan ke pelanggan
 export const codeListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),

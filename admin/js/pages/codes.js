@@ -14,6 +14,8 @@ const FILTERS = { productId: '', status: '', order: '', email: '', customer: '',
  * Laporan Code. Semua angka dan baris dari MongoDB lewat API Admin (/api/admin/codes).
  * Realtime lewat Socket.IO admin yang sudah ada: code:stats (angka), code:update (satu baris), code:refresh (muat ulang).
  * Code berstatus Tersedia disamarkan di daftar; isi utuh hanya lewat tombol "Lihat" (permintaan admin yang sedang login).
+ * Edit / Hapus satu code lewat API Admin (PUT/DELETE /api/admin/codes/:id); code yang sudah terjual wajib konfirmasi tambahan.
+ * Realtime: code:update (baris berubah) dan code:delete (baris hilang) dari Socket.IO admin.
  */
 export default {
   async mount(root) {
@@ -97,6 +99,10 @@ export default {
       <td>${c.customer.name ? html`${c.customer.name}<br><small class="faint">${c.customer.email}${c.customer.whatsapp ? ` · +${c.customer.whatsapp}` : ''}</small>` : html`<span class="faint">—</span>`}</td>
       <td>${pill(c.status)}</td>
       <td class="muted">${dateTime(c.assignedAt)}</td>
+      <td><div class="row-actions">
+        <button class="icon-btn" type="button" data-edit="${c.id}" aria-label="Edit code" title="Edit code">${icon('edit')}</button>
+        <button class="icon-btn danger" type="button" data-del="${c.id}" aria-label="Hapus code" title="Hapus code">${icon('trash')}</button>
+      </div></td>
     </tr>`;
 
     async function load() {
@@ -109,7 +115,7 @@ export default {
         const filtered = Object.keys(FILTERS).some((k) => q[k]);
         $('#table', root).innerHTML = (res.items.length ? html`
           <table>
-            <thead><tr><th>Code</th><th>Produk</th><th>Order ID</th><th>Customer</th><th>Status</th><th>Diberikan</th></tr></thead>
+            <thead><tr><th>Code</th><th>Produk</th><th>Order ID</th><th>Customer</th><th>Status</th><th>Diberikan</th><th><span class="sr-only">Aksi</span></th></tr></thead>
             <tbody id="rows">${res.items.map(rowHTML)}</tbody>
           </table>` : emptyState(filtered ? 'Tidak ada code yang cocok' : 'Belum ada code', filtered ? 'Ubah kata kunci atau filter.' : 'Tambahkan code lewat Produk → Sistem Code.', 'key')).s;
         $('#pager', root).innerHTML = pagerHTML(res).s;
@@ -162,7 +168,106 @@ export default {
       f.elements.codes.focus();
     }
 
+    /** Isi utuh code (untuk code Tersedia yang disamarkan di daftar). Code terjual sudah tampil utuh. */
+    async function fullCode(c, btn) {
+      if (!c.masked) return c;
+      const { item } = await busy(btn, () => api.get(`/codes/${c.id}/reveal`));
+      return item;
+    }
+    const customerLine = (c) => html`<b>${c.customer.name || '—'}</b>${c.customer.email ? html` · ${c.customer.email}` : ''}${c.customer.whatsapp ? html` · +${c.customer.whatsapp}` : ''}`;
+    const historyBox = (c, text) => html`<div class="code-warn" role="alert">
+      ${icon('alert')}
+      <div><b>Code ini sudah diberikan ke pelanggan</b>
+        <dl class="code-warn__meta"><div><dt>Order</dt><dd>${c.orderNo || '—'}</dd></div><div><dt>Pelanggan</dt><dd>${customerLine(c)}</dd></div><div><dt>Diberikan</dt><dd>${dateTime(c.assignedAt)}</dd></div></dl>
+        <p>${text}</p></div></div>`;
+    const sameRow = (item) => {
+      rows.set(item.id, item);
+      const tr = $(`tr[data-id="${item.id}"]`, root);
+      if (!tr) return;
+      tr.outerHTML = rowHTML(item).s;
+      $(`tr[data-id="${item.id}"]`, root)?.classList.add('row-flash');
+    };
+
+    async function editDialog(c) {
+      const sold = c.status === 'sold';
+      const d = dialog({
+        title: 'Edit code',
+        body: html`
+          <div class="code-meta"><span>${c.productName ?? '—'}</span>${pill(c.status)}</div>
+          ${sold ? historyBox(c, html`Mengubah code akan mengubah code yang tampil di halaman pesanan pelanggan (diperbarui otomatis). Email atau WhatsApp yang <b>sudah terkirim</b> tidak ikut berubah, jadi pastikan code baru valid dan pelanggan diberi tahu bila perlu. Order dan pembayaran tidak diubah.`) : ''}
+          <label class="field"><span>Isi code</span><input name="code" class="mono code-input" type="text" value="${c.code}" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="100"><small>4–100 karakter tanpa spasi. Tidak boleh sama dengan code lain.</small></label>
+          ${sold ? html`<label class="code-ack"><input type="checkbox" name="ack"><span>Saya mengerti code ini sudah dipakai pelanggan dan tetap ingin mengubahnya.</span></label>` : ''}`,
+        foot: html`<button type="button" class="btn" data-close>Batal</button><button type="submit" class="btn btn--primary" ${sold ? 'disabled' : ''}>Simpan perubahan</button>`,
+      });
+      const f = d.form;
+      const save = $('button[type="submit"]', f);
+      if (sold) f.elements.ack.addEventListener('change', () => { save.disabled = !f.elements.ack.checked; });
+      f.addEventListener('submit', async () => {
+        if (save.disabled) return;
+        const code = f.elements.code.value.trim();
+        if (code === c.code) { d.close(); return toast('Tidak ada perubahan'); }
+        try {
+          const r = await busy(save, () => api.put(`/codes/${c.id}`, { code, confirm: sold }));
+          d.close();
+          sameRow(r.item);
+          toast('Code diperbarui', { detail: sold ? 'Halaman pesanan pelanggan ikut menampilkan code baru.' : '' });
+        } catch (err) {
+          if (fieldErrors(f, err.fields)) return;
+          toastError(err, 'Code gagal diperbarui');
+          if (err.status === 409 || err.status === 404) { d.close(); refreshAll(); }
+        }
+      });
+      f.elements.code.focus(); f.elements.code.select();
+    }
+
+    function deleteDialog(c) {
+      const sold = c.status === 'sold';
+      const d = dialog({
+        title: 'Hapus code?',
+        body: html`
+          <p style="margin:0 0 10px">Code berikut akan dihapus permanen dari database:</p>
+          <div class="code-target"><code class="code-chip">${c.code}</code><span class="muted">${c.productName ?? ''}</span></div>
+          ${sold
+            ? html`${historyBox(c, html`Code ini punya riwayat order. <b>Order dan pembayaran tidak dihapus</b>. Pesanan itu kembali ke antrean <b>menunggu code</b> dan otomatis mendapat code pengganti bila stok tersedia (atau saat stok ditambah). Pelanggan yang membuka halaman pesanannya akan melihat code berubah.`)}
+              <label class="code-ack"><input type="checkbox" name="ack"><span>Saya mengerti riwayat code ini akan hilang dan ingin tetap menghapusnya.</span></label>`
+            : html`<p class="muted" style="margin:10px 0 0">Code ini masih tersedia dan belum diberikan ke siapa pun. Stok produk akan berkurang satu.</p>`}`,
+        foot: html`<button type="button" class="btn" data-close>Batal</button><button type="submit" class="btn btn--danger-solid" ${sold ? 'disabled' : ''}>Hapus code</button>`,
+      });
+      const f = d.form;
+      const go = $('button[type="submit"]', f);
+      if (sold) f.elements.ack.addEventListener('change', () => { go.disabled = !f.elements.ack.checked; });
+      f.addEventListener('submit', async () => {
+        if (go.disabled) return;
+        try {
+          const r = await busy(go, () => api.del(`/codes/${c.id}`, sold ? { confirm: 'sold' } : {}));
+          d.close();
+          dropRow(c.id);
+          toast('Code dihapus', { detail: sold ? (r.replaced ? `Pesanan ${r.orderNo} langsung mendapat code pengganti.` : `Pesanan ${r.orderNo} menunggu code pengganti.`) : '' });
+        } catch (err) {
+          toastError(err, 'Code gagal dihapus');
+          if (err.status === 409 || err.status === 404) { d.close(); refreshAll(); }
+        }
+      });
+    }
+
+    function dropRow(id) {
+      rows.delete(id);
+      $(`tr[data-id="${id}"]`, root)?.remove();
+      loadSoon();   // isi kembali halaman, perbarui total & pager
+    }
+
     root.addEventListener('click', async (e) => {
+      const ed = e.target.closest('[data-edit]');
+      const dl = e.target.closest('[data-del]');
+      if (ed || dl) {
+        const btn = ed || dl;
+        const c = rows.get(btn.dataset.edit || btn.dataset.del);
+        if (!c) return;
+        try { const full = await fullCode(c, btn); if (ed) editDialog(full); else deleteDialog(full); }
+        catch (err) { toastError(err, 'Code gagal dimuat'); }
+        return;
+      }
+
       const pg = e.target.closest('[data-page]');
       if (pg && !pg.disabled) { q.page = +pg.dataset.page; return load(); }
 
@@ -195,6 +300,7 @@ export default {
         if (!alive) return;
         if (evt === 'resync' || evt === 'code:refresh') return refreshAll();
         if (evt === 'code:stats') { stats = payload; return renderStats(); }
+        if (evt === 'code:delete') { if (rows.has(payload.id)) dropRow(payload.id); else loadSoon(); return; }
         if (evt === 'code:update') {
           const tr = $(`tr[data-id="${payload.id}"]`, root);
           if (tr) {

@@ -34,7 +34,7 @@ const LIVE_EVENTS = [
   'media:error',
   'order:update', 'order:delete', 'report:update', 'payment-settings:update',
   'integrations:update', 'notification:log',
-  'code:update', 'code:stats', 'code:refresh',
+  'code:update', 'code:delete', 'code:stats', 'code:refresh',
   'livechat:conversation:created', 'livechat:conversation:updated', 'livechat:conversation:expired',
   'livechat:message:new', 'livechat:read', 'livechat:unread', 'livechat:settings',
 ];
