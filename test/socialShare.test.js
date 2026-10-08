@@ -77,3 +77,25 @@ test('Social Share: banner diganti dari Admin -> halaman langsung memakai URL ba
   const html = await page('/rating');
   assert.equal(metaOf(html, 'property', 'og:image'), put.body.value.banner.url);
 });
+
+test('Social Share: banner besar (>280 KB) otomatis dibuatkan salinan og:image ringan; file asli tetap utuh', async () => {
+  const sharp = (await import('sharp')).default;
+  const noise = (await import('node:crypto')).randomBytes(1200 * 630 * 3);
+  const big = await sharp(noise, { raw: { width: 1200, height: 630, channels: 3 } }).png().toBuffer();
+  assert.ok(big.length > 280 * 1024, 'bahan uji harus lebih besar dari batas');
+  const up = await a.upload(big, 'social', 'besar.png');
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  const put = await a.put('/settings/socialShare', { banner: { key: up.body.asset.key } });
+  assert.equal(put.status, 200, JSON.stringify(put.body));
+  assert.equal(put.body.value.banner.url.endsWith('.png'), true, 'file asli tetap tersimpan');
+
+  const html = await page('/');
+  const og = metaOf(html, 'property', 'og:image');
+  assert.match(og, /-og\.jpg$/);
+  assert.equal(metaOf(html, 'property', 'og:image:type'), 'image/jpeg');
+  assert.equal(metaOf(html, 'property', 'twitter:image') ?? metaOf(html, 'name', 'twitter:image'), og);
+  const img = await fetch(og);
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/jpeg');
+  assert.ok((await img.arrayBuffer()).byteLength <= 280 * 1024);
+});

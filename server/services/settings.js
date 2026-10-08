@@ -1,7 +1,9 @@
-import { Setting } from '../models/index.js';
+import crypto from 'node:crypto';
+import sharp from 'sharp';
+import { Setting, Asset } from '../models/index.js';
 import { settingSchemas } from '../lib/schemas.js';
 import { parse, HttpError } from '../lib/http.js';
-import { publicUrl } from '../lib/r2.js';
+import { publicUrl, putObject, getObjectBuffer } from '../lib/r2.js';
 import * as assets from './assets.js';
 
 /** Nilai awal = teks yang sebelumnya hardcoded di Marketplace. Angka statistik default 0 (tidak ditampilkan). */
@@ -49,7 +51,8 @@ const BRANDING_MEDIA = {
 const BRANDING_FIELDS = Object.keys(BRANDING_MEDIA);
 const mediaRef = (m) => (m?.key ? { key: m.key, url: publicUrl(m.key) } : null);
 // Banner Social Share ikut membawa ukuran asli (bila diketahui) untuk og:image:width/height
-const bannerRef = (m) => (m?.key ? { ...mediaRef(m), ...(m.width && m.height ? { width: m.width, height: m.height } : {}) } : null);
+const ogRef = (o) => (o?.key ? { key: o.key, url: publicUrl(o.key), width: o.width, height: o.height } : null);
+const bannerRef = (m) => (m?.key ? { ...mediaRef(m), ...(m.width && m.height ? { width: m.width, height: m.height } : {}), og: ogRef(m.og) } : null);
 
 function withUrls(key, value) {
   if (key === 'branding') return { ...value, ...Object.fromEntries(BRANDING_FIELDS.map((f) => [f, mediaRef(value[f])])) };
@@ -61,7 +64,7 @@ function withUrls(key, value) {
 const keysOf = (key, value) => {
   if (key === 'branding') return BRANDING_FIELDS.map((f) => value[f]?.key).filter(Boolean);
   if (key === 'hero') return value.covers.filter(Boolean).map((c) => c.key);
-  if (key === 'socialShare') return value.banner?.key ? [value.banner.key] : [];
+  if (key === 'socialShare') return [value.banner?.key, value.banner?.og?.key].filter(Boolean);
   return [];
 };
 
@@ -161,10 +164,64 @@ async function saveSocialShare(value, owner) {
   if (value.pages !== undefined) $set['value.pages'] = { ...DEFAULTS.socialShare.pages, ...current.pages, ...value.pages };
   if (Object.keys($set).length) await Setting.findOneAndUpdate({ key: 'socialShare' }, { $set }, { upsert: true, new: true });
 
+  if (value.banner) await ensureBannerRendition().catch((err) => console.error('[socialShare] rendition banner gagal:', err.message));
+
   // Kunci yang dipakai dihitung dari data yang benar-benar tersimpan, bukan dari input (aman saat dua kartu disimpan bersamaan)
   const stored = (await Setting.findOne({ key: 'socialShare' }).lean())?.value || {};
   await assets.attach(owner, keysOf('socialShare', { ...DEFAULTS.socialShare, ...stored }));
   return getSetting('socialShare');
+}
+
+/*
+ * Rendition banner untuk preview link. WhatsApp (dan sebagian platform lain) diam-diam MEMBUANG og:image yang
+ * terlalu besar (batas praktis ~300 KB; resmi Meta < 600 KB) -> link tampil tanpa banner. Admin boleh mengunggah
+ * banner sampai 5 MB, jadi file ASLI tidak diubah/dihapus; bila ukurannya melewati OG_MAX_BYTES, dibuat satu salinan
+ * JPEG (lebar maks 1200 px, tanpa crop, kualitas diturunkan bertahap HANYA sampai muat) yang dipakai og:image.
+ * Banner yang sudah kecil dipakai apa adanya. Hasil disimpan di setting (banner.og) dan tercatat sebagai Asset
+ * milik settings/socialShare, jadi ikut terhapus otomatis saat banner diganti.
+ */
+export const OG_MAX_BYTES = 280 * 1024;
+const renditionJobs = new Map();   // key banner -> Promise (hindari pembuatan ganda saat banyak crawler datang bersamaan)
+const smallEnough = new Set();     // key banner yang sudah dipastikan tidak perlu rendition
+
+async function renderOg(original) {
+  for (const width of [1200, 1000, 800]) {
+    for (const quality of [88, 80, 72, 64]) {
+      const { data, info } = await sharp(original).rotate().resize({ width, withoutEnlargement: true }).flatten({ background: '#ffffff' })
+        .jpeg({ quality, mozjpeg: true }).toBuffer({ resolveWithObject: true });
+      if (data.length <= OG_MAX_BYTES) return { data, width: info.width, height: info.height };
+    }
+  }
+  throw new Error('banner tidak dapat diperkecil sampai batas aman — gunakan gambar yang lebih sederhana');
+}
+
+/** Pastikan banner tersimpan punya rendition bila perlu. Mengembalikan { key, url, width, height } atau null (pakai file asli). */
+export async function ensureBannerRendition(knownKey = '') {
+  if (knownKey && smallEnough.has(knownKey)) return null;   // jalur cepat tiap request: tanpa query database
+  const doc = (await Setting.findOne({ key: 'socialShare' }).lean())?.value;
+  const banner = doc?.banner;
+  if (!banner?.key) return null;
+  if (banner.og?.key) return ogRef(banner.og);
+  if (smallEnough.has(banner.key)) return null;
+  if (renditionJobs.has(banner.key)) return renditionJobs.get(banner.key);
+
+  const job = (async () => {
+    const asset = await Asset.findOne({ key: banner.key }).lean();
+    if (!asset || (asset.size || 0) <= OG_MAX_BYTES) { smallEnough.add(banner.key); return null; }
+    const { data, width, height } = await renderOg(await getObjectBuffer(banner.key));
+    const ogKey = banner.key.replace(/\.[a-z0-9]+$/i, '') + '-og.jpg';
+    await putObject({ key: ogKey, body: data, contentType: 'image/jpeg' });
+    await Asset.updateOne({ key: ogKey }, { $set: {
+      key: ogKey, url: publicUrl(ogKey), kind: 'image', mime: 'image/jpeg', size: data.length, width, height, folder: 'social',
+      originalName: 'og-rendition.jpg', status: 'used', owner: { type: 'settings', id: 'socialShare' },
+    } }, { upsert: true });
+    // Hanya tulis bila banner di database belum diganti selama proses berjalan
+    const res = await Setting.updateOne({ key: 'socialShare', 'value.banner.key': banner.key }, { $set: { 'value.banner.og': { key: ogKey, width, height } } });
+    if (!res.matchedCount) { await assets.destroyAssets(await Asset.find({ key: ogKey })); return null; }
+    return { key: ogKey, url: publicUrl(ogKey), width, height };
+  })().finally(() => renditionJobs.delete(banner.key));
+  renditionJobs.set(banner.key, job);
+  return job;
 }
 
 /** Bentuk publik: tanpa key R2 (hanya URL). */

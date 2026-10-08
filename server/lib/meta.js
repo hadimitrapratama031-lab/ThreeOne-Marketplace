@@ -8,7 +8,7 @@
  *
  * Dipakai oleh server/index.js saat menyajikan setiap halaman (lihat renderHtml/injectMeta di sana).
  */
-import { getSetting } from '../services/settings.js';
+import { getSetting, ensureBannerRendition } from '../services/settings.js';
 import { getPublicBaseUrl } from '../services/paymentSettings.js';
 import { resolvePublicOrigin, pagePath, PAGES, isPublicOrigin } from './urls.js';
 import { imageSize } from './sniff.js';
@@ -139,11 +139,18 @@ export async function buildMeta(req, page, { productId } = {}) {
 
   // Banner global: TIDAK pernah diganti gambar produk, dan bila Admin belum mengatur banner, og:image/twitter:image
   // sengaja dikosongkan (tidak ada gambar bawaan nyata di proyek ini untuk dijadikan fallback).
-  const image = social.banner?.url ? httpsIfPublic(social.banner.url) : '';
-  const size = image ? await bannerSize({ ...social.banner, url: image }) : null;
+  // og:image = rendition ringan (<= ~280 KB) bila banner asli besar — WhatsApp membuang gambar yang terlalu besar.
+  let banner = social.banner;
+  if (banner?.key && !banner.og) {
+    const og = await ensureBannerRendition(banner.key).catch((err) => { console.error('[meta] rendition banner gagal:', err.message); return null; });
+    if (og) banner = { ...banner, og };
+  }
+  const shown = banner?.og?.url ? { ...banner.og } : banner;
+  const image = shown?.url ? httpsIfPublic(shown.url) : '';
+  const size = image ? await bannerSize({ ...shown, url: image }) : null;
   // Dibatasi JPEG/PNG saat disimpan (lihat services/settings.js) justru supaya og:image ini pasti dikenali
   // SEMUA platform; og:image:type diisi dari ekstensi key yang tersimpan (bukan ditebak/di-hardcode).
-  const imageType = image ? mimeOfKey(social.banner.key) : '';
+  const imageType = image ? mimeOfKey(shown.key) : '';
 
   return {
     title,

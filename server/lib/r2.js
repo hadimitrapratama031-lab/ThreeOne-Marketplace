@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { S3Client, PutObjectCommand, HeadObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { config, r2Configured } from '../config/env.js';
 import { HttpError } from './http.js';
 import { classifyR2Error, redact } from './r2Errors.js';
@@ -69,6 +69,12 @@ export async function putObject({ key, body, contentType }) {
     ContentType: contentType,
     CacheControl: 'public, max-age=31536000, immutable',
   }));
+}
+
+/** Unduh isi objek (dipakai membuat rendition banner Social Share dari file asli di R2). */
+export async function getObjectBuffer(key) {
+  const r = await send('GetObject', key, new GetObjectCommand({ Bucket: config.r2.bucket, Key: key }));
+  return Buffer.from(await r.Body.transformToByteArray());
 }
 
 export async function headObject(key) {
