@@ -23,6 +23,15 @@ export const DEFAULTS = {
     contact: { title: 'Hubungi Kami', subtitle: 'Ada kendala dengan pesanan? Kirim nomor pesanan Anda, tim kami siap membantu.' },
   },
   productPage: { notes: [], platforms: [] },   // completedOrders dihitung dari database order
+  // Social Share / Open Graph: 1 banner global dipakai seluruh halaman Marketplace; title & description per halaman.
+  // Default title/description per halaman (dipakai bila admin belum mengisi) ada di server/lib/meta.js, bukan di sini,
+  // supaya nilainya dipakai juga oleh fallback saat dokumen settings belum ada.
+  socialShare: {
+    banner: null,
+    defaultTitle: '',
+    defaultDescription: '',
+    pages: { home: { title: '', description: '' }, product: { title: '', description: '' }, rating: { title: '', description: '' }, faq: { title: '', description: '' }, contact: { title: '', description: '' }, track: { title: '', description: '' } },
+  },
 };
 
 export const SETTING_KEYS = Object.keys(DEFAULTS);
@@ -43,12 +52,14 @@ const mediaRef = (m) => (m?.key ? { key: m.key, url: publicUrl(m.key) } : null);
 function withUrls(key, value) {
   if (key === 'branding') return { ...value, ...Object.fromEntries(BRANDING_FIELDS.map((f) => [f, mediaRef(value[f])])) };
   if (key === 'hero') return { ...value, covers: value.covers.map((c) => (c ? { key: c.key, url: publicUrl(c.key) } : null)) };
+  if (key === 'socialShare') return { ...value, banner: mediaRef(value.banner) };
   return value;
 }
 
 const keysOf = (key, value) => {
   if (key === 'branding') return BRANDING_FIELDS.map((f) => value[f]?.key).filter(Boolean);
   if (key === 'hero') return value.covers.filter(Boolean).map((c) => c.key);
+  if (key === 'socialShare') return value.banner?.key ? [value.banner.key] : [];
   return [];
 };
 
@@ -72,6 +83,7 @@ export async function saveSetting(key, input) {
   const value = parse(schema, input);
   const owner = { type: 'settings', id: key };
   if (key === 'branding') return saveBranding(value, owner);
+  if (key === 'socialShare') return saveSocialShare(value, owner);
   const folders = MEDIA_FOLDERS[key];
   const keys = keysOf(key, value);
   if (keys.length) await assets.resolveForOwner(keys, owner, { folders, max: 3 });
@@ -120,6 +132,30 @@ async function saveBranding(value, owner) {
   const stored = (await Setting.findOne({ key: 'branding' }).lean())?.value || {};
   await assets.attach(owner, keysOf('branding', stored));
   return getSetting('branding');
+}
+
+/**
+ * Simpan Social Share secara parsial: kartu Banner dan kartu Teks (judul/deskripsi per halaman) disimpan
+ * terpisah, field yang tidak dikirim tetap dipertahankan — sama seperti branding.
+ */
+async function saveSocialShare(value, owner) {
+  const current = (await Setting.findOne({ key: 'socialShare' }).lean())?.value || {};
+
+  if (value.banner) {
+    await assets.resolveForOwner([value.banner.key], owner, { folders: ['social'], max: 1 });
+  }
+
+  const $set = {};
+  if (value.banner !== undefined) $set['value.banner'] = value.banner ? { key: value.banner.key } : null;
+  if (value.defaultTitle !== undefined) $set['value.defaultTitle'] = value.defaultTitle;
+  if (value.defaultDescription !== undefined) $set['value.defaultDescription'] = value.defaultDescription;
+  if (value.pages !== undefined) $set['value.pages'] = { ...DEFAULTS.socialShare.pages, ...current.pages, ...value.pages };
+  if (Object.keys($set).length) await Setting.findOneAndUpdate({ key: 'socialShare' }, { $set }, { upsert: true, new: true });
+
+  // Kunci yang dipakai dihitung dari data yang benar-benar tersimpan, bukan dari input (aman saat dua kartu disimpan bersamaan)
+  const stored = (await Setting.findOne({ key: 'socialShare' }).lean())?.value || {};
+  await assets.attach(owner, keysOf('socialShare', { ...DEFAULTS.socialShare, ...stored }));
+  return getSetting('socialShare');
 }
 
 /** Bentuk publik: tanpa key R2 (hanya URL). */

@@ -183,6 +183,22 @@ export const settingSchemas = {
     notes: z.array(str(1, 500)).max(4),
     platforms: z.array(z.object({ icon: z.enum(['windows', 'steam', 'store']), label: str(1, 24) })).max(6),
   }),
+  // Social Share / Open Graph. Semua field opsional: kartu banner dan kartu teks disimpan terpisah
+  // (sama seperti `branding`), jadi menyimpan salah satu tidak menimpa field milik kartu lainnya.
+  // '' pada title/description berarti "pakai default" (field dikosongkan oleh admin, bukan dihapus).
+  socialShare: z.object({
+    banner: mediaRef.nullable().optional(),
+    defaultTitle: z.string().trim().max(100).optional(),
+    defaultDescription: z.string().trim().max(300).optional(),
+    pages: z.object({
+      home: z.object({ title: z.string().trim().max(100), description: z.string().trim().max(300) }),
+      product: z.object({ title: z.string().trim().max(100), description: z.string().trim().max(300) }),
+      rating: z.object({ title: z.string().trim().max(100), description: z.string().trim().max(300) }),
+      faq: z.object({ title: z.string().trim().max(100), description: z.string().trim().max(300) }),
+      contact: z.object({ title: z.string().trim().max(100), description: z.string().trim().max(300) }),
+      track: z.object({ title: z.string().trim().max(100), description: z.string().trim().max(300) }),
+    }).partial().optional(),
+  }),
 };
 
 export const loginInput = z.object({ email: z.string().trim().toLowerCase().email().max(120), password: z.string().min(1).max(200) });

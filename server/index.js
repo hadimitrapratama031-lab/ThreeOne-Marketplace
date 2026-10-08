@@ -25,6 +25,7 @@ import { r2Configured } from './config/env.js';
 import { FOLDERS } from './services/assets.js';
 import { getSetting } from './services/settings.js';
 import { PAGES } from './lib/urls.js';
+import { buildMeta, injectMeta } from './lib/meta.js';
 import authRouter from './routes/auth.js';
 import publicRouter from './routes/public.js';
 import productsRouter from './routes/products.js';
@@ -171,15 +172,25 @@ export function createApp() {
      URL lama dialihkan (301) ke URL bersih dengan query string UTUH: /payment.html?order=X&t=Y -> /payment?order=X&t=Y
      /product.html?id=5 dan /product?id=5 -> /product/5 (parameter lain ikut). /faq dan /contact -> bagian di beranda. */
   const CLEAN = new Map(Object.values(PAGES).map((p) => [p.path, p.file]));              // '/rating' -> 'rating'
+  const PAGE_KEY = new Map(Object.entries(PAGES).map(([key, p]) => [p.path, key]));       // '/rating' -> 'rating' (kunci default teks Social Share)
   const LEGACY = new Map([
     ...Object.values(PAGES).map((p) => [`/${p.file}.html`, p.path]),                     // '/rating.html' -> '/rating'
     ['/index.html', '/'], ['/track', PAGES.track.path], ['/cek-pesanan.html', PAGES.track.path],
     ['/faq', '/#faq'], ['/contact', '/#contact'],
   ]);
   const queryOf = (url) => { const i = url.indexOf('?'); return i < 0 ? '' : url.slice(i); };
-  const sendPage = (res, file) => {
+  // Social Share (og:/twitter:) disisipkan di sini, per request: HTML dasar (renderHtml) tetap satu cache untuk
+  // semua pengunjung (asset hash saja), tapi title/description/banner SELALU dibaca segar (TTL singkat, lib/memo.js)
+  // supaya perubahan di Admin Web langsung terpakai tanpa deploy ulang. Kegagalan baca meta tidak pernah
+  // menggagalkan halaman: badge/title bawaan di file HTML tetap terkirim apa adanya.
+  const sendPage = async (req, res, file, pageKey, { productId } = {}) => {
     res.set('Cache-Control', 'no-cache');   // HTML selalu divalidasi ulang (ETag -> 304): deploy baru langsung terpakai
-    res.type('html').send(renderHtml(file));
+    const base = renderHtml(file);
+    let html = base;
+    if (pageKey) {
+      try { html = injectMeta(base, await buildMeta(req, pageKey, { productId })); } catch (err) { console.error('[meta]', err.message); }
+    }
+    res.type('html').send(html);
   };
   app.get(/^\/(?!api(?:\/|$)|admin(?:\/|$)|socket\.io(?:\/|$))/, (req, res, next) => {
     let pathname = req.path;
@@ -192,7 +203,7 @@ export function createApp() {
     const pd = /^\/product\/([^/]+)$/.exec(pathname);
     if (pd) {
       const file = path.join(PUBLIC_DIR, 'product.html');
-      return fs.existsSync(file) ? sendPage(res, file) : next();
+      return fs.existsSync(file) ? sendPage(req, res, file, 'product', { productId: pd[1] }).catch(next) : next();
     }
     // Bentuk lama detail produk: /product?id=5  /product.html?id=5 -> /product/5 (query lain dipertahankan)
     if (pathname === '/product' || pathname === '/product.html') {
@@ -215,7 +226,7 @@ export function createApp() {
     if (!CLEAN.has(pathname)) return next();                  // aset statis, favicon, 404, dll.
     const file = path.join(PUBLIC_DIR, `${CLEAN.get(pathname)}.html`);
     if (!fs.existsSync(file)) return next();
-    sendPage(res, file);
+    sendPage(req, res, file, PAGE_KEY.get(pathname)).catch(next);
   });
 
   // File ber-versi (?v=...) = isinya tidak akan berubah di URL itu -> cache panjang. Tanpa ?v= tetap divalidasi ulang seperti semula.

@@ -11,13 +11,16 @@ const FAVICON_MIMES = ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon', 
 
 // Kartu gambar -> field di setting `branding`. Tiap kartu hanya mengirim field miliknya, jadi tidak saling menimpa.
 const MEDIA_CARDS = { storeLogo: 'logo', footerLogo: 'footerLogo', favicon: 'favicon' };
-const TARGET = { brand: 'branding', storeLogo: 'branding', footerLogo: 'branding', favicon: 'branding' };
+const TARGET = { brand: 'branding', storeLogo: 'branding', footerLogo: 'branding', favicon: 'branding', socialBanner: 'socialShare', socialText: 'socialShare' };
 const SAVED = {
   brand: ['Identitas brand disimpan', 'Marketplace sudah menerima pembaruan.'],
   storeLogo: ['Store logo disimpan', 'Header Marketplace langsung memakai logo ini.'],
   footerLogo: ['Footer logo disimpan', 'Footer Marketplace langsung memakai logo ini.'],
   favicon: ['Favicon disimpan', 'Tab browser Marketplace berganti otomatis.'],
+  socialBanner: ['Banner Social Share disimpan', 'Semua halaman Marketplace langsung memakai banner ini.'],
+  socialText: ['Teks Social Share disimpan', 'Preview tautan Marketplace langsung memakai teks ini.'],
 };
+const SOCIAL_PAGE_KEYS = ['home', 'product', 'rating', 'faq', 'contact', 'track'];
 
 const mediaCard = ({ card, field, title, desc, hint, tile = 160 }) => html`
   <form class="card" data-card="${card}" novalidate>
@@ -114,6 +117,25 @@ export default {
           </div>
         </form>
 
+        ${mediaCard({ card: 'socialBanner', field: 'socialBanner', title: 'Social Share Banner', desc: 'Gambar preview saat tautan 31Store dibagikan', hint: 'Dipakai di SEMUA halaman (WhatsApp, Discord, Telegram, Facebook, X, dll). Disarankan 1200 × 630 px. JPG, PNG, WebP, GIF, atau AVIF.', tile: 240 })}
+
+        <form class="card" data-card="socialText" novalidate>
+          <div class="card__head"><h3>Social Share — Judul &amp; Deskripsi</h3></div>
+          <div class="card__body stack">
+            <p class="muted">Banner di atas dipakai sama di semua halaman. Judul dan deskripsi berbeda per halaman — kosongkan untuk memakai teks bawaan.</p>
+            <div class="grid-2">
+              <label class="field"><span>Judul bawaan (fallback)</span><input name="defaultTitle" value="${s.socialShare.defaultTitle}" maxlength="100" placeholder="Dipakai bila judul halaman kosong"></label>
+              <label class="field"><span>Deskripsi bawaan (fallback)</span><input name="defaultDescription" value="${s.socialShare.defaultDescription}" maxlength="300" placeholder="Dipakai bila deskripsi halaman kosong"></label>
+            </div>
+            ${Object.entries({ home: 'Beranda', product: 'Produk', rating: 'Rating', faq: 'FAQ', contact: 'Kontak', track: 'Cek Pesanan' }).map(([k, label]) => html`
+              <div class="grid-2">
+                <label class="field"><span>Judul — ${label}</span><input name="social_${k}_title" value="${s.socialShare.pages?.[k]?.title || ''}" maxlength="100" placeholder="Judul bawaan ${label}"></label>
+                <label class="field"><span>Deskripsi — ${label}</span><input name="social_${k}_desc" value="${s.socialShare.pages?.[k]?.description || ''}" maxlength="300" placeholder="Deskripsi bawaan ${label}"></label>
+              </div>`)}
+            <div class="actions"><button class="btn btn--primary" type="submit">Simpan teks Social Share</button></div>
+          </div>
+        </form>
+
         <form class="card" data-card="productPage" novalidate>
           <div class="card__head"><h3>Halaman detail produk</h3></div>
           <div class="card__body stack">
@@ -149,6 +171,19 @@ export default {
         onChange: () => { fieldErrors(form, {}); setState(form, 'Perubahan belum disimpan', true); },
       });
       setState(form, s.branding[field] ? 'Tersimpan' : 'Belum diatur');
+    }
+
+    // ----- Social Share Banner: 1 gambar global dipakai og:image/twitter:image di semua halaman -----
+    {
+      const form = $('form[data-card="socialBanner"]', root);
+      media.socialBanner = mediaManager($('[data-media="socialBanner"]', form), {
+        max: 1, folder: 'social', limits: ctx.meta.limits, replace: true,
+        accept: IMG_MIMES, formats: IMG_FORMATS, maxMB: null,
+        addLabel: 'Unggah banner',
+        initial: s.socialShare.banner ? [{ ...s.socialShare.banner, type: 'image' }] : [],
+        onChange: () => { fieldErrors(form, {}); setState(form, 'Perubahan belum disimpan', true); },
+      });
+      setState(form, s.socialShare.banner ? 'Tersimpan' : 'Belum diatur — Marketplace memakai preview tanpa gambar');
     }
 
     // ----- Ikon kontak: satu pengelola gambar per kontak, disimpan per kontak -----
@@ -210,6 +245,15 @@ export default {
       productPage: (f) => ({
         notes: f.notes.value.split(/\n{2,}/).map((t) => t.trim()).filter(Boolean),
         platforms: $$('[data-platform]', root).map((r) => ({ icon: $('select', r).value, label: $('input', r).value.trim() })).filter((p) => p.label),
+      }),
+      socialBanner: () => ({ banner: media.socialBanner.get()[0] ?? null }),
+      socialText: (f) => ({
+        defaultTitle: f.defaultTitle.value.trim(),
+        defaultDescription: f.defaultDescription.value.trim(),
+        pages: Object.fromEntries(SOCIAL_PAGE_KEYS.map((k) => [k, {
+          title: f[`social_${k}_title`].value.trim(),
+          description: f[`social_${k}_desc`].value.trim(),
+        }])),
       }),
     };
     const FIELD_MAP = { 'sections.products.title': 'productsTitle', 'sections.faq.title': 'faqTitle', 'sections.contact.title': 'contactTitle', 'products.title': 'productsTitle', 'faq.title': 'faqTitle', 'contact.title': 'contactTitle' };

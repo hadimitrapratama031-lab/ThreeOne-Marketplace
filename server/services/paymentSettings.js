@@ -45,6 +45,12 @@ export async function getPaymentConfig() {
   return { ...credOf(s, s.mode), waAdmin: s.waAdmin, publicBaseUrl: s.publicBaseUrl || config.publicBaseUrl };
 }
 
+/** Alamat publik toko yang dikonfigurasi Admin (tanpa membuka kredensial pembayaran). Dipakai untuk og:url. */
+export async function getPublicBaseUrl() {
+  const s = await stored();
+  return s.publicBaseUrl || '';
+}
+
 /** Info publik (tanpa rahasia). */
 export async function getPublicPayment() {
   const c = await getPaymentConfig();

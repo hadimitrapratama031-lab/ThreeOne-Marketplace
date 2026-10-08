@@ -5,7 +5,7 @@ import { sniff } from '../lib/sniff.js';
 import { HttpError } from '../lib/http.js';
 import { config } from '../config/env.js';
 
-export const FOLDERS = ['products', 'reviews', 'hero', 'branding', 'livechat', 'contacts'];
+export const FOLDERS = ['products', 'reviews', 'hero', 'branding', 'livechat', 'contacts', 'social'];
 
 const sameOwner = (a, b) => a?.type === b.type && a?.id === String(b.id);
 
