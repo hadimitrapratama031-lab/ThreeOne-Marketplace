@@ -113,18 +113,24 @@ export async function buildMeta(req, page, { productId } = {}) {
   // Banner global: TIDAK pernah diganti gambar produk, dan bila Admin belum mengatur banner, og:image/twitter:image
   // sengaja dikosongkan (tidak ada gambar bawaan nyata di proyek ini untuk dijadikan fallback).
   const image = social.banner?.url || '';
+  // Dibatasi JPEG/PNG saat disimpan (lihat services/settings.js) justru supaya og:image ini pasti dikenali
+  // SEMUA platform; og:image:type diisi dari ekstensi key yang tersimpan (bukan ditebak/di-hardcode).
+  const imageType = image ? mimeOfKey(social.banner.key) : '';
 
   return {
     title,
     description,
     url: `${origin}${path}`,
     image,
+    imageType,
     siteName: SITE_NAME,
     type: page === 'product' ? 'product' : 'website',
   };
 }
 
 const escAttr = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const MIME_BY_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
+const mimeOfKey = (key) => MIME_BY_EXT[String(key || '').split('.').pop().toLowerCase()] || 'image/jpeg';
 
 /** Sisipkan <title> + og:/twitter: meta ke HTML halaman (dipanggil per request, HTML dasar tetap di-cache). */
 export function injectMeta(html, meta) {
@@ -134,13 +140,18 @@ export function injectMeta(html, meta) {
     `<meta property="og:title" content="${escAttr(meta.title)}">`,
     `<meta property="og:description" content="${escAttr(meta.description)}">`,
     meta.url ? `<meta property="og:url" content="${escAttr(meta.url)}">` : '',
+    // og:image DAN og:image:secure_url (Facebook/beberapa platform lama khusus mencari secure_url untuk https) diisi URL yang sama.
     meta.image ? `<meta property="og:image" content="${escAttr(meta.image)}">` : '',
+    meta.image ? `<meta property="og:image:secure_url" content="${escAttr(meta.image)}">` : '',
+    meta.image && meta.imageType ? `<meta property="og:image:type" content="${escAttr(meta.imageType)}">` : '',
     meta.image ? '<meta property="og:image:width" content="1200">' : '',
     meta.image ? '<meta property="og:image:height" content="630">' : '',
+    meta.image ? `<meta property="og:image:alt" content="${escAttr(meta.siteName)}">` : '',
     `<meta name="twitter:card" content="${meta.image ? 'summary_large_image' : 'summary'}">`,
     `<meta name="twitter:title" content="${escAttr(meta.title)}">`,
     `<meta name="twitter:description" content="${escAttr(meta.description)}">`,
     meta.image ? `<meta name="twitter:image" content="${escAttr(meta.image)}">` : '',
+    meta.image ? `<meta name="twitter:image:alt" content="${escAttr(meta.siteName)}">` : '',
   ].filter(Boolean).join('\n  ');
 
   return html

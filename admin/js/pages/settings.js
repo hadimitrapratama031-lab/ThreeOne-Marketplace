@@ -117,7 +117,7 @@ export default {
           </div>
         </form>
 
-        ${mediaCard({ card: 'socialBanner', field: 'socialBanner', title: 'Social Share Banner', desc: 'Gambar preview saat tautan 31Store dibagikan', hint: 'Dipakai di SEMUA halaman (WhatsApp, Discord, Telegram, Facebook, X, dll). Disarankan 1200 × 630 px. JPG, PNG, WebP, GIF, atau AVIF.', tile: 240 })}
+        ${mediaCard({ card: 'socialBanner', field: 'socialBanner', title: 'Social Share Banner', desc: 'Gambar preview saat tautan 31Store dibagikan', hint: 'Dipakai di SEMUA halaman (WhatsApp, Discord, Telegram, Facebook, X, dll). Disarankan 1200 × 630 px, JPG atau PNG (format lain sengaja tidak dipakai — tidak semua platform bisa menampilkan WebP/AVIF/GIF sebagai preview). Maksimal 5 MB.', tile: 240 })}
 
         <form class="card" data-card="socialText" novalidate>
           <div class="card__head"><h3>Social Share — Judul &amp; Deskripsi</h3></div>
@@ -178,7 +178,7 @@ export default {
       const form = $('form[data-card="socialBanner"]', root);
       media.socialBanner = mediaManager($('[data-media="socialBanner"]', form), {
         max: 1, folder: 'social', limits: ctx.meta.limits, replace: true,
-        accept: IMG_MIMES, formats: IMG_FORMATS, maxMB: null,
+        accept: ['image/jpeg', 'image/png'], formats: 'JPG atau PNG', maxMB: 5,
         addLabel: 'Unggah banner',
         initial: s.socialShare.banner ? [{ ...s.socialShare.banner, type: 'image' }] : [],
         onChange: () => { fieldErrors(form, {}); setState(form, 'Perubahan belum disimpan', true); },

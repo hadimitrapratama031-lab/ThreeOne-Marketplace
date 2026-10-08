@@ -142,7 +142,12 @@ async function saveSocialShare(value, owner) {
   const current = (await Setting.findOne({ key: 'socialShare' }).lean())?.value || {};
 
   if (value.banner) {
-    await assets.resolveForOwner([value.banner.key], owner, { folders: ['social'], max: 1 });
+    // JPEG/PNG saja: beberapa platform (sebagian cache WhatsApp, sebagian bot share-preview) tidak selalu
+    // merender og:image berformat WebP/AVIF/GIF. JPEG/PNG didukung SEMUA platform (WhatsApp, Discord,
+    // Telegram, Facebook, X, dll) -> ini supaya banner pasti muncul di semua platform, bukan hanya sebagian.
+    await assets.resolveForOwner([value.banner.key], owner, {
+      folders: ['social'], max: 1, mimes: ['image/jpeg', 'image/png'], maxBytes: 5 * 1048576,
+    });
   }
 
   const $set = {};
