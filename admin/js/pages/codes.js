@@ -15,6 +15,7 @@ const FILTERS = { productId: '', status: '', order: '', email: '', customer: '',
  * Realtime lewat Socket.IO admin yang sudah ada: code:stats (angka), code:update (satu baris), code:refresh (muat ulang).
  * Code berstatus Tersedia disamarkan di daftar; isi utuh hanya lewat tombol "Lihat" (permintaan admin yang sedang login).
  * Edit / Hapus satu code lewat API Admin (PUT/DELETE /api/admin/codes/:id); code yang sudah terjual wajib konfirmasi tambahan.
+ * Hapus massal: centang beberapa code (pilihan bertahan antar halaman, maks 500) lalu "Hapus terpilih" (POST /api/admin/codes/bulk-delete).
  * Realtime: code:update (baris berubah) dan code:delete (baris hilang) dari Socket.IO admin.
  */
 export default {
@@ -24,6 +25,8 @@ export default {
     let alive = true;
     let reqId = 0;
     let rows = new Map();
+    const selected = new Map();   // id -> baris (pilihan hapus massal; bertahan antar halaman, dikosongkan saat filter berubah)
+    const MAX_BULK = 500;
 
     mount(root, html`
       <div class="page-head">
@@ -38,7 +41,7 @@ export default {
       </section>
 
       <section class="card" style="margin-top:16px">
-        <div class="card__head"><h3>Daftar code</h3><small id="list-note"></small></div>
+        <div class="card__head"><h3>Daftar code</h3><span class="code-head-r"><small id="list-note"></small><select id="f-limit" aria-label="Jumlah baris per halaman"><option value="25">25 / halaman</option><option value="50">50 / halaman</option><option value="100">100 / halaman</option></select></span></div>
         <div class="toolbar code-filters">
           <select id="f-product" aria-label="Produk"><option value="">Semua produk</option></select>
           <select id="f-status" aria-label="Status code">
@@ -54,6 +57,7 @@ export default {
           <label class="datefield"><span>sampai</span><input id="f-to" type="date"></label>
           <button class="btn btn--ghost btn--sm" type="button" id="f-reset">Atur ulang</button>
         </div>
+        <div class="bulkbar" id="bulkbar" hidden role="region" aria-label="Aksi massal"></div>
         <div class="table-wrap" id="table">${skeletonRows(8)}</div>
         <div id="pager"></div>
       </section>`);
@@ -91,7 +95,8 @@ export default {
     }
 
     /* ---------- Daftar ---------- */
-    const rowHTML = (c) => html`<tr data-id="${c.id}">
+    const rowHTML = (c) => html`<tr data-id="${c.id}"${selected.has(c.id) ? html` class="is-selected"` : ''}>
+      <td class="sel-col"><input type="checkbox" data-sel="${c.id}" aria-label="Pilih code" ${selected.has(c.id) ? 'checked' : ''}></td>
       <td><div class="code-cell"><code class="code-chip ${c.masked ? 'is-masked' : ''}">${c.code}</code>
         ${c.masked ? html`<button class="icon-btn" type="button" data-reveal="${c.id}" aria-label="Lihat isi code" title="Lihat isi code">${icon('eye')}</button>` : html`<button class="icon-btn" type="button" data-copy="${c.code}" aria-label="Salin code" title="Salin code">${icon('copy')}</button>`}</div></td>
       <td>${c.productName ?? html`<span class="faint">—</span>`}</td>
@@ -115,18 +120,43 @@ export default {
         const filtered = Object.keys(FILTERS).some((k) => q[k]);
         $('#table', root).innerHTML = (res.items.length ? html`
           <table>
-            <thead><tr><th>Code</th><th>Produk</th><th>Order ID</th><th>Customer</th><th>Status</th><th>Diberikan</th><th><span class="sr-only">Aksi</span></th></tr></thead>
+            <thead><tr><th class="sel-col"><input type="checkbox" id="sel-all" aria-label="Pilih semua code di halaman ini"></th><th>Code</th><th>Produk</th><th>Order ID</th><th>Customer</th><th>Status</th><th>Diberikan</th><th><span class="sr-only">Aksi</span></th></tr></thead>
             <tbody id="rows">${res.items.map(rowHTML)}</tbody>
           </table>` : emptyState(filtered ? 'Tidak ada code yang cocok' : 'Belum ada code', filtered ? 'Ubah kata kunci atau filter.' : 'Tambahkan code lewat Produk → Sistem Code.', 'key')).s;
         $('#pager', root).innerHTML = pagerHTML(res).s;
         $('#list-note', root).textContent = res.total ? `${num(res.total)} code` : '';
+        syncSel();
       } catch (err) { if (alive) { if (err.fields && Object.keys(err.fields).length) toast(Object.values(err.fields)[0], { type: 'error' }); else toastError(err, 'Daftar code gagal dimuat'); } }
     }
     const loadSoon = debounce(load, 300);
     const refreshAll = () => { loadStats(); load(); };
 
+    /* ---------- Pilihan hapus massal ---------- */
+    function syncSel() {
+      const boxes = $$('input[data-sel]', root);
+      const all = $('#sel-all', root);
+      if (all) {
+        const on = boxes.filter((b) => b.checked).length;
+        all.checked = boxes.length > 0 && on === boxes.length;
+        all.indeterminate = on > 0 && on < boxes.length;
+      }
+      $$('tbody tr[data-id]', root).forEach((tr) => tr.classList.toggle('is-selected', selected.has(tr.dataset.id)));
+      const bar = $('#bulkbar', root);
+      if (!selected.size) { bar.hidden = true; bar.innerHTML = ''; return; }
+      const sold = [...selected.values()].filter((c) => c.status === 'sold').length;
+      bar.hidden = false;
+      bar.innerHTML = html`
+        <span class="bulkbar__n"><b>${num(selected.size)}</b> code dipilih${sold ? html` <span class="faint">· ${num(sold)} sudah terjual</span>` : ''}${selected.size > MAX_BULK ? html` <span class="bulkbar__over">maks ${num(MAX_BULK)} sekali hapus</span>` : ''}</span>
+        <span class="bulkbar__btns">
+          <button class="btn btn--ghost btn--sm" type="button" data-sel-clear>Batal pilih</button>
+          <button class="btn btn--danger btn--sm" type="button" data-bulk-del ${selected.size > MAX_BULK ? 'disabled' : ''}>${icon('trash')}Hapus terpilih</button>
+        </span>`.s;
+    }
+    function clearSel() { selected.clear(); syncSel(); }
+
     /* ---------- Filter ---------- */
-    const bind = (sel, key, { immediate = false } = {}) => $(sel, root).addEventListener(immediate ? 'change' : 'input', (e) => { q[key] = e.target.value.trim(); q.page = 1; immediate ? load() : loadSoon(); });
+    const bind = (sel, key, { immediate = false } = {}) => $(sel, root).addEventListener(immediate ? 'change' : 'input', (e) => { q[key] = e.target.value.trim(); q.page = 1; clearSel(); immediate ? load() : loadSoon(); });
+    $('#f-limit', root).addEventListener('change', (e) => { q.limit = +e.target.value; q.page = 1; load(); });
     bind('#f-product', 'productId', { immediate: true });
     bind('#f-status', 'status', { immediate: true });
     bind('#f-from', 'from', { immediate: true });
@@ -135,6 +165,7 @@ export default {
     $('#f-reset', root).addEventListener('click', () => {
       Object.assign(q, FILTERS, { page: 1 });
       $$('.code-filters input, .code-filters select', root).forEach((el) => { el.value = ''; });
+      clearSel();
       load();
     });
 
@@ -250,13 +281,75 @@ export default {
       });
     }
 
+    function bulkDeleteDialog() {
+      const items = [...selected.values()];
+      const sold = items.filter((c) => c.status === 'sold');
+      const avail = items.length - sold.length;
+      const perProduct = [...items.reduce((m, c) => m.set(c.productName ?? '—', (m.get(c.productName ?? '—') || 0) + 1), new Map())].sort((a, b) => b[1] - a[1]);
+      const d = dialog({
+        title: `Hapus ${num(items.length)} code?`,
+        body: html`
+          <p style="margin:0 0 10px">Code yang dipilih akan dihapus permanen dari database:</p>
+          <div class="code-target code-target--list">
+            <span><b>${num(avail)}</b> tersedia</span><span><b>${num(sold.length)}</b> sudah terjual</span>
+          </div>
+          <ul class="code-bulklist">${perProduct.slice(0, 6).map(([n, k]) => html`<li><span>${n}</span><b>${num(k)}</b></li>`)}${perProduct.length > 6 ? html`<li class="faint"><span>+${perProduct.length - 6} produk lain</span></li>` : ''}</ul>
+          ${sold.length
+            ? html`<div class="code-warn" role="alert">${icon('alert')}<div><b>${num(sold.length)} code sudah diberikan ke pelanggan</b>
+                <p>Code ini punya riwayat order. <b>Order dan pembayaran tidak dihapus</b>. Setiap pesanan terkait kembali ke antrean <b>menunggu code</b> dan otomatis mendapat code pengganti bila stok tersedia (atau saat stok ditambah). Pelanggan yang membuka halaman pesanannya akan melihat code berubah.</p></div></div>
+              <label class="code-ack"><input type="checkbox" name="ack"><span>Saya mengerti riwayat code yang sudah terjual akan hilang dan ingin tetap menghapusnya.</span></label>`
+            : html`<p class="muted" style="margin:10px 0 0">Semua code yang dipilih masih tersedia dan belum diberikan ke siapa pun. Stok produk akan berkurang.</p>`}`,
+        foot: html`<button type="button" class="btn" data-close>Batal</button><button type="submit" class="btn btn--danger-solid" ${sold.length ? 'disabled' : ''}>Hapus ${num(items.length)} code</button>`,
+      });
+      const f = d.form;
+      const go = $('button[type="submit"]', f);
+      if (sold.length) f.elements.ack.addEventListener('change', () => { go.disabled = !f.elements.ack.checked; });
+      f.addEventListener('submit', async () => {
+        if (go.disabled) return;
+        try {
+          const r = await busy(go, () => api.post('/codes/bulk-delete', { ids: [...selected.keys()], confirm: sold.length > 0 }));
+          d.close();
+          clearSel();
+          refreshAll();
+          toast(`${num(r.deleted)} code dihapus`, { detail: [
+            r.skipped ? `${num(r.skipped)} dilewati (sudah berubah atau sudah terhapus)` : '',
+            r.replaced ? `${num(r.replaced)} pesanan langsung mendapat code pengganti` : '',
+            r.waiting ? `${num(r.waiting)} pesanan menunggu code pengganti` : '',
+          ].filter(Boolean).join(' · ') });
+        } catch (err) {
+          toastError(err, 'Code gagal dihapus');
+          if (err.status === 409 || err.status === 404) { d.close(); refreshAll(); }
+        }
+      });
+    }
+
     function dropRow(id) {
+      selected.delete(id);
       rows.delete(id);
       $(`tr[data-id="${id}"]`, root)?.remove();
+      syncSel();
       loadSoon();   // isi kembali halaman, perbarui total & pager
     }
 
+    root.addEventListener('change', (e) => {
+      const one = e.target.closest?.('input[data-sel]');
+      if (one) {
+        if (one.checked) { const c = rows.get(one.dataset.sel); if (c) selected.set(c.id, c); } else selected.delete(one.dataset.sel);
+        return syncSel();
+      }
+      if (e.target.id === 'sel-all') {
+        $$('input[data-sel]', root).forEach((b) => {
+          b.checked = e.target.checked;
+          const c = rows.get(b.dataset.sel);
+          if (e.target.checked && c) selected.set(c.id, c); else selected.delete(b.dataset.sel);
+        });
+        syncSel();
+      }
+    });
+
     root.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-sel-clear]')) { $$('input[data-sel]', root).forEach((b) => { b.checked = false; }); return clearSel(); }
+      if (e.target.closest('[data-bulk-del]')) { if (selected.size && selected.size <= MAX_BULK) bulkDeleteDialog(); return; }
       const ed = e.target.closest('[data-edit]');
       const dl = e.target.closest('[data-del]');
       if (ed || dl) {
@@ -272,7 +365,7 @@ export default {
       if (pg && !pg.disabled) { q.page = +pg.dataset.page; return load(); }
 
       const fp = e.target.closest('[data-filter-product]');
-      if (fp) { e.preventDefault(); q.productId = fp.dataset.filterProduct; q.page = 1; $('#f-product', root).value = q.productId; return load(); }
+      if (fp) { e.preventDefault(); q.productId = fp.dataset.filterProduct; q.page = 1; $('#f-product', root).value = q.productId; clearSel(); return load(); }
 
       const add = e.target.closest('[data-addstock]');
       if (add) { const p = stats?.products.find((x) => x.id === add.dataset.addstock); if (p) addStockDialog(p); return; }
@@ -300,8 +393,9 @@ export default {
         if (!alive) return;
         if (evt === 'resync' || evt === 'code:refresh') return refreshAll();
         if (evt === 'code:stats') { stats = payload; return renderStats(); }
-        if (evt === 'code:delete') { if (rows.has(payload.id)) dropRow(payload.id); else loadSoon(); return; }
+        if (evt === 'code:delete') { selected.delete(payload.id); if (rows.has(payload.id)) dropRow(payload.id); else { syncSel(); loadSoon(); } return; }
         if (evt === 'code:update') {
+          if (selected.has(payload.id)) selected.set(payload.id, payload);
           const tr = $(`tr[data-id="${payload.id}"]`, root);
           if (tr) {
             rows.set(payload.id, payload);

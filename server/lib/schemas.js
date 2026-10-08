@@ -93,6 +93,13 @@ export const codeEditInput = z.object({
   confirm: z.boolean().optional().default(false),
 });
 
+// Hapus banyak code sekaligus (Laporan Code). Maksimal 500 per permintaan; `confirm` wajib true bila ada code yang sudah diberikan.
+export const MAX_BULK_CODES = 500;
+export const codeBulkDeleteInput = z.object({
+  ids: z.array(objectIdStr).min(1, 'Pilih minimal satu code').max(MAX_BULK_CODES, `Maksimal ${MAX_BULK_CODES} code sekali hapus`),
+  confirm: z.boolean().optional().default(false),
+});
+
 const codeStatus = z.enum(['available', 'sold']);   // sold = sudah diberikan ke pelanggan
 export const codeListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),

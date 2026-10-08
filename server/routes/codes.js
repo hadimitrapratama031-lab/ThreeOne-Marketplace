@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { Product, Category, nextSeq } from '../models/index.js';
 import { asyncH, parse, HttpError, objectIdStr, pageMeta } from '../lib/http.js';
-import { codeProductInput, codeProductUpdateInput, addCodesInput, codeListQuery, codeEditInput } from '../lib/schemas.js';
+import { codeProductInput, codeProductUpdateInput, addCodesInput, codeListQuery, codeEditInput, codeBulkDeleteInput } from '../lib/schemas.js';
 import { admProduct, pubProductCard } from '../lib/serialize.js';
 import { emitChange } from '../lib/realtime.js';
 import * as assets from '../services/assets.js';
 import { soldOf } from '../services/sales.js';
 import { addCodes, validateCodeInput, listCodes, revealCode, codeStats, productCounts, broadcastProduct, admCode } from '../services/codes.js';
-import { fulfillWaitingOrders, editCode, removeCode } from '../services/redeem.js';
+import { fulfillWaitingOrders, editCode, removeCode, removeCodes } from '../services/redeem.js';
 import { nextTopOrder } from '../services/productOrder.js';
 
 const owner = (id) => ({ type: 'product', id: String(id) });
@@ -109,6 +109,12 @@ codesRouter.get('/:id/reveal', asyncH(async (req, res) => {
   if (!objectIdStr.safeParse(req.params.id).success) throw new HttpError(404, 'Code tidak ditemukan.');
   res.set('Cache-Control', 'no-store');
   res.json({ item: await revealCode(req.params.id) });
+}));
+
+// Hapus banyak code sekaligus (maks 500). Code yang sudah diberikan ke pelanggan wajib `confirm: true`.
+codesRouter.post('/bulk-delete', asyncH(async (req, res) => {
+  const { ids, confirm } = parse(codeBulkDeleteInput, req.body);
+  res.json({ ok: true, ...(await removeCodes(ids, { confirm })) });
 }));
 
 const codeId = (raw) => {

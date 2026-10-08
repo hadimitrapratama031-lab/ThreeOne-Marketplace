@@ -534,6 +534,23 @@ textarea.code-input { min-height: 180px; letter-spacing: .02em; white-space: pre
 .code-cell { display: flex; align-items: center; gap: 4px; min-width: 210px; }
 .code-chip { font: 600 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; padding: 3px 8px; border-radius: 7px; background: var(--tint-2); border: 1px solid var(--line); overflow-wrap: anywhere; }
 .code-chip.is-masked { color: var(--muted); }
+/* Hapus massal (Laporan Code) */
+.code-head-r { display: flex; align-items: center; gap: 12px; }
+.code-head-r select { width: auto; padding: 6px 10px; font-size: 13px; }
+.sel-col { width: 40px; padding-right: 0; }
+.sel-col input { width: 16px; height: 16px; accent-color: var(--violet); cursor: pointer; vertical-align: middle; }
+tr.is-selected td { background: var(--tint-2); }
+.bulkbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--tint); }
+.bulkbar[hidden] { display: none; }
+.bulkbar__n { font-weight: 600; }
+.bulkbar__n b { color: var(--violet); }
+.bulkbar__over { color: var(--danger); font-size: 12.5px; margin-left: 6px; }
+.bulkbar__btns { display: flex; gap: 8px; }
+.code-target--list { gap: 6px 22px; margin-bottom: 4px; }
+.code-bulklist { list-style: none; margin: 10px 0 14px; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.code-bulklist li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 2px; border-bottom: 1px dashed var(--line); }
+.code-bulklist li:last-child { border-bottom: 0; }
+
 /* Edit / Hapus code (Laporan Code) */
 .code-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; color: var(--muted); font-weight: 600; }
 .code-target { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--tint-2); }
