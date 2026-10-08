@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Asset } from '../models/index.js';
 import { putObject, headObject, deleteObjects, publicUrl } from '../lib/r2.js';
-import { sniff } from '../lib/sniff.js';
+import { sniff, imageSize } from '../lib/sniff.js';
 import { HttpError } from '../lib/http.js';
 import { config } from '../config/env.js';
 
@@ -30,7 +30,7 @@ export async function uploadAsset({ buffer, originalName, folder }) {
     const head = await headObject(key);
     if (!head.exists || head.size !== buffer.length) throw new HttpError(502, 'Upload ke penyimpanan gagal diverifikasi. Coba lagi.');
     return await Asset.create({
-      key, url: publicUrl(key), kind: info.kind, mime: info.mime, size: buffer.length,
+      key, url: publicUrl(key), kind: info.kind, mime: info.mime, size: buffer.length, ...(info.kind === 'image' ? imageSize(buffer) || {} : {}),
       folder, originalName: String(originalName || '').slice(0, 200), status: 'temp',
     });
   } catch (err) {

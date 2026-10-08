@@ -10,7 +10,8 @@
  */
 import { getSetting } from '../services/settings.js';
 import { getPublicBaseUrl } from '../services/paymentSettings.js';
-import { resolvePublicOrigin, pagePath, PAGES } from './urls.js';
+import { resolvePublicOrigin, pagePath, PAGES, isPublicOrigin } from './urls.js';
+import { imageSize } from './sniff.js';
 import { config } from '../config/env.js';
 import { memo } from './memo.js';
 import { Product } from '../models/index.js';
@@ -62,7 +63,31 @@ export const PAGE_DEFAULTS = {
 };
 
 const TTL_MS = 5000;   // selaras dengan TTL memo publik lain (lib/memo.js dibagikan ke seluruh proses -> ikut invalidate saat settings:update)
-const clip = (s, max) => String(s || '').trim().slice(0, max);
+// Teks meta = satu baris polos: tanpa tag HTML, newline, atau spasi ganda (deskripsi produk bisa berisi semuanya).
+const clip = (s, max) => String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+
+// Platform (terutama Facebook/WhatsApp) hanya menerima URL gambar absolut HTTPS yang dapat dijangkau publik.
+// Alamat lokal/dev (tes, localhost) dibiarkan apa adanya; alamat publik selalu dipaksa https.
+const httpsIfPublic = (u) => (isPublicOrigin(u) ? String(u).replace(/^http:\/\//i, 'https://') : String(u || ''));
+
+// Ukuran banner: dari data tersimpan; banner lama (diunggah sebelum ukuran dicatat) dibaca SEKALI dari URL publiknya —
+// sekaligus pemeriksaan nyata bahwa URL itu HTTP 200, bertipe image/*, dan terbaca tanpa login. Key R2 tidak pernah
+// berubah isinya (UUID), jadi hasilnya aman di-cache selamanya per key. Gagal -> ukuran dikosongkan (bukan angka tebakan).
+const dimsCache = new Map();
+async function bannerSize(banner) {
+  if (banner.width && banner.height) return { width: banner.width, height: banner.height };
+  if (dimsCache.has(banner.key)) return dimsCache.get(banner.key);
+  let size = null;
+  try {
+    const r = await fetch(banner.url, { signal: AbortSignal.timeout(4000), headers: { 'user-agent': 'MarketplaceMetaCheck/1.0' } });
+    const type = r.headers.get('content-type') || '';
+    if (!r.ok) console.error(`[meta] PERINGATAN: banner Social Share tidak dapat diambil (HTTP ${r.status}) ${banner.url}`);
+    else if (!/^image\//i.test(type)) console.error(`[meta] PERINGATAN: Content-Type banner bukan gambar (${type || 'kosong'}) ${banner.url}`);
+    else size = imageSize(Buffer.from(await r.arrayBuffer()));
+  } catch (err) { console.error(`[meta] PERINGATAN: banner Social Share tidak terjangkau dari server: ${err.message}`); }
+  if (size) { if (dimsCache.size > 50) dimsCache.clear(); dimsCache.set(banner.key, size); }
+  return size;   // gagal tidak di-cache: dicoba lagi pada permintaan berikutnya
+}
 
 async function socialShareSetting() {
   const entry = await memo('meta:socialShare', TTL_MS, () => getSetting('socialShare'));
@@ -79,7 +104,7 @@ async function productMeta(productId, social) {
   const p = entry.value;
   if (!p) return null;
   const desc = clip(p.description, 300) || clip(social.defaultDescription, 300) || PAGE_DEFAULTS.product.description;
-  return { title: `${clip(p.name, 150)} — ${SITE_NAME}`, description: desc };
+  return { title: `${clip(p.name, 150)} — ${SITE_NAME}`, description: desc, found: true };
 }
 
 /**
@@ -91,9 +116,10 @@ export async function buildMeta(req, page, { productId } = {}) {
 
   let title;
   let description;
+  let isProduct = false;   // og:type 'product' hanya bila produknya benar-benar ada
   if (page === 'product' && productId != null) {
     const pm = await productMeta(productId, social).catch(() => null);
-    if (pm) ({ title, description } = pm);
+    if (pm) { ({ title, description } = pm); isProduct = true; }
   }
   if (title === undefined) {
     const override = social.pages?.[page] || {};
@@ -107,12 +133,14 @@ export async function buildMeta(req, page, { productId } = {}) {
   const requestOrigin = `${req.protocol}://${req.get('host')}`;
   let configuredBase = '';
   try { configuredBase = await getPublicBaseUrl(); } catch { /* URL publik Admin opsional */ }
-  const origin = resolvePublicOrigin({ configured: [configuredBase, config.publicBaseUrl], requestOrigin }) || requestOrigin;
+  // Di belakang proxy berlapis (Cloudflare -> Railway) req.protocol bisa 'http': og:url tetap dipaksa https untuk domain publik.
+  const origin = httpsIfPublic(resolvePublicOrigin({ configured: [configuredBase, config.publicBaseUrl], requestOrigin }) || requestOrigin);
   const path = page === 'product' && productId != null ? pagePath('product', { id: productId }) : (PAGES[page]?.path || '/');
 
   // Banner global: TIDAK pernah diganti gambar produk, dan bila Admin belum mengatur banner, og:image/twitter:image
   // sengaja dikosongkan (tidak ada gambar bawaan nyata di proyek ini untuk dijadikan fallback).
-  const image = social.banner?.url || '';
+  const image = social.banner?.url ? httpsIfPublic(social.banner.url) : '';
+  const size = image ? await bannerSize({ ...social.banner, url: image }) : null;
   // Dibatasi JPEG/PNG saat disimpan (lihat services/settings.js) justru supaya og:image ini pasti dikenali
   // SEMUA platform; og:image:type diisi dari ekstensi key yang tersimpan (bukan ditebak/di-hardcode).
   const imageType = image ? mimeOfKey(social.banner.key) : '';
@@ -123,8 +151,10 @@ export async function buildMeta(req, page, { productId } = {}) {
     url: `${origin}${path}`,
     image,
     imageType,
+    imageWidth: size?.width || 0,
+    imageHeight: size?.height || 0,
     siteName: SITE_NAME,
-    type: page === 'product' ? 'product' : 'website',
+    type: isProduct ? 'product' : 'website',
   };
 }
 
@@ -137,6 +167,7 @@ export function injectMeta(html, meta) {
   const tags = [
     `<meta property="og:type" content="${escAttr(meta.type)}">`,
     `<meta property="og:site_name" content="${escAttr(meta.siteName)}">`,
+    '<meta property="og:locale" content="id_ID">',
     `<meta property="og:title" content="${escAttr(meta.title)}">`,
     `<meta property="og:description" content="${escAttr(meta.description)}">`,
     meta.url ? `<meta property="og:url" content="${escAttr(meta.url)}">` : '',
@@ -144,17 +175,25 @@ export function injectMeta(html, meta) {
     meta.image ? `<meta property="og:image" content="${escAttr(meta.image)}">` : '',
     meta.image ? `<meta property="og:image:secure_url" content="${escAttr(meta.image)}">` : '',
     meta.image && meta.imageType ? `<meta property="og:image:type" content="${escAttr(meta.imageType)}">` : '',
-    meta.image ? '<meta property="og:image:width" content="1200">' : '',
-    meta.image ? '<meta property="og:image:height" content="630">' : '',
+    meta.image && meta.imageWidth ? `<meta property="og:image:width" content="${meta.imageWidth}">` : '',
+    meta.image && meta.imageHeight ? `<meta property="og:image:height" content="${meta.imageHeight}">` : '',
     meta.image ? `<meta property="og:image:alt" content="${escAttr(meta.siteName)}">` : '',
     `<meta name="twitter:card" content="${meta.image ? 'summary_large_image' : 'summary'}">`,
+    meta.url ? `<meta name="twitter:url" content="${escAttr(meta.url)}">` : '',
     `<meta name="twitter:title" content="${escAttr(meta.title)}">`,
     `<meta name="twitter:description" content="${escAttr(meta.description)}">`,
     meta.image ? `<meta name="twitter:image" content="${escAttr(meta.image)}">` : '',
     meta.image ? `<meta name="twitter:image:alt" content="${escAttr(meta.siteName)}">` : '',
   ].filter(Boolean).join('\n  ');
 
+  // Tambahan untuk mesin pencari: <meta name="description"> + canonical (bukan hanya og:). Pemanggilan replace memakai
+  // FUNGSI, bukan string: deskripsi/judul produk boleh berisi "$&", "$'" dsb. yang kalau tidak akan dianggap pola
+  // pengganti oleh String.replace dan merusak HTML (bagian halaman setelahnya ikut tersalin ke dalam meta).
+  const seo = [
+    `<meta name="description" content="${escAttr(meta.description)}">`,
+    meta.url ? `<link rel="canonical" href="${escAttr(meta.url)}">` : '',
+  ].filter(Boolean).join('\n  ');
   return html
-    .replace(/<title>[\s\S]*?<\/title>/, `<title>${escAttr(meta.title)}</title>`)
-    .replace('</head>', `  ${tags}\n</head>`);
+    .replace(/<title>[\s\S]*?<\/title>/, () => `<title>${escAttr(meta.title)}</title>`)
+    .replace('</head>', () => `  ${seo}\n  ${tags}\n</head>`);
 }

@@ -19,3 +19,32 @@ export function sniff(buf) {
   if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return { kind: 'video', mime: 'video/webm', ext: 'webm' };
   return null;
 }
+
+/**
+ * Ukuran piksel (width x height) dari header PNG/JPEG — tanpa library. Dipakai og:image:width/height agar nilainya
+ * sesuai gambar sebenarnya (bukan angka tebakan). null bila format lain / header rusak.
+ */
+export function imageSize(buf) {
+  if (!buf || buf.length < 24) return null;
+  if (buf[0] === 0x89 && buf.toString('latin1', 1, 4) === 'PNG') {
+    const width = buf.readUInt32BE(16); const height = buf.readUInt32BE(20);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) { i++; continue; }
+      const marker = buf[i + 1];
+      if (marker === 0xff) { i++; continue; }
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+      const len = buf.readUInt16BE(i + 2);
+      // SOF0-SOF15 (kecuali DHT 0xC4, JPG 0xC8, DAC 0xCC) memuat ukuran frame
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        const height = buf.readUInt16BE(i + 5); const width = buf.readUInt16BE(i + 7);
+        return width > 0 && height > 0 ? { width, height } : null;
+      }
+      i += 2 + len;
+    }
+  }
+  return null;
+}

@@ -48,11 +48,13 @@ const BRANDING_MEDIA = {
 };
 const BRANDING_FIELDS = Object.keys(BRANDING_MEDIA);
 const mediaRef = (m) => (m?.key ? { key: m.key, url: publicUrl(m.key) } : null);
+// Banner Social Share ikut membawa ukuran asli (bila diketahui) untuk og:image:width/height
+const bannerRef = (m) => (m?.key ? { ...mediaRef(m), ...(m.width && m.height ? { width: m.width, height: m.height } : {}) } : null);
 
 function withUrls(key, value) {
   if (key === 'branding') return { ...value, ...Object.fromEntries(BRANDING_FIELDS.map((f) => [f, mediaRef(value[f])])) };
   if (key === 'hero') return { ...value, covers: value.covers.map((c) => (c ? { key: c.key, url: publicUrl(c.key) } : null)) };
-  if (key === 'socialShare') return { ...value, banner: mediaRef(value.banner) };
+  if (key === 'socialShare') return { ...value, banner: bannerRef(value.banner) };
   return value;
 }
 
@@ -141,17 +143,19 @@ async function saveBranding(value, owner) {
 async function saveSocialShare(value, owner) {
   const current = (await Setting.findOne({ key: 'socialShare' }).lean())?.value || {};
 
+  let bannerDims = {};
   if (value.banner) {
     // JPEG/PNG saja: beberapa platform (sebagian cache WhatsApp, sebagian bot share-preview) tidak selalu
     // merender og:image berformat WebP/AVIF/GIF. JPEG/PNG didukung SEMUA platform (WhatsApp, Discord,
     // Telegram, Facebook, X, dll) -> ini supaya banner pasti muncul di semua platform, bukan hanya sebagian.
-    await assets.resolveForOwner([value.banner.key], owner, {
+    const [asset] = await assets.resolveForOwner([value.banner.key], owner, {
       folders: ['social'], max: 1, mimes: ['image/jpeg', 'image/png'], maxBytes: 5 * 1048576,
     });
+    bannerDims = asset?.width && asset?.height ? { width: asset.width, height: asset.height } : {};
   }
 
   const $set = {};
-  if (value.banner !== undefined) $set['value.banner'] = value.banner ? { key: value.banner.key } : null;
+  if (value.banner !== undefined) $set['value.banner'] = value.banner ? { key: value.banner.key, ...bannerDims } : null;
   if (value.defaultTitle !== undefined) $set['value.defaultTitle'] = value.defaultTitle;
   if (value.defaultDescription !== undefined) $set['value.defaultDescription'] = value.defaultDescription;
   if (value.pages !== undefined) $set['value.pages'] = { ...DEFAULTS.socialShare.pages, ...current.pages, ...value.pages };

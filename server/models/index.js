@@ -168,6 +168,8 @@ const assetSchema = new Schema({
   kind: { type: String, enum: ['image', 'video'], required: true },
   mime: String,
   size: Number,
+  width: Number,    // piksel (hanya PNG/JPEG; dipakai og:image:width/height banner Social Share)
+  height: Number,
   folder: { type: String, required: true },
   originalName: { type: String, maxlength: 200 },
   status: { type: String, enum: ['temp', 'used', 'orphan'], default: 'temp' },
