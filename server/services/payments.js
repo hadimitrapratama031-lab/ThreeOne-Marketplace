@@ -12,7 +12,7 @@ import { emitChange, emitToRoom, emitAdmin, setOrderJoinHandler, setTrackJoinHan
 import { getPaymentConfig, getCredentials } from './paymentSettings.js';
 import { soldOf } from './sales.js';
 import { assignCode, redeemViewFor } from './codes.js';
-import { publishSale } from './salesFeed.js';
+import { publishSale, unpublishSale } from './salesFeed.js';
 import * as klikqris from './klikqris.js';
 
 /**
@@ -436,6 +436,12 @@ export async function deleteOrder(id) {
   timers.delete(o.orderNo);
   await NotificationLog.deleteMany({ orderId: o._id }).catch((e) => console.error('[payment] hapus log notifikasi:', e.message));
   emitAdmin('order:delete', { id: String(o._id), orderNo: o.orderNo, mode: o.payment?.mode || 'sandbox' });
+  if (o.status === 'SUCCESS') {
+    // Order SUCCESS ikut membentuk "Terjual", statistik beranda, dan notifikasi order: segarkan semuanya lewat jalur realtime yang sama
+    // dengan saat pembayaran masuk (product:update menghitung ulang dari koleksi Order, lalu statistik disiarkan ulang).
+    await publishProductSale(o);
+    unpublishSale(o);
+  }
   return { orderNo: o.orderNo, status: o.status };
 }
 

@@ -94,6 +94,13 @@
     wake(firstShown ? 0 : FIRST_DELAY_MS);
   }
 
+  /** Order dihapus Admin: keluarkan dari antrean dan sembunyikan bila sedang tampil. `known` sengaja dibiarkan (id tidak dipakai ulang). */
+  function drop(id) {
+    if (!id || !queue.some((x) => x.id === id)) return;
+    queue = queue.filter((x) => x.id !== id);
+    if (lastId === id) { lastId = null; restart = true; el.classList.remove('is-in'); }
+  }
+
   function pickNext() {
     let i = 0;
     if (!restart) {
@@ -175,6 +182,7 @@
   document.addEventListener('mp:change', (e) => {
     const { entity, action, payload } = e.detail || {};
     if (entity === 'sale' && action === 'create') ingest([payload]);
+    else if (entity === 'sale' && action === 'delete') drop(payload?.id);
     else if (entity === 'sync' && action === 'done' && !payload?.initial && Date.now() - lastFetch > REFETCH_GUARD_MS) load();   // reconnect / sinkron ulang (bootstrap pertama sudah ditangani load() di bawah)
   });
 

@@ -226,3 +226,37 @@ test('Admin: hapus pesanan permanen; PENDING aktif ditolak; id tidak valid/tak a
   assert.equal((await a.del('/orders/bukan-id')).status, 404);
   assert.equal((await t.req(`/api/admin/orders/${o.id}`, { method: 'DELETE' })).status, 401, 'wajib login admin');
 });
+
+test('Admin: hapus pesanan SUCCESS menyegarkan Terjual, statistik, dan notifikasi order secara realtime', async () => {
+  await a.put('/payment-settings', settings());
+  const cat = (await a.post('/categories', { name: 'Hapus Sukses' })).body.item;
+  const p = (await a.post('/products', { name: 'Game Hapus Sukses', category: cat.id, price: 20000, stock: 5 })).body.item;
+  const buy = () => t.req('/api/orders', { method: 'POST', body: { productId: p.productId, ...BUYER } });
+  const pay = (o) => t.req('/api/payments/klikqris/webhook', { method: 'POST', body: mock.webhookBody(o.orderNo, 'PAID') });
+  const card = async () => (await t.req('/api/public/bootstrap')).body.products.find((x) => x.id === p.productId);
+
+  const pub = io(t.base, { transports: ['websocket'] }); sockets.push(pub);
+  const sold = []; const sale = []; const stats = [];
+  pub.on('product:update', (x) => sold.push(x));
+  pub.on('sale:create', (x) => sale.push(x));
+  pub.on('sale:delete', (x) => sale.push({ deleted: x.id }));
+  pub.on('settings:update', (x) => x.key === 'stats' && stats.push(x.value));
+  await new Promise((r) => pub.once('connect', r));
+
+  const o = (await buy()).body;
+  await pay(o);
+  const created = await until(() => sale.find((x) => x.id));
+  assert.equal((await card()).sold, 1);
+  const row = (await a.get('/orders?q=' + o.orderNo)).body.items[0];
+  assert.equal(row.status, 'SUCCESS');
+
+  sold.length = 0; stats.length = 0;
+  const del = await a.del(`/orders/${row.id}`);
+  assert.equal(del.status, 200, JSON.stringify(del.body));
+  assert.equal((await until(() => sold.find((x) => x.id === p.productId && x.sold === 0))).sold, 0, 'Terjual turun lewat Socket.IO');
+  assert.equal((await until(() => sale.find((x) => x.deleted === created.id))).deleted, created.id, 'notifikasi order ditarik');
+  await until(() => stats.length > 0);
+  assert.equal((await card()).sold, 0);
+  assert.equal((await t.req('/api/public/recent-orders')).body.items.some((x) => x.id === created.id), false, 'feed publik tidak lagi memuat order itu');
+  assert.equal((await a.get('/orders?q=' + o.orderNo)).body.items.length, 0, 'data benar-benar terhapus dari database');
+});

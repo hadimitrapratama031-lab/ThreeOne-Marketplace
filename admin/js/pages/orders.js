@@ -2,6 +2,8 @@ import { $, html, mount, icon, rp, dateTime, pagerHTML, emptyState, skeletonRows
 import { api } from '../api.js';
 
 const STATUS = { PENDING: ['Menunggu bayar', 'pill--warn'], SUCCESS: ['Berhasil', 'pill--ok'], EXPIRED: ['Kedaluwarsa', 'pill--mute'], FAILED: ['Gagal dibuat', 'pill--danger'] };
+/** Pesanan yang masih menunggu bayar dan belum jatuh tempo tidak boleh dihapus (server menolaknya juga). */
+const locked = (o) => o.status === 'PENDING' && o.expiresAt && new Date(o.expiresAt).getTime() > Date.now();
 const pill = (s) => html`<span class="pill ${(STATUS[s] || ['', ''])[1]}">${(STATUS[s] || [s])[0]}</span>`;
 
 /** Daftar pesanan; berubah realtime lewat event order:update (Socket.IO admin). */
@@ -34,7 +36,7 @@ export default {
             <td class="num">${rp(o.totalAmount ?? o.amount)}</td>
             <td>${pill(o.status)}${o.latePayment ? html`<br><small class="faint">Dibayar terlambat</small>` : ''}${o.codeState === 'waiting' ? html`<br><small class="faint">Menunggu code (stok habis)</small>` : o.stockNote === 'short' ? html`<br><small class="faint">Stok habis saat dibayar</small>` : ''}</td>
             <td class="muted">${dateTime(o.createdAt)}</td>
-            <td><div class="row-actions"><button class="btn btn--sm" type="button" data-open="${o.id}">Detail</button><button class="btn btn--sm btn--danger" type="button" data-del="${o.id}" aria-label="Hapus pesanan ${o.orderNo}">Hapus</button></div></td>
+            <td><div class="row-actions"><button class="btn btn--sm" type="button" data-open="${o.id}">Detail</button><button class="btn btn--sm btn--danger" type="button" data-del="${o.id}" aria-label="Hapus pesanan ${o.orderNo}"${locked(o) ? html` disabled title="Masih menunggu pembayaran. Bisa dihapus setelah kedaluwarsa."` : ''}>Hapus</button></div></td>
           </tr>`)}</tbody></table>` : emptyState(q.q || q.status ? 'Tidak ada pesanan yang cocok' : 'Belum ada pesanan', q.q || q.status ? 'Ubah kata kunci atau filter.' : 'Pesanan muncul di sini begitu pelanggan checkout.', 'receipt')).s;
         $('#pager', root).innerHTML = pagerHTML(res).s;
         root.__items = new Map(res.items.map((o) => [o.id, o]));
@@ -46,6 +48,7 @@ export default {
     root.addEventListener('click', async (e) => {
       const del = e.target.closest('[data-del]');
       if (del) {
+        if (del.disabled) return;
         const d = root.__items.get(del.dataset.del);
         if (!d) return;
         const paid = d.status === 'SUCCESS';
@@ -56,7 +59,7 @@ export default {
         });
         if (!ok) return;
         del.disabled = true;
-        try { await api.del(`/orders/${d.id}`); toast('Pesanan dihapus'); load(); } catch (err) { del.disabled = false; toastError(err, 'Pesanan gagal dihapus'); }
+        try { await api.del(`/orders/${d.id}`); toast('Pesanan dihapus'); load(); } catch (err) { del.disabled = false; toastError(err, 'Pesanan gagal dihapus'); load(); }
         return;
       }
       const pg = e.target.closest('[data-page]');

@@ -85,3 +85,15 @@ export function publishSale(order) {
     console.error(`[sales-feed] gagal menyiarkan order ${order?.orderNo}: ${err.message}`);
   }
 }
+
+/**
+ * Order SUCCESS dihapus Admin -> tarik dari Floating Order Notification di Marketplace (event publik `sale:delete`).
+ * Hanya membawa ID opaque yang sama dengan `sale:create`; orderNo tidak ikut keluar. Tidak boleh mengganggu alur hapus.
+ */
+export function unpublishSale(order) {
+  try {
+    emitPublic('sale:delete', { id: saleId(order) });
+  } catch (err) {
+    console.error(`[sales-feed] gagal menyiarkan penghapusan order ${order?.orderNo}: ${err.message}`);
+  }
+}

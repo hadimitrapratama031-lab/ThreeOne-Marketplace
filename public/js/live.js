@@ -13,7 +13,7 @@ const Live = (() => {
     'faq:create', 'faq:update', 'faq:delete', 'faq:reorder',
     'contact:create', 'contact:update', 'contact:delete', 'contact:reorder',
     'review:create', 'review:update', 'review:delete',
-    'sale:create',                            // Floating Order Notification (data order ber-masking)
+    'sale:create', 'sale:delete',             // Floating Order Notification (data order ber-masking; delete = order dihapus Admin)
   ];
   let socket = null;
   let started = false;
