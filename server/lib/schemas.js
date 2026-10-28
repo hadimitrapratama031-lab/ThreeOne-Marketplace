@@ -225,7 +225,7 @@ export const checkoutInput = z.object({
   email: z.string({ required_error: 'Email wajib diisi' }).trim().toLowerCase().min(1, 'Email wajib diisi').email('Format email belum benar').max(120, 'Email maksimal 120 karakter'),
   whatsapp: z.string({ required_error: 'Nomor WhatsApp wajib diisi' }).trim().min(1, 'Nomor WhatsApp wajib diisi').max(25, 'Nomor terlalu panjang')
     .transform((v) => normalizeWhatsapp(v))
-    .refine((v) => v !== '', 'Nomor WhatsApp tidak valid (contoh: 0812 3456 7890)'),
+    .refine((v) => v !== '', 'Nomor WhatsApp tidak valid (contoh: 0812 3456 7890 atau +60 12 345 6789)'),
   clientKey: z.string().trim().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
 });
 

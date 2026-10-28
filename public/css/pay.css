@@ -185,6 +185,9 @@
 .field.is-invalid .field__input { border-color: var(--danger); }
 .field.is-invalid .field__input:focus-visible { box-shadow: 0 0 0 4px rgba(229, 72, 77, .2); }
 .fields__row { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.phone { display: grid; grid-template-columns: minmax(0, 7.6rem) minmax(0, 1fr); gap: 8px; }   /* kode negara + nomor */
+.field__select { padding: 0 10px; cursor: pointer; text-overflow: ellipsis; }
+.field__select option { background: #14121c; color: #fff; }
 .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }   /* kolom jebakan bot */
 
 .form-foot {

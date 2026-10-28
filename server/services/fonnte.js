@@ -32,7 +32,7 @@ export async function sendWhatsAppRaw(token, target, message) {
     res = await fetch(`${config.fonnteBase}/send`, {
       method: 'POST',
       headers: { Authorization: token, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ target: to, message }),
+      body: new URLSearchParams({ target: to, message, countryCode: '0' }),   // '0' = jangan ubah nomor: target sudah lengkap dengan kode negara (default Fonnte 62 merusak nomor +60 dst.)
       redirect: 'error',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

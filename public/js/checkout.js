@@ -44,15 +44,38 @@
     else if (d.startsWith('0')) d = '62' + d.slice(1);
     else if (!raw.startsWith('+') && d.startsWith('8')) d = '62' + d;
     if (d.startsWith('620')) d = '62' + d.slice(3);
+    if (d.startsWith('600')) d = '60' + d.slice(3);
     if (!/^[1-9]\d{7,14}$/.test(d)) return '';
     if (d.startsWith('62') && (d.length < 10 || d.length > 15)) return '';
+    if (d.startsWith('60') && (d.length < 10 || d.length > 12)) return '';
     return d;
+  }
+
+  /* Nomor WhatsApp = kode negara (pilihan) + nomor lokal. Pelanggan cukup mengetik nomor seperti biasa: angka 0 di depan dibuang,
+     kode negara yang ikut terketik (mis. 60123456789) tidak digandakan, dan nomor yang diawali "+" / "00" dipakai apa adanya. */
+  const COUNTRIES = [
+    ['62', 'Indonesia'], ['60', 'Malaysia'], ['65', 'Singapura'], ['673', 'Brunei'], ['66', 'Thailand'], ['63', 'Filipina'],
+    ['84', 'Vietnam'], ['670', 'Timor Leste'], ['855', 'Kamboja'], ['95', 'Myanmar'], ['91', 'India'], ['92', 'Pakistan'], ['880', 'Bangladesh'],
+    ['94', 'Sri Lanka'], ['86', 'Tiongkok'], ['852', 'Hong Kong'], ['853', 'Makau'], ['886', 'Taiwan'], ['81', 'Jepang'], ['82', 'Korea Selatan'],
+    ['61', 'Australia'], ['64', 'Selandia Baru'], ['1', 'AS / Kanada'], ['44', 'Inggris'], ['49', 'Jerman'], ['33', 'Prancis'], ['31', 'Belanda'],
+    ['39', 'Italia'], ['34', 'Spanyol'], ['7', 'Rusia'], ['90', 'Turki'], ['966', 'Arab Saudi'], ['971', 'Uni Emirat Arab'], ['974', 'Qatar'],
+    ['965', 'Kuwait'], ['973', 'Bahrain'], ['968', 'Oman'], ['20', 'Mesir'], ['27', 'Afrika Selatan'], ['234', 'Nigeria'], ['254', 'Kenya'],
+    ['55', 'Brasil'], ['52', 'Meksiko'],
+  ];
+  function composeWa(cc, input) {
+    const raw = String(input || '').trim();
+    if (!raw) return '';
+    let d = raw.replace(/\D/g, '');
+    if (raw.startsWith('+') || d.startsWith('00')) return `+${d.replace(/^00/, '')}`;   // sudah lengkap dengan kode negara
+    d = d.replace(/^0+/, '');                                                           // 0 di depan = awalan nasional, bukan bagian nomor
+    if (d.startsWith(cc) && d.length > cc.length + 7) d = d.slice(cc.length);           // kode negara ikut terketik tanpa "+"
+    return d ? `+${cc}${d}` : '';
   }
 
   const RULES = {
     name: (v) => (v.trim().length < 2 ? 'Nama minimal 2 karakter' : v.trim().length > 60 ? 'Nama maksimal 60 karakter' : ''),
     email: (v) => (!v.trim() ? 'Email wajib diisi' : /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim()) ? '' : 'Format email belum benar'),
-    whatsapp: (v) => (!v.trim() ? 'Nomor WhatsApp wajib diisi' : normWa(v) ? '' : 'Nomor WhatsApp tidak valid (contoh: 0812 3456 7890)'),
+    whatsapp: (v) => (!v.trim() ? 'Nomor WhatsApp wajib diisi' : normWa(v) ? '' : 'Nomor WhatsApp tidak valid. Pilih kode negara yang sesuai lalu ketik nomornya (contoh: 812 3456 7890).'),
   };
 
   /* Muat data
@@ -148,6 +171,21 @@
       </div>`;
   }
 
+  function whatsappFieldHTML(saved) {
+    const cc = COUNTRIES.some(([c]) => c === saved.waCc) ? saved.waCc : '62';
+    return `
+      <div class="field" data-field="whatsapp">
+        <label for="f-whatsapp">Nomor WhatsApp</label>
+        <div class="phone">
+          <select class="field__input field__select" name="waCc" aria-label="Kode negara" autocomplete="off">
+            ${COUNTRIES.map(([c, n]) => `<option value="${c}"${c === cc ? ' selected' : ''}>+${c} ${esc(n)}</option>`).join('')}
+          </select>
+          <input class="field__input" id="f-whatsapp" name="whatsapp" type="tel" value="${esc(saved.whatsapp || '')}" autocomplete="tel-national" inputmode="tel" placeholder="812 3456 7890" aria-describedby="h-whatsapp" required>
+        </div>
+        <p class="field__hint" id="h-whatsapp">Pilih kode negara lalu ketik nomor tanpa kode negara (angka 0 di depan boleh ikut). Nomor negara lain juga bisa diketik lengkap, mis. +60 12 345 6789.</p>
+      </div>`;
+  }
+
   function renderForm() {
     let saved = {};
     try { saved = JSON.parse(sessionStorage.getItem(KEY_FORM) || '{}'); } catch { /* abaikan */ }
@@ -173,7 +211,7 @@
             ${fieldHTML({ id: 'name', label: 'Nama lengkap', autocomplete: 'name', placeholder: 'Nama sesuai identitas Anda', hint: 'Dipakai admin untuk memastikan pesanan atas nama Anda.', value: saved.name })}
             <div class="fields__row">
               ${fieldHTML({ id: 'email', label: 'Email', type: 'email', autocomplete: 'email', inputmode: 'email', placeholder: 'nama@email.com', hint: 'Bukti pesanan dan informasi akun dikirim ke sini.', value: saved.email })}
-              ${fieldHTML({ id: 'whatsapp', label: 'Nomor WhatsApp', type: 'tel', autocomplete: 'tel', inputmode: 'tel', placeholder: '0812 3456 7890', hint: 'Contoh: 0812 3456 7890 atau +62 812 3456 7890.', value: saved.whatsapp })}
+              ${whatsappFieldHTML(saved)}
             </div>
             <div class="trap" aria-hidden="true"><label>Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
           </div>
@@ -205,7 +243,7 @@
   function setError(name, message) {
     const field = $(`[data-field="${name}"]`, root);
     if (!field) return;
-    const input = $('.field__input', field);
+    const input = $('input.field__input', field);
     $('.field__error', field)?.remove();
     field.classList.toggle('is-invalid', Boolean(message));
     input.toggleAttribute('aria-invalid', Boolean(message));
@@ -225,7 +263,9 @@
   async function submit(form) {
     if (submitting) return;
     formError('');
-    const values = { name: form.elements.name.value, email: form.elements.email.value, whatsapp: form.elements.whatsapp.value };
+    const waCc = form.elements.waCc.value;
+    const waLocal = form.elements.whatsapp.value;
+    const values = { name: form.elements.name.value, email: form.elements.email.value, whatsapp: composeWa(waCc, waLocal) };
     let firstBad = null;
     for (const k of Object.keys(RULES)) {
       const msg = setError(k, RULES[k](values[k]));
@@ -233,7 +273,7 @@
     }
     if (firstBad) { form.elements[firstBad].focus(); return; }
 
-    sessionStorage.setItem(KEY_FORM, JSON.stringify(values));
+    sessionStorage.setItem(KEY_FORM, JSON.stringify({ ...values, whatsapp: waLocal, waCc }));   // yang disimpan = isian pelanggan, bukan hasil gabungan
     let key = sessionStorage.getItem(KEY_CK);
     if (!key) {
       key = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}${Math.random().toString(16).slice(2)}`).replace(/-/g, '');
