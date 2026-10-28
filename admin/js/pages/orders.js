@@ -74,7 +74,7 @@ export default {
           <div>${o.product.name} · ${rp(o.amount)} → total ${rp(o.totalAmount ?? o.amount)}</div>
           <div class="muted">Dibayar: ${dateTime(o.paidAt)} · Batas: ${dateTime(o.expiresAt)} · Webhook diterima: ${o.webhookCount}×</div>
           ${o.failureReason ? html`<p class="form-error">${o.failureReason}</p>` : ''}
-          ${o.reportUrl ? html`<a href="${o.reportUrl}" target="_blank" rel="noopener">Laporan KlikQRIS ${icon('external')}</a>` : ''}
+          ${o.reportUrl ? html`<a href="${o.reportUrl}" target="_blank" rel="noopener">Detail transaksi KlikQRIS ${icon('external')}</a>` : ''}
           <ul class="timeline">${[...o.events].reverse().map((ev) => html`<li><time>${dateTime(ev.at)}</time><span>${ev.type}${ev.detail ? ` — ${ev.detail}` : ''}</span></li>`)}</ul>
         </dl>`, foot: html`<button type="button" class="btn" data-close>Tutup</button>` });
     });

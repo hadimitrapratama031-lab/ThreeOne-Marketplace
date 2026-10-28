@@ -209,12 +209,13 @@ const orderSchema = new Schema({
   uniqueAmount: { type: Number, default: 0 },                          // amount_uniq dari KlikQRIS
   expiresAt: { type: Date, default: null },                            // batas bayar (waktu SERVER) = QRIS dibuat + 10 menit
   payment: {
-    provider: { type: String, default: 'klikqris' },
+    provider: { type: String, default: 'klikqris' },                  // 'klikqris-mypg' = MY PG (/qrisv2); 'klikqris' = In-House/Sandbox & pesanan lama
     mode: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
     gatewayStatus: { type: String, default: '' },                      // status terakhir dari KlikQRIS apa adanya
     qrisUrl: { type: String, default: '' },
     qrisImage: { type: String, default: '' },                          // qris_image (data URI base64) dari KlikQRIS: dipakai lebih dulu agar QR tidak bergantung pada hotlink gambar
     reportUrl: { type: String, default: '' },
+    directUrl: { type: String, default: '' },                          // direct_url MY PG (halaman bayar KlikQRIS), untuk rekonsiliasi
     signature: { type: String, select: false },                        // signature dari respons create; pembanding webhook
     gatewayExpiredAt: { type: String, default: '' },
     gatewayPaidAt: { type: String, default: '' },

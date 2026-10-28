@@ -17,8 +17,8 @@ import * as klikqris from './klikqris.js';
 
 /**
  * Alur pembayaran (backend = sumber kebenaran):
- *   createCheckout -> order PENDING -> KlikQRIS /qris/create -> expiresAt = sekarang + 10 menit (waktu SERVER)
- *   KlikQRIS webhook / pengecekan status -> applyGatewayStatus (transisi atomik, idempoten)
+ *   createCheckout -> order PENDING -> KlikQRIS MY PG /qrisv2/create (production; sandbox = simulator) -> expiresAt = sekarang + 10 menit (waktu SERVER)
+ *   KlikQRIS webhook / pengecekan status (/qrisv2/status/{id_merchant}/{order_id}) -> applyGatewayStatus (transisi atomik, idempoten)
  *   -> MongoDB -> Socket.IO (room per-order) -> halaman Payment berubah tanpa refresh.
  */
 export const EXPIRY_MS = 10 * 60 * 1000;
@@ -83,7 +83,7 @@ export function admOrder(o) {
     stockNote: o.stockNote || '',
     failureReason: o.failureReason || '',
     webhookCount: o.payment?.webhookCount || 0,
-    reportUrl: o.payment?.reportUrl || '',
+    reportUrl: o.payment?.reportUrl || o.payment?.directUrl || '',
     createdAt: iso(o.createdAt),
     expiresAt: iso(o.expiresAt),
     paidAt: iso(o.payment?.paidAt),
@@ -185,7 +185,7 @@ export async function createCheckout(input, { requestBase }) {
         customer: { name: input.name, email: input.email, whatsapp: input.whatsapp },
         product: { ref: product._id, productId: product.productId, name: product.name, category: product.category?.name || '', imageKey: (product.media || []).find((m) => m.type === 'image' && m.key && m.source !== 'steam')?.key || '', kind: product.kind || 'normal' },
         amount: product.price,
-        payment: { mode: cfg.mode },
+        payment: { mode: cfg.mode, provider: klikqris.providerFor(cfg.mode) },
         origin: cfg.publicBaseUrl || requestBase,   // dipakai tautan di notifikasi (tanpa request)
         events: [log('created', `produk #${product.productId}`)],
       });
@@ -214,7 +214,7 @@ export async function createCheckout(input, { requestBase }) {
       {
         $set: {
           totalAmount: tx.totalAmount, uniqueAmount: tx.uniqueAmount, expiresAt,
-          'payment.gatewayStatus': tx.status, 'payment.qrisUrl': tx.qrisUrl, 'payment.qrisImage': tx.qrisImage, 'payment.reportUrl': tx.reportUrl,
+          'payment.gatewayStatus': tx.status, 'payment.qrisUrl': tx.qrisUrl, 'payment.qrisImage': tx.qrisImage, 'payment.reportUrl': tx.reportUrl, 'payment.directUrl': tx.directUrl,
           'payment.signature': tx.signature, 'payment.gatewayExpiredAt': tx.expiredAt, 'payment.createdAt': now,
         },
         $inc: { rev: 1 },
@@ -224,7 +224,7 @@ export async function createCheckout(input, { requestBase }) {
     );
     scheduleExpiry(order);
   } catch (err) {
-    const detail = err instanceof klikqris.GatewayError ? `${err.message} ${err.status || ''} ${err.detail}`.trim() : String(err?.message || err);
+    const detail = err instanceof klikqris.GatewayError ? `[${err.kind}] ${err.message} ${err.status || ''} ${err.detail}`.trim() : String(err?.message || err);
     console.error(`[payment] gagal membuat transaksi KlikQRIS untuk ${order.orderNo}: ${detail}`);   // tanpa kredensial
     order = await Order.findOneAndUpdate(
       { _id: order._id, status: 'PENDING' },
@@ -325,15 +325,24 @@ export async function applyGatewayStatus(orderNo, gwStatus, { source, gatewayPai
 }
 
 /* ---------- Webhook ---------- */
+const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+const sameMoney = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.005;
+
 /**
- * Payload resmi (datar): order_id, status (PAID/EXPIRED), amount, total_amount, payment_date, signature, ...
- * Validasi: signature callback HARUS sama dengan signature dari respons create (sesuai dokumentasi).
- * Balasan 200 = diterima (termasuk callback ganda); 401 = signature salah.
+ * Payload MY PG (bersarang): { status: 'success', message, data: { order_id, amount_request, amount_paid, payment_date,
+ *   status: 'PAID' | 'EXPIRED', merchant_id, via, signature } }. Status transaksi ada di `data.status` (bukan status amplop).
+ * Payload datar lama (order_id, status, total_amount, payment_date, signature di tingkat atas; mode In-House/Sandbox dan
+ * pesanan lama) tetap dibaca, dengan verifikasi yang sama.
+ * Validasi (semua wajib lolos sebelum status disentuh): signature == signature dari respons create; merchant_id (bila ada)
+ * == Merchant ID mode order; nominal dibayar == total_amount tersimpan (wajib ada untuk PAID); amount_request (bila ada) == harga order.
+ * Balasan 200 = diterima (termasuk callback ganda / order tak dikenal); 401 = signature salah; 400 = payload/nominal/merchant tidak cocok.
  */
 export async function handleWebhook(body) {
-  const orderId = typeof body?.order_id === 'string' ? body.order_id : '';
-  const signature = typeof body?.signature === 'string' ? body.signature : '';
-  if (!orderId || !signature || typeof body?.status !== 'string') return { code: 400, body: { ok: false, error: 'payload tidak valid' } };
+  const d = body?.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : body;
+  const orderId = typeof d?.order_id === 'string' ? d.order_id : '';
+  const signature = typeof d?.signature === 'string' ? d.signature : '';
+  const gwStatus = typeof d?.status === 'string' ? d.status.toUpperCase() : '';
+  if (!orderId || !signature || !gwStatus) return { code: 400, body: { ok: false, error: 'payload tidak valid' } };
 
   const order = await Order.findOne({ orderNo: orderId }).select('+payment.signature');
   if (!order) return { code: 200, body: { ok: true, ignored: 'order tidak dikenal' } };   // bisa milik aplikasi lain pada merchant yang sama; 200 agar tidak diulang terus
@@ -341,12 +350,29 @@ export async function handleWebhook(body) {
     console.warn(`[payment] webhook DITOLAK (signature tidak cocok) untuk ${orderId}`);
     return { code: 401, body: { ok: false, error: 'signature tidak valid' } };
   }
-  if (body.total_amount !== undefined && body.total_amount !== null && Number(body.total_amount) !== order.totalAmount) {
-    console.warn(`[payment] webhook DITOLAK (total_amount ${body.total_amount} != ${order.totalAmount}) untuk ${orderId}`);
+  if (d.merchant_id !== undefined && d.merchant_id !== null && String(d.merchant_id) !== '') {
+    const cred = await getCredentials(order.payment?.mode);
+    if (cred.merchantId && String(d.merchant_id) !== cred.merchantId) {
+      console.warn(`[payment] webhook DITOLAK (merchant_id tidak cocok) untuk ${orderId}`);
+      return { code: 400, body: { ok: false, error: 'merchant tidak cocok' } };
+    }
+  }
+  const paid = num(d.amount_paid ?? d.total_amount);
+  if (PAID.has(gwStatus) && !Number.isFinite(paid)) {
+    console.warn(`[payment] webhook DITOLAK (nominal dibayar tidak ada) untuk ${orderId}`);
+    return { code: 400, body: { ok: false, error: 'nominal tidak ada' } };
+  }
+  if (Number.isFinite(paid) && !sameMoney(paid, order.totalAmount)) {
+    console.warn(`[payment] webhook DITOLAK (nominal ${paid} != ${order.totalAmount}) untuk ${orderId}`);
+    return { code: 400, body: { ok: false, error: 'nominal tidak cocok' } };
+  }
+  const requested = num(d.amount_request);
+  if (Number.isFinite(requested) && !sameMoney(requested, order.amount)) {
+    console.warn(`[payment] webhook DITOLAK (amount_request ${requested} != ${order.amount}) untuk ${orderId}`);
     return { code: 400, body: { ok: false, error: 'nominal tidak cocok' } };
   }
   await Order.updateOne({ _id: order._id }, { $inc: { 'payment.webhookCount': 1 }, $set: { 'payment.lastWebhookAt': new Date() } });
-  const changed = await applyGatewayStatus(orderId, body.status, { source: 'webhook', gatewayPaidAt: typeof body.payment_date === 'string' ? body.payment_date : '' });
+  const changed = await applyGatewayStatus(orderId, gwStatus, { source: 'webhook', gatewayPaidAt: typeof d.payment_date === 'string' ? d.payment_date : '' });
   return { code: 200, body: { ok: true, duplicate: !changed } };
 }
 
@@ -363,7 +389,14 @@ async function checkRemote(order) {
   const cred = await getCredentials(order.payment?.mode);
   if (!cred.ready) return null;
   await Order.updateOne({ _id: order._id }, { $set: { 'payment.lastCheckedAt': new Date() } });
-  const r = await klikqris.checkStatus(cred, order.orderNo);
+  // Order baru (MY PG) -> /qrisv2/status/{id_merchant}/{order_id}; order lama / sandbox -> /qris/status/{order_id}
+  const r = await klikqris.checkStatus(cred, order.orderNo, { legacy: order.payment?.provider !== klikqris.PROVIDER_MYPG });
+  // Lunas hanya bila nominal yang dilaporkan KlikQRIS sama dengan total_amount tersimpan
+  if (PAID.has(r.status) && r.totalAmount !== null && !sameMoney(r.totalAmount, order.totalAmount)) {
+    console.warn(`[payment] status-check DITOLAK (total_amount ${r.totalAmount} != ${order.totalAmount}) untuk ${order.orderNo}`);
+    await Order.updateOne({ _id: order._id }, { $push: { events: push(log('amount_mismatch', `status-check ${r.totalAmount} != ${order.totalAmount}`)) } });
+    return null;
+  }
   return applyGatewayStatus(order.orderNo, r.status, { source: 'status-check', gatewayPaidAt: r.paidAt });
 }
 

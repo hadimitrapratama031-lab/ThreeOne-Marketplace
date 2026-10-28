@@ -30,16 +30,16 @@ export default {
               <div class="field" data-field="mode"><span>Mode transaksi</span>
                 <div class="seg" role="radiogroup" aria-label="Mode transaksi">
                   <label><input type="radio" name="mode" value="sandbox" ${s.mode === 'sandbox' ? 'checked' : ''}><span>Sandbox (uji coba)</span></label>
-                  <label><input type="radio" name="mode" value="production" ${s.mode === 'production' ? 'checked' : ''}><span>Production (uang asli)</span></label>
+                  <label><input type="radio" name="mode" value="production" ${s.mode === 'production' ? 'checked' : ''}><span>Production (MY PG, uang asli)</span></label>
                 </div>
-                <small>Sandbox memakai endpoint /api/sandbox KlikQRIS; Production memakai /api. Setiap mode punya API Key dan Merchant ID sendiri.</small></div>
+                <small>Production memakai MY PG (/api/qrisv2): dana langsung masuk ke QRIS/rekening Anda sendiri. Sandbox memakai simulator KlikQRIS (/api/sandbox), tanpa uang asli. Setiap mode punya API Key dan Merchant ID sendiri.</small></div>
               <div class="grid-2">${credCard('sandbox', 'Sandbox')}${credCard('production', 'Production')}</div>
               <div class="actions"><button class="btn" type="button" id="test">Uji koneksi mode aktif</button><span class="muted" id="test-out" role="status"></span></div>
             </div></section>
 
           <section class="card"><div class="card__head"><h3>Webhook / Callback</h3></div>
             <div class="card__body stack">
-              <p class="muted">Backend mengirim URL ini sebagai <code>callback_url</code> pada setiap transaksi. Isi juga sebagai URL Webhook global di menu Pengaturan KlikQRIS sebagai cadangan. Signature divalidasi otomatis.</p>
+              <p class="muted">MY PG tidak menerima <code>callback_url</code> per transaksi: <b>daftarkan URL ini sebagai URL Webhook di dashboard KlikQRIS (menu Pengaturan)</b>. Signature, nominal, dan Merchant ID divalidasi otomatis; tanpa webhook, status tetap dicek berkala ke KlikQRIS. (Mode Sandbox masih mengirim URL ini sebagai <code>callback_url</code>.)</p>
               <div class="copybox"><code id="wh">${s.webhookUrl}</code><button class="btn btn--sm" type="button" id="copy-wh">${icon('copy')}Salin</button></div>
               <label class="field"><span>URL publik toko (opsional)</span><input name="publicBaseUrl" value="${s.publicBaseUrl}" maxlength="200" placeholder="https://toko.domainmu.com"><small>Isi bila backend berada di belakang proxy/domain lain. Kosong = alamat server ini. Alamat localhost tidak dikirim ke KlikQRIS; status tetap dicek berkala sebagai cadangan.</small></label>
             </div></section>
