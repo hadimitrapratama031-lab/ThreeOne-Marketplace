@@ -1,7 +1,7 @@
 /* ==========================================================================
    payment.js — Payment  (/payment?order=MP-...&t=TOKEN)
    Satu halaman, beberapa keadaan: menunggu pembayaran -> sukses | kedaluwarsa | gagal.
-   - Status, nominal (total_amount KlikQRIS) dan batas waktu SELALU dari backend/MongoDB.
+   - Status, nominal (total dari 31 QRIS) dan batas waktu SELALU dari backend/MongoDB.
      Countdown = expiresAt (jam server) dikurangi jam server; refresh tidak mereset hitungan.
    - Perubahan datang lewat Socket.IO yang sudah ada (room order:<id>); tanpa socket,
      halaman polling pelan. Halaman ini tidak pernah menentukan status sendiri.
@@ -33,7 +33,7 @@
   const remaining = () => (order?.expiresAt ? Date.parse(order.expiresAt) - serverNow() : 0);
   const safeHttps = (u) => (/^https:\/\//i.test(u || '') ? u : '');
   const safeImg = (u) => (/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/i.test(u || '') ? u : '');
-  /* Sumber gambar QR berurutan: qris_image (base64 dari KlikQRIS, tidak bergantung hotlink) lalu qris_url. Bila satu gagal dimuat, coba berikutnya. */
+  /* Sumber gambar QR berurutan: data URI base64 dari 31 QRIS (tidak bergantung hotlink) lalu URL gambar. Bila satu gagal dimuat, coba berikutnya. */
   const qrSources = (o) => [safeImg(o?.qrisImage), safeHttps(o?.qrisUrl)].filter(Boolean);
   const qrImg = (o, i = 0, bust = false) => {
     const src = qrSources(o)[i];
@@ -161,6 +161,7 @@
           </div>
 
           ${sandboxNotice(o)}
+          ${o.needsReview ? `<div class="notice notice--warn" role="status">${I.alert}<p><b>Pembayaran Anda sedang diperiksa.</b> Gateway meminta pemeriksaan tambahan sebelum pembayaran dikonfirmasi. Jangan membayar lagi; halaman ini berubah otomatis begitu selesai. Jika lama, hubungi admin dengan Order ID <b>${esc(o.orderNo)}</b>.</p></div>` : ''}
           <div class="notice">${I.info}<p>Menutup halaman ini tidak membatalkan pesanan. Buka kembali tautan ini selama waktu belum habis; sisa waktu tetap mengikuti jam server.</p></div>
         </section>
 
@@ -178,14 +179,14 @@
       </div>`;
   }
 
-  /* Keadaan: waktu habis, memeriksa pembayaran terakhir ke KlikQRIS */
+  /* Keadaan: waktu habis, memeriksa pembayaran terakhir ke 31 QRIS */
   function checkingHTML(o, preparing = false) {
     return `
       ${head({ title: preparing ? 'Menyiapkan pembayaran' : 'Memeriksa pembayaran', lead: preparing ? 'Kode QRIS sedang dibuat. Sebentar saja.' : 'Waktu pembayaran sudah habis. Kami memastikan dulu apakah pembayaran Anda sudah masuk.', step: 2 })}
       <div class="pay-grid">
         <section class="panel state" role="status">
           <span class="spinner" aria-hidden="true"></span>
-          <h2 class="panel__title">${preparing ? 'Membuat kode QRIS…' : 'Mengecek status ke KlikQRIS…'}</h2>
+          <h2 class="panel__title">${preparing ? 'Membuat kode QRIS…' : 'Mengecek status ke 31 QRIS…'}</h2>
           <p>${preparing ? 'Halaman akan menampilkan kode QRIS otomatis.' : 'Jika Anda baru saja membayar, tunggu beberapa detik. Jangan tutup halaman ini.'}</p>
         </section>
         <aside class="pay-side">${summaryPanel(o)}</aside>
@@ -291,12 +292,12 @@
   function failedHTML(o) {
     const link = waLink(`Halo Admin, pembayaran untuk pesanan ${o.orderNo} (${o.product.name}) gagal diproses. Mohon bantuannya.`);
     return `
-      ${head({ title: 'Pembayaran tidak dapat diproses', lead: '', step: 2 })}
+      ${head({ title: o.failureKind === 'cancelled' ? 'Pembayaran dibatalkan' : o.failureKind === 'rejected' ? 'Pembayaran ditolak' : 'Pembayaran tidak dapat diproses', lead: '', step: 2 })}
       <div class="pay-grid">
         <section class="panel swap" aria-labelledby="pay-h" style="padding-block:clamp(28px,4vw,48px)">
           <span class="result-icon result-icon--danger">${I.x}</span>
-          <h2 class="result-title">Kami belum bisa membuat kode pembayaran</h2>
-          <p class="result-text">${esc(o.failureReason || 'Transaksi pembayaran tidak dapat dibuat.')} Ini bukan salah Anda; coba buat pesanan lagi. Bila masih gagal, hubungi admin dan sertakan Order ID <b>${esc(o.orderNo)}</b>.</p>
+          <h2 class="result-title">${o.failureKind === 'cancelled' ? 'Transaksi ini dibatalkan' : o.failureKind === 'rejected' ? 'Pembayaran Anda ditolak' : 'Kami belum bisa membuat kode pembayaran'}</h2>
+          <p class="result-text">${esc(o.failureReason || 'Transaksi pembayaran tidak dapat dibuat.')} ${o.failureKind ? 'Anda dapat membuat pesanan baru.' : 'Ini bukan salah Anda; coba buat pesanan lagi.'} Bila masih gagal, hubungi admin dan sertakan Order ID <b>${esc(o.orderNo)}</b>.</p>
           <div class="result-actions">
             <a class="btn btn--primary" href="/checkout?product=${o.product.id}">Coba lagi</a>
             ${link ? `<a class="btn btn--wa" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${I.wa}<span>Hubungi admin</span></a>` : `<a class="btn btn--soft" href="/#contact">Hubungi admin</a>`}
@@ -340,7 +341,7 @@
 
   function render() {
     const ph = phase();
-    const key = `${ph}|${order?.waAdmin || ''}|${order?.redeem ? `${order.redeem.state}:${(order.redeem.tutorial || []).length}` : ''}`;
+    const key = `${ph}|${order?.waAdmin || ''}|${order?.needsReview ? 'review' : ''}|${order?.failureKind || ''}|${order?.redeem ? `${order.redeem.state}:${(order.redeem.tutorial || []).length}` : ''}`;
     if (key === renderedKey) return;
     const prev = renderedKey.split('|')[0];
     renderedKey = key;
@@ -353,7 +354,7 @@
     }[ph])();
     first = false;
     document.title = `${TITLES[ph] || 'Pembayaran'} — ${DATA.brand}`;
-    if (prev !== ph && SAY[ph]) announce(SAY[ph]);
+    if (prev !== ph && SAY[ph]) announce(ph === 'failed' && order.failureKind === 'cancelled' ? 'Pembayaran dibatalkan.' : ph === 'failed' && order.failureKind === 'rejected' ? 'Pembayaran ditolak.' : SAY[ph]);
     if (ph === 'success' || ph === 'expired' || ph === 'failed') window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
     if (ph === 'checking') schedulePoll();        // rapatkan pengecekan begitu waktu habis
     tick();

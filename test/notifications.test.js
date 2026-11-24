@@ -3,26 +3,26 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { io } from 'socket.io-client';
 import { boot, until } from './helpers/boot.js';
-import { startKlikqrisMock, startProvidersMock } from './helpers/klikqrisMock.js';
+import { startQris31Mock, startProvidersMock, QRIS31_KEY, QRIS31_SECRET } from './helpers/qris31Mock.js';
 
 let t; let a; let gw; let prov; let product; const sockets = [];
 const SECRET = `whsec_${Buffer.from('resend-signing-secret').toString('base64')}`;
 const BUYER = { name: 'Budi Santoso', email: 'Budi@Example.com', whatsapp: '0812 3456 7890' };
 
 before(async () => {
-  gw = await startKlikqrisMock();
+  gw = await startQris31Mock();
   prov = await startProvidersMock();
-  Object.assign(process.env, { KLIKQRIS_BASE_URL: gw.url, FONNTE_BASE_URL: prov.url, RESEND_BASE_URL: prov.url, NOTIFICATION_BACKOFF_MS: '10,10' });
+  Object.assign(process.env, { QRIS31_BASE_URL: gw.url, FONNTE_BASE_URL: prov.url, RESEND_BASE_URL: prov.url, NOTIFICATION_BACKOFF_MS: '10,10' });
   t = await boot();
   a = await t.admin();
   const cat = (await a.post('/categories', { name: 'Game' })).body.item;
   product = (await a.post('/products', { name: 'Game Notifikasi', category: cat.id, price: 50000, stock: 50 })).body.item;
-  await a.put('/payment-settings', { mode: 'sandbox', sandbox: { merchantId: 'MRC-SB', apiKey: 'KEY-SB' }, production: {}, waAdmin: '0811 2222 3333' });
+  await a.put('/payment-settings', { apiKey: QRIS31_KEY, webhookSecret: QRIS31_SECRET, waAdmin: '0811 2222 3333' });
 });
 after(async () => { sockets.forEach((s) => s.close()); await t.stop(); await gw.close(); await prov.close(); });
 
 const checkout = (over = {}) => t.req('/api/orders', { method: 'POST', body: { productId: product.productId, ...BUYER, ...over } });
-const pay = (id, status = 'PAID') => t.req('/api/payments/klikqris/webhook', { method: 'POST', body: gw.webhookBody(id, status) });
+const pay = (id, status = 'PAID') => gw.hook(t, id, status);
 const logs = async (orderNo) => (await a.get(`/notifications?orderNo=${orderNo}&limit=50`)).body.items;
 const settle = (ms = 150) => new Promise((r) => setTimeout(r, ms));
 const resetProv = () => { prov.state.wa.length = 0; prov.state.mail.length = 0; prov.state.failWa = 0; prov.state.failMail = 0; prov.state.permanentWa = false; prov.state.noIdWa = false; };

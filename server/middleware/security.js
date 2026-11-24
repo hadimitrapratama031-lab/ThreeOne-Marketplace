@@ -69,7 +69,7 @@ export const reviewSubmitLimiter = rateLimit({
 });
 export const telemetryLimiter = rateLimit({ ...limiterOpts, windowMs: 60_000, limit: 20, handler: (_req, res) => res.status(204).end() });
 
-// Checkout publik: cukup longgar untuk pembeli biasa, cukup ketat agar tidak membanjiri transaksi KlikQRIS
+// Checkout publik: cukup longgar untuk pembeli biasa, cukup ketat agar tidak membanjiri transaksi 31 QRIS
 export const checkoutLimiter = rateLimit({
   ...limiterOpts, windowMs: 10 * 60_000, limit: config.isProd ? 15 : 300,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak percobaan checkout. Coba lagi beberapa menit lagi.')),
@@ -83,7 +83,7 @@ export const trackLimiter = rateLimit({
   ...limiterOpts, windowMs: 10 * 60_000, limit: config.isProd ? 30 : 300,
   handler: (_req, _res, next) => next(new HttpError(429, 'Terlalu banyak pencarian. Coba lagi beberapa menit lagi.')),
 });
-// Webhook server-ke-server dari KlikQRIS (dengan percobaan ulang) — batas longgar, tanpa originGuard
+// Webhook server-ke-server dari 31 QRIS (dengan percobaan ulang) — batas longgar, tanpa originGuard
 export const webhookLimiter = rateLimit({
   ...limiterOpts, windowMs: 60_000, limit: 600,
   handler: (_req, res) => res.status(429).json({ ok: false, error: 'terlalu banyak permintaan' }),

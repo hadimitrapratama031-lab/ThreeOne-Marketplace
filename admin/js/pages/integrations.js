@@ -3,9 +3,9 @@ import { api } from '../api.js';
 
 const EVENTS = [
   ['orderCreated', 'Pesanan dibuat', 'Dikirim begitu kode QRIS berhasil dibuat dan pesanan menunggu pembayaran.'],
-  ['paymentSuccess', 'Pembayaran berhasil', 'Dikirim saat backend mengonfirmasi pembayaran SUCCESS/PAID dari KlikQRIS.'],
-  ['paymentFailed', 'Pembayaran gagal', 'Dikirim bila transaksi tidak dapat dibuat di gateway.'],
-  ['paymentExpired', 'Pembayaran kedaluwarsa', 'Dikirim saat batas waktu 10 menit habis atau KlikQRIS menyatakan EXPIRED.'],
+  ['paymentSuccess', 'Pembayaran berhasil', 'Dikirim saat backend mengonfirmasi pembayaran berhasil dari 31 QRIS.'],
+  ['paymentFailed', 'Pembayaran gagal', 'Dikirim bila transaksi tidak dapat dibuat, ditolak, atau dibatalkan.'],
+  ['paymentExpired', 'Pembayaran kedaluwarsa', 'Dikirim saat batas waktu 10 menit habis atau 31 QRIS menyatakan EXPIRED.'],
 ];
 
 /** Pengaturan Resend (email), Fonnte (WhatsApp), kejadian notifikasi, dan template. Rahasia tidak pernah dikembalikan server. */

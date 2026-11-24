@@ -29,8 +29,12 @@ export const config = {
     endpoint: trimSlash(e.R2_ENDPOINT) || (clean(e.R2_ACCOUNT_ID) ? `https://${clean(e.R2_ACCOUNT_ID)}.r2.cloudflarestorage.com` : ''),
     forcePathStyle: bool(e.R2_FORCE_PATH_STYLE),
   },
-  // Pembayaran (KlikQRIS). Kredensial diatur di Admin Web, bukan di env. Base URL hanya untuk uji otomatis.
-  klikqrisBase: trimSlash(e.KLIKQRIS_BASE_URL) || 'https://klikqris.com/api',
+  // Pembayaran (31 QRIS). API Key & Webhook Secret diatur di Admin Web (terenkripsi di MongoDB); env hanya cadangan bila Admin Web belum diisi.
+  qris31: {
+    base: trimSlash(e.QRIS31_BASE_URL) || 'https://31-qris-gateway-production.up.railway.app',
+    apiKey: clean(e.QRIS31_API_KEY),
+    webhookSecret: clean(e.QRIS31_WEBHOOK_SECRET),
+  },
   publicBaseUrl: trimSlash(e.PUBLIC_BASE_URL),
   // Alamat publik cadangan untuk tautan notifikasi (Email/WhatsApp) bila Admin Web & PUBLIC_BASE_URL kosong dan request bukan domain publik asli.
   // Hanya aktif di production (dev/test tetap tanpa tautan bila tidak ada alamat publik). Bisa diganti lewat DEFAULT_PUBLIC_ORIGIN.

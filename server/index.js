@@ -56,6 +56,7 @@ export function createApp() {
   app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
 
+  const QRIS_ORIGIN = new URL(config.qris31.base).origin;
   const r2Origin = config.r2.publicUrl ? new URL(config.r2.publicUrl).origin : null;
   app.use(helmet({
     contentSecurityPolicy: {
@@ -65,9 +66,9 @@ export function createApp() {
         'script-src': ["'self'"],
         'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'font-src': ["'self'", 'https://fonts.gstatic.com'],
-        // klikqris.com: gambar QRIS (qris_url) dimuat langsung dari KlikQRIS, tidak disalin ke R2
+        // Gambar QRIS dari 31 QRIS: bila gateway memberi URL (bukan data URI), dimuat langsung dari origin gateway, tidak disalin ke R2
         // CDN Steam (*.steamstatic.com, *.akamaihd.net): screenshot, thumbnail & video Steam dimuat LANGSUNG dari Steam, tidak disalin ke R2
-        'img-src': ["'self'", 'data:', 'blob:', 'https://klikqris.com', ...STEAM_CDN, ...(r2Origin ? [r2Origin] : [])],
+        'img-src': ["'self'", 'data:', 'blob:', QRIS_ORIGIN, ...STEAM_CDN, ...(r2Origin ? [r2Origin] : [])],
         'media-src': ["'self'", 'blob:', ...STEAM_CDN, ...(r2Origin ? [r2Origin] : [])],
         'connect-src': ["'self'", 'ws:', 'wss:'],
         'object-src': ["'none'"],
@@ -81,8 +82,8 @@ export function createApp() {
   }));
   app.use(compression());
   app.use(cookieParser());
-  // rawBody: byte mentah dibutuhkan untuk verifikasi signature webhook Resend (Svix)
-  app.use(express.json({ limit: '256kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/webhooks/')) req.rawBody = buf; } }));
+  // rawBody: byte mentah dibutuhkan untuk verifikasi signature webhook Resend (Svix) dan 31 QRIS (HMAC X-Signature)
+  app.use(express.json({ limit: '256kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/webhooks/') || req.originalUrl.startsWith('/api/payments/31qris/webhook')) req.rawBody = buf; } }));
 
   app.get('/healthz', (_req, res) => {
     const dbUp = mongoose.connection.readyState === 1;
@@ -105,8 +106,8 @@ export function createApp() {
   app.use('/api/public', publicRouter);
   app.use('/api/livechat', livechatPublicRouter);                    // Live Chat pelanggan (token percakapan per pelanggan)
   app.use('/api/orders', ordersRouter);                              // checkout + status order (token pelanggan)
-  app.use('/api/payments/klikqris/webhook', webhookRouter);
-  app.use('/api/webhooks', webhooksRouter);                          // webhook status pengiriman email (Resend)          // callback server-ke-server dari KlikQRIS
+  app.use('/api/payments/31qris/webhook', webhookRouter);          // webhook 31 QRIS (HMAC X-Signature, server-ke-server)
+  app.use('/api/webhooks', webhooksRouter);                          // webhook status pengiriman email (Resend)
 
   app.use('/api/admin/auth', originGuard, authRouter);
   const admin = express.Router();
@@ -277,7 +278,7 @@ export async function start({ port = config.port, quiet = false } = {}) {
   sweeper = setInterval(() => sweepAssets().catch((e) => console.error('[sweep]', e.message)), 3600_000);
   sweeper.unref();
   startLivechatWorker();   // percakapan 24 jam: expire tepat waktu (server-side) + bersihkan riwayat lama
-  startPaymentWorker();   // kedaluwarsa tepat waktu + cek status KlikQRIS bila webhook terlambat
+  startPaymentWorker();   // kedaluwarsa tepat waktu + cek status 31 QRIS bila webhook terlambat
   const actualPort = server.address().port;
   if (!quiet) console.log(`Marketplace  http://localhost:${actualPort}\nAdmin Web    http://localhost:${actualPort}/admin`);
   if (!quiet) {

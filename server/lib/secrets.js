@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { config } from '../config/env.js';
 
 /**
- * Enkripsi rahasia (API Key KlikQRIS) di MongoDB: AES-256-GCM, kunci diturunkan dari APP_SECRET (HKDF).
+ * Enkripsi rahasia (API Key & Webhook Secret 31 QRIS) di MongoDB: AES-256-GCM, kunci diturunkan dari APP_SECRET (HKDF).
  * Format tersimpan: v1.<iv>.<tag>.<ciphertext> (base64url). Rahasia tidak pernah dikirim balik ke browser.
  */
 const key = () => Buffer.from(crypto.hkdfSync('sha256', config.appSecret, 'marketplace-secrets-v1', 'payment-settings', 32));

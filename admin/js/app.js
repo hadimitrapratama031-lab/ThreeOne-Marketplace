@@ -33,7 +33,7 @@ const LIVE_EVENTS = [
   'contact:create', 'contact:update', 'contact:delete', 'contact:reorder',
   'review:create', 'review:update', 'review:delete',
   'media:error',
-  'order:update', 'order:delete', 'report:update', 'payment-settings:update',
+  'order:update', 'order:delete', 'report:update', 'payment-settings:update', 'payment-webhook',
   'integrations:update', 'notification:log',
   'code:update', 'code:delete', 'code:stats', 'code:refresh',
   'livechat:conversation:created', 'livechat:conversation:updated', 'livechat:conversation:expired',

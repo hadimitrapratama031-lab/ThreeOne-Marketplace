@@ -79,7 +79,7 @@ Halaman `/cek-pesanan` (tombol **Cek Pesanan** di header). Satu form, dua metode
 
 ## Sistem Code (Order Code Redeem)
 
-Produk berjenis **Sistem Code**: setelah pembayaran SUCCESS, pembeli otomatis menerima 1 code unik di halaman Payment Success. Memakai Order, Payment (KlikQRIS), notifikasi, MongoDB, dan Socket.IO yang sudah ada.
+Produk berjenis **Sistem Code**: setelah pembayaran SUCCESS, pembeli otomatis menerima 1 code unik di halaman Payment Success. Memakai Order, Payment (31 QRIS), notifikasi, MongoDB, dan Socket.IO yang sudah ada.
 
 | Bagian | Detail |
 |---|---|
@@ -93,7 +93,7 @@ Produk berjenis **Sistem Code**: setelah pembayaran SUCCESS, pembeli otomatis me
 
 ## Keuntungan Per Bulan
 
-Halaman Admin Web (menu **Penjualan → Keuntungan Per Bulan**) berisi rekap pendapatan bulanan, grafik, filter, detail transaksi, dan hapus rekap. Memakai Order, Payment (KlikQRIS), MongoDB, dan Socket.IO yang sudah ada; tidak ada sistem transaksi baru.
+Halaman Admin Web (menu **Penjualan → Keuntungan Per Bulan**) berisi rekap pendapatan bulanan, grafik, filter, detail transaksi, dan hapus rekap. Memakai Order, Payment (31 QRIS), MongoDB, dan Socket.IO yang sudah ada; tidak ada sistem transaksi baru.
 
 | Bagian | Detail |
 |---|---|
@@ -199,3 +199,20 @@ Port dari `discord.service.js` project lama, dipasang sebagai channel ketiga di 
 - **Konfigurasi**: Admin Web → Integrasi → Discord (`/api/admin/integrations/discord*`, hanya admin). Disimpan di dokumen `settings` key `integrations` (field `discord`); token dienkripsi AES-256-GCM dengan kunci turunan `APP_SECRET`, sama seperti token Fonnte. Ganti `APP_SECRET` = token harus diisi ulang.
 - **Realtime**: perubahan dan status koneksi disiarkan lewat event `integrations:update` pada Socket.IO admin yang sudah ada.
 - **ENV** (opsional, nilai awal saja): `DISCORD_BOT_TOKEN`, `DISCORD_GUILD_ID`, `DISCORD_CHANNEL_ID`, `DISCORD_ADMIN_USER_ID`. Lihat `.env.example`.
+
+## Pembayaran 31 QRIS
+
+Seluruh transaksi baru memakai **31 QRIS** (`server/services/qris31.js`). Riwayat order lama dari Klik QRIS (`payment.provider = klikqris*`) tetap tersimpan dan tampil di Admin sebagai histori; order lama tidak pernah dipanggil ke gateway mana pun.
+
+| Hal | Keterangan |
+|---|---|
+| Base URL | `https://31-qris-gateway-production.up.railway.app` (env `QRIS31_BASE_URL`) |
+| Autentikasi | `Authorization: Bearer <API Key>`, hanya dari backend. API Key & Webhook Secret diisi di Admin Web → Pembayaran (terenkripsi AES-256-GCM); env `QRIS31_API_KEY` / `QRIS31_WEBHOOK_SECRET` hanya cadangan |
+| Endpoint dipakai | `POST /v1/transactions` (checkout), `GET /v1/transactions/{id}` dan `/by-order/{order_id}` (cek status), `POST /v1/transactions/{id}/cancel` (tombol Batalkan di Admin), `GET /v1/qris` (uji koneksi). `GET /v1/transactions` tersedia di klien (`listTransactions`) untuk rekonsiliasi |
+| Error izin | 403 `INSUFFICIENT_SCOPE` ditangani: checkout gagal bersih, uji koneksi memberi peringatan izin |
+| Webhook | `POST /api/payments/31qris/webhook`. Verifikasi HMAC `X-Signature` atas byte mentah body → catat di `webhooklogs` → status dibaca ulang dari gateway → transisi atomik. Gateway tak terjangkau = 503 agar dicoba ulang |
+| Idempotensi | `webhooklogs.bodyHash` unik (kiriman ulang tidak diproses ulang) + `markPaid()` atomik; polling & webhook bersamaan tidak menggandakan aktivasi |
+| Status | `paid` → SUCCESS (aktivasi/pemberian code/notifikasi); `review` ("perlu dicek") → tidak diaktifkan, order ditandai untuk Admin; `rejected`/`cancelled` → FAILED; `expired` → EXPIRED. Pembayaran terlambat tetap bisa terkonfirmasi (late payment) |
+| Riwayat webhook | Admin Web → Pembayaran → Riwayat webhook (realtime), termasuk yang ditolak |
+
+**Bagian yang mengikuti asumsi** (dokumentasi gateway yang tersedia hanya memuat daftar endpoint dan ringkasan webhook): nama field body/respons, daftar nama status, dan algoritma HMAC (HMAC-SHA256 atas raw body). Semuanya dikumpulkan di `server/services/qris31.js` (`ALIAS`, `classifyStatus`, `verifySignature`) dan bisa disesuaikan tanpa menyentuh logika bisnis.

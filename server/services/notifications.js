@@ -238,7 +238,7 @@ export async function notifyOrderEvent(order, eventKey) {
 }
 
 /**
- * Kirim di latar belakang: webhook KlikQRIS harus dibalas 200 secepatnya, kalau tidak gateway mengirim ulang.
+ * Kirim di latar belakang: webhook 31 QRIS harus dibalas 200 secepatnya, kalau tidak gateway mengirim ulang.
  * Jaminan pengiriman ada di NotificationLog, bukan pada lamanya request.
  */
 export function queueOrderEvent(order, eventKey) {

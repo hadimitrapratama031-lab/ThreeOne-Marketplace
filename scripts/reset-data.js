@@ -6,7 +6,7 @@
  *
  * Yang DIHAPUS (default): produk, kategori, rating/ulasan, pesanan, log notifikasi, penghitung ID produk,
  * dan SEMUA gambar/video yang terdaftar (produk, ulasan, dan file sementara/yatim).
- * Yang DIPERTAHANKAN (default): akun admin, pengaturan (branding, hero, pembayaran KlikQRIS, Resend, Fonnte, dst.)
+ * Yang DIPERTAHANKAN (default): akun admin, pengaturan (branding, hero, pembayaran 31 QRIS, Resend, Fonnte, dst.)
  * beserta gambar milik pengaturan itu (logo & cover), FAQ, dan kontak.
  *
  * Opsi: --include-content (hapus juga FAQ & kontak) · --include-settings (hapus pengaturan + logo/cover)

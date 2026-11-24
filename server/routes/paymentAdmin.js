@@ -3,7 +3,7 @@ import { asyncH, parse, HttpError, objectIdStr, pageMeta, escapeRegex } from '..
 import { paymentSettingsInput, adminOrderListQuery } from '../lib/schemas.js';
 import { Order } from '../models/index.js';
 import { getAdminPayment, savePaymentSettings, getPublicPayment } from '../services/paymentSettings.js';
-import { admOrder, testGateway, deleteOrder } from '../services/payments.js';
+import { admOrder, testGateway, deleteOrder, cancelOrder, listWebhookLogs } from '../services/payments.js';
 import { emitAdmin, emitPublic } from '../lib/realtime.js';
 import { config } from '../config/env.js';
 
@@ -12,7 +12,7 @@ export const paymentSettingsRouter = Router();
 
 const withWebhook = (data, req) => {
   const base = data.publicBaseUrl || config.publicBaseUrl || `${req.protocol}://${req.get('host')}`;
-  return { ...data, webhookUrl: `${base.replace(/\/$/, '')}/api/payments/klikqris/webhook` };
+  return { ...data, webhookUrl: `${base.replace(/\/$/, '')}/api/payments/31qris/webhook` };
 };
 
 paymentSettingsRouter.get('/', asyncH(async (req, res) => res.json({ settings: withWebhook(await getAdminPayment(), req) })));
@@ -26,6 +26,13 @@ paymentSettingsRouter.put('/', asyncH(async (req, res) => {
   const pub = await getPublicPayment();
   emitPublic('payment:settings', { waAdmin: pub.waAdmin });
   res.json({ settings: view });
+}));
+
+paymentSettingsRouter.get('/webhooks', asyncH(async (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const orderNo = typeof req.query.order === 'string' ? req.query.order.trim().slice(0, 40) : '';
+  const r = await listWebhookLogs({ page, limit: 20, orderNo });
+  res.json({ ...r, ...pageMeta(page, 20, r.total) });
 }));
 
 paymentSettingsRouter.post('/test', asyncH(async (_req, res) => res.json(await testGateway())));
@@ -53,6 +60,12 @@ adminOrdersRouter.get('/:id', asyncH(async (req, res) => {
   const o = await Order.findById(req.params.id);
   if (!o) throw new HttpError(404, 'Pesanan tidak ditemukan.');
   res.json({ item: admOrder(o) });
+}));
+
+// Batalkan pesanan yang masih menunggu (membatalkan juga transaksi di 31 QRIS)
+adminOrdersRouter.post('/:id/cancel', asyncH(async (req, res) => {
+  if (!objectIdStr.safeParse(req.params.id).success) throw new HttpError(404, 'Pesanan tidak ditemukan.');
+  res.json({ ok: true, ...(await cancelOrder(req.params.id)) });
 }));
 
 // Hapus permanen pesanan dari database

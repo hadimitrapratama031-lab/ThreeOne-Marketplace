@@ -13,7 +13,7 @@ import { emitAdmin } from '../lib/realtime.js';
  * Tidak ada penghitungan ganda: satu order = satu dokumen (orderNo unik), dan markPaid() hanya memenangkan transisi SUCCESS satu kali,
  * jadi webhook ganda / polling / reconnect tidak menambah baris. Laporan hanya MEMBACA, jadi muat-ulang berapa kali pun hasilnya sama.
  *
- * Nominal = uang yang benar-benar dibayar: `totalAmount` (dari KlikQRIS, sudah memuat kode unik) bila ada, selain itu `amount` (harga produk).
+ * Nominal = uang yang benar-benar dibayar: `totalAmount` (dari gateway, sudah memuat kode unik) bila ada, selain itu `amount` (harga produk).
  * Waktu = `payment.paidAt` (kapan dibayar), cadangan `createdAt` bila kosong. Bulan dikelompokkan menurut WIB (Asia/Jakarta).
  * Satu order = satu produk terjual (sama seperti `quantity: 1` di Cek Pesanan dan definisi "Terjual" di services/sales.js).
  * Product tidak punya modal/HPP, jadi laporan ini hanya memuat pendapatan; tidak ada angka keuntungan yang dikarang.
@@ -197,7 +197,7 @@ export async function monthDetail(f, ym, { page, limit }) {
       product: { id: o.product.productId, name: o.product.name, category: o.product.category || '' },
       quantity: 1,
       price: o.amount,
-      uniqueAmount: money(o.paid - o.amount),   // kode unik KlikQRIS: selisih nominal bayar dan harga produk
+      uniqueAmount: money(o.paid - o.amount),   // kode unik gateway: selisih nominal bayar dan harga produk
       total: money(o.paid),
       status: 'SUCCESS',
       late: Boolean(o.latePayment),

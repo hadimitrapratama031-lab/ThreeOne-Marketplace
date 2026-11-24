@@ -180,14 +180,13 @@ assetSchema.index({ status: 1, createdAt: 1 });
 assetSchema.index({ createdAt: -1 });
 export const Asset = mongoose.model('Asset', assetSchema);
 
-/* Order — checkout + pembayaran QRIS (KlikQRIS).
+/* Order — checkout + pembayaran QRIS (31 QRIS; order lama provider 'klikqris' dipertahankan sebagai histori).
    Status order dikelola backend: PENDING -> SUCCESS | EXPIRED | FAILED.
-   SUCCESS/EXPIRED mengikuti status KlikQRIS (PAID/SUCCESS, EXPIRED); FAILED adalah status INTERNAL
-   untuk transaksi yang gagal dibuat di gateway (KlikQRIS tidak punya status gagal). */
+   SUCCESS/EXPIRED mengikuti status 31 QRIS; FAILED = gagal dibuat di gateway, ditolak, atau dibatalkan (lihat failureKind). */
 export const ORDER_STATUSES = ['PENDING', 'SUCCESS', 'EXPIRED', 'FAILED'];
 const orderEvent = new Schema({ at: { type: Date, default: Date.now }, type: { type: String, maxlength: 40 }, detail: { type: String, maxlength: 300, default: '' } }, { _id: false });
 const orderSchema = new Schema({
-  orderNo: { type: String, required: true, unique: true },            // juga dipakai sebagai order_id di KlikQRIS
+  orderNo: { type: String, required: true, unique: true },            // juga dipakai sebagai order_id di 31 QRIS
   clientKey: { type: String, maxlength: 64 },                          // kunci idempotensi dari browser (anti dobel klik)
   status: { type: String, enum: ORDER_STATUSES, default: 'PENDING' },
   rev: { ...int, default: 1 },                                         // naik setiap perubahan; klien mengabaikan event usang/ganda
@@ -205,23 +204,25 @@ const orderSchema = new Schema({
     kind: { type: String, enum: ['normal', 'code'], default: 'normal' },  // snapshot saat checkout: order lama / produk yang berubah tidak memengaruhi
   },
   amount: { ...int, required: true, min: 1 },                          // harga produk (snapshot saat checkout)
-  totalAmount: { type: Number, default: null },                        // total_amount dari KlikQRIS (bisa memuat kode unik)
-  uniqueAmount: { type: Number, default: 0 },                          // amount_uniq dari KlikQRIS
+  totalAmount: { type: Number, default: null },                        // nominal final dari 31 QRIS (sudah memuat kode unik)
+  uniqueAmount: { type: Number, default: 0 },                          // kode unik (total - harga)
   expiresAt: { type: Date, default: null },                            // batas bayar (waktu SERVER) = QRIS dibuat + 10 menit
   payment: {
-    provider: { type: String, default: 'klikqris' },                  // 'klikqris-mypg' = MY PG (/qrisv2); 'klikqris' = In-House/Sandbox & pesanan lama
+    provider: { type: String, default: 'qris31' },                    // 'qris31' = 31 QRIS; 'klikqris' / 'klikqris-mypg' = pesanan lama (histori saja, tidak pernah dipanggil ke gateway)
+    gatewayTxId: { type: String, default: '' },                        // ID transaksi di 31 QRIS (untuk cek status & pembatalan)
+    review: { type: Boolean, default: false },                         // gateway menandai pembayaran 'perlu dicek': TIDAK diaktifkan otomatis, Admin yang memeriksa
     mode: { type: String, enum: ['sandbox', 'production'], default: 'sandbox' },
-    gatewayStatus: { type: String, default: '' },                      // status terakhir dari KlikQRIS apa adanya
+    gatewayStatus: { type: String, default: '' },                      // status terakhir dari gateway apa adanya
     qrisUrl: { type: String, default: '' },
-    qrisImage: { type: String, default: '' },                          // qris_image (data URI base64) dari KlikQRIS: dipakai lebih dulu agar QR tidak bergantung pada hotlink gambar
+    qrisImage: { type: String, default: '' },                          // gambar QRIS berupa data URI base64 (dipakai lebih dulu agar QR tidak bergantung pada hotlink gambar)
     reportUrl: { type: String, default: '' },
-    directUrl: { type: String, default: '' },                          // direct_url MY PG (halaman bayar KlikQRIS), untuk rekonsiliasi
-    signature: { type: String, select: false },                        // signature dari respons create; pembanding webhook
+    directUrl: { type: String, default: '' },                          // tautan halaman transaksi (histori KlikQRIS saja)
+    signature: { type: String, select: false },                        // signature lama KlikQRIS (histori); 31 QRIS memverifikasi webhook dengan HMAC atas body
     gatewayExpiredAt: { type: String, default: '' },
     gatewayPaidAt: { type: String, default: '' },
     createdAt: Date,
     paidAt: Date,
-    source: { type: String, default: '' },                             // webhook | status-check
+    source: { type: String, default: '' },                             // webhook | status-check | admin
     lastCheckedAt: Date,
     webhookCount: { ...int, default: 0 },
     lastWebhookAt: Date,
@@ -232,6 +233,7 @@ const orderSchema = new Schema({
   // (diberikan otomatis begitu Admin menambah stok). Sumber kebenaran relasinya tetap RedeemCode.order.
   codeState: { type: String, enum: ['', 'waiting', 'assigned'], default: '' },
   failureReason: { type: String, default: '', maxlength: 300 },
+  failureKind: { type: String, enum: ['', 'create', 'rejected', 'cancelled'], default: '' },   // create = gagal dibuat; rejected = ditolak gateway; cancelled = dibatalkan
   origin: { type: String, default: '', maxlength: 200 },               // origin toko saat checkout (untuk tautan di notifikasi)
   events: { type: [orderEvent], default: [] },
 }, { timestamps: true });
@@ -243,7 +245,35 @@ orderSchema.index({ status: 1, 'payment.paidAt': -1 });                  // Floa
 orderSchema.index({ 'product.kind': 1, status: 1, codeState: 1 });                       // pemulihan order code yang belum diproses
 orderSchema.index({ 'product.ref': 1, createdAt: 1 }, { partialFilterExpression: { codeState: 'waiting' } });   // antrean order menunggu code (FIFO)
 orderSchema.index({ 'customer.email': 1 });
+orderSchema.index({ 'payment.gatewayTxId': 1 }, { partialFilterExpression: { 'payment.gatewayTxId': { $type: 'string', $gt: '' } } });
 export const Order = mongoose.model('Order', orderSchema);
+
+/* WebhookLog — riwayat SEMUA webhook 31 QRIS yang masuk (untuk debugging) sekaligus kunci idempotensi.
+   bodyHash = sha256 byte mentah body: pengiriman ulang dengan isi sama tidak diproses dua kali (unik, hanya untuk signature VALID).
+   outcome: processing | applied (status berubah) | duplicate (sudah pernah diproses / tidak ada perubahan) | ignored | rejected | error.
+   Dihapus otomatis setelah 180 hari. */
+export const WEBHOOK_OUTCOMES = ['processing', 'applied', 'duplicate', 'ignored', 'rejected', 'error'];
+const webhookLogSchema = new Schema({
+  provider: { type: String, default: 'qris31' },
+  bodyHash: { type: String },
+  signatureValid: { type: Boolean, default: false },
+  orderNo: { type: String, default: '' },
+  txId: { type: String, default: '' },
+  event: { type: String, default: '', maxlength: 80 },
+  gatewayStatus: { type: String, default: '', maxlength: 40 },
+  outcome: { type: String, enum: WEBHOOK_OUTCOMES, default: 'processing' },
+  httpCode: { type: Number, default: 0 },
+  note: { type: String, default: '', maxlength: 300 },
+  deliveries: { ...int, default: 1 },
+  payload: { type: String, default: '', maxlength: 8192 },             // body mentah (terpotong); tidak memuat kredensial
+  ip: { type: String, default: '', maxlength: 64 },
+  receivedAt: { type: Date, default: Date.now },
+}, { timestamps: true });
+webhookLogSchema.index({ bodyHash: 1 }, { unique: true, partialFilterExpression: { bodyHash: { $type: 'string' } } });
+webhookLogSchema.index({ receivedAt: -1 });
+webhookLogSchema.index({ orderNo: 1, receivedAt: -1 });
+webhookLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 180 * 86400 });
+export const WebhookLog = mongoose.model('WebhookLog', webhookLogSchema);
 
 /* NotificationLog — satu baris per (order, event, channel). Baris ini sekaligus KUNCI idempotensi:
    di-claim SEBELUM provider dipanggil, jadi webhook ganda / reconnect / refresh tidak pernah mengirim dua kali.

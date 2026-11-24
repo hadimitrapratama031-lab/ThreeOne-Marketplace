@@ -52,9 +52,9 @@ ordersRouter.get('/:orderNo', orderReadLimiter, asyncH(async (req, res) => {
   res.json({ order });
 }));
 
-/* ---------- Webhook KlikQRIS (/api/payments/klikqris/webhook) ---------- */
+/* ---------- Webhook 31 QRIS (/api/payments/31qris/webhook) ---------- */
 export const webhookRouter = Router();
 webhookRouter.post('/', webhookLimiter, asyncH(async (req, res) => {
-  const r = await handleWebhook(req.body);
+  const r = await handleWebhook({ rawBody: req.rawBody, body: req.body, signature: req.get('x-signature'), ip: req.ip });
   res.status(r.code).json(r.body);
 }));

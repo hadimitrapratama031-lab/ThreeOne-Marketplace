@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
-import { Order, Product, NotificationLog } from '../models/index.js';
+import { Order, Product, NotificationLog, WebhookLog } from '../models/index.js';
 import { HttpError } from '../lib/http.js';
-import { safeEqual } from '../lib/secrets.js';
 import { config } from '../config/env.js';
 import { tokenFor, tokenOk, watchTokenFor, watchTokenOk } from '../lib/orderToken.js';
 import { ORDER_NO_RE } from '../lib/schemas.js';
@@ -13,19 +12,21 @@ import { getPaymentConfig, getCredentials } from './paymentSettings.js';
 import { soldOf } from './sales.js';
 import { assignCode, redeemViewFor } from './codes.js';
 import { publishSale, unpublishSale } from './salesFeed.js';
-import * as klikqris from './klikqris.js';
+import * as qris31 from './qris31.js';
 
 /**
  * Alur pembayaran (backend = sumber kebenaran):
- *   createCheckout -> order PENDING -> KlikQRIS MY PG /qrisv2/create (production; sandbox = simulator) -> expiresAt = sekarang + 10 menit (waktu SERVER)
- *   KlikQRIS webhook / pengecekan status (/qrisv2/status/{id_merchant}/{order_id}) -> applyGatewayStatus (transisi atomik, idempoten)
- *   -> MongoDB -> Socket.IO (room per-order) -> halaman Payment berubah tanpa refresh.
+ *   createCheckout -> order PENDING -> 31 QRIS POST /v1/transactions -> expiresAt = sekarang + 10 menit (waktu SERVER)
+ *   Webhook 31 QRIS (X-Signature HMAC) hanyalah PEMICU: setelah signature valid, status dibaca ulang dari gateway
+ *   (GET /v1/transactions/{id} atau /by-order/{order_id}); pengecekan berkala memakai jalur yang sama.
+ *   -> applyGatewayStatus (transisi atomik, idempoten) -> MongoDB -> Socket.IO (room per-order) -> halaman Payment berubah tanpa refresh.
+ *   Pembayaran hanya SUCCESS bila status 'paid' dan nominal cocok dari gateway; 'perlu dicek' tidak pernah mengaktifkan pesanan.
+ * Order lama (provider 'klikqris*') hanya histori: tidak pernah dipanggil ke gateway; yang masih PENDING habis lewat batas waktu lokal.
  */
 export const EXPIRY_MS = 10 * 60 * 1000;
-const POLL_EVERY_MS = 10_000;          // jeda minimum cek status KlikQRIS per order (fallback bila webhook terlambat)
-const EXPIRY_GRACE_MS = 120_000;       // bila KlikQRIS tak terjangkau saat jatuh tempo, tunggu paling lama ini sebelum menutup order
+const POLL_EVERY_MS = 10_000;          // jeda minimum cek status 31 QRIS per order (fallback bila webhook terlambat)
+const EXPIRY_GRACE_MS = 120_000;       // bila 31 QRIS tak terjangkau saat jatuh tempo, tunggu paling lama ini sebelum menutup order
 const ORPHAN_MS = 90_000;              // order PENDING tanpa QRIS lebih lama dari ini dianggap gagal dibuat
-const PAID = new Set(['PAID', 'SUCCESS']);   // webhook mengirim PAID, cek status mengirim SUCCESS
 
 /* ---------- ID & token ---------- */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // tanpa 0/O/1/I/L agar mudah dibaca & diketik
@@ -38,6 +39,11 @@ function newOrderNo() {
 /* ---------- Bentuk data ---------- */
 const iso = (d) => (d ? new Date(d).toISOString() : null);
 const PUBLIC_FAIL = 'Transaksi pembayaran tidak dapat dibuat. Tidak ada dana yang ditagihkan.';
+const FAIL_TEXT = {
+  rejected: 'Pembayaran ditolak oleh gateway. Jika Anda sudah membayar, hubungi admin dan sertakan ID transaksi.',
+  cancelled: 'Transaksi pembayaran dibatalkan.',
+};
+const publicFail = (o) => (o.status === 'FAILED' ? (FAIL_TEXT[o.failureKind] || PUBLIC_FAIL) : null);
 
 /** `redeem` (dari redeemViewFor) hanya diisi di jalur yang sudah memverifikasi token pelanggan; Cek Pesanan (pubTrack) tidak pernah memuatnya. */
 export function pubOrder(o, { waAdmin = '', redeem = null } = {}) {
@@ -60,7 +66,9 @@ export function pubOrder(o, { waAdmin = '', redeem = null } = {}) {
     totalAmount: o.totalAmount,
     qrisUrl: pending ? (o.payment?.qrisUrl || null) : null,
     qrisImage: pending ? (o.payment?.qrisImage || null) : null,
-    failureReason: o.status === 'FAILED' ? PUBLIC_FAIL : null,
+    failureReason: publicFail(o),
+    failureKind: o.status === 'FAILED' ? (o.failureKind || 'create') : '',
+    needsReview: o.status === 'PENDING' && Boolean(o.payment?.review),
     waAdmin,
     ...(redeem ? { redeem } : {}),
   };
@@ -82,6 +90,10 @@ export function admOrder(o) {
     latePayment: Boolean(o.latePayment),
     stockNote: o.stockNote || '',
     failureReason: o.failureReason || '',
+    failureKind: o.failureKind || '',
+    provider: o.payment?.provider || '',
+    gatewayTxId: o.payment?.gatewayTxId || '',
+    needsReview: Boolean(o.payment?.review),
     webhookCount: o.payment?.webhookCount || 0,
     reportUrl: o.payment?.reportUrl || o.payment?.directUrl || '',
     createdAt: iso(o.createdAt),
@@ -130,7 +142,9 @@ export function pubTrack(o, { redeem = null } = {}) {
     amount: o.amount,
     uniqueAmount: unique,
     totalAmount: o.totalAmount,
-    failureReason: o.status === 'FAILED' ? PUBLIC_FAIL : null,
+    failureReason: publicFail(o),
+    failureKind: o.status === 'FAILED' ? (o.failureKind || 'create') : '',
+    needsReview: o.status === 'PENDING' && Boolean(o.payment?.review),
     ...(redeem ? { redeem } : {}),
   };
 }
@@ -154,14 +168,6 @@ export async function emitOrder(o) {
 }
 
 /* ---------- Checkout ---------- */
-function callbackUrlFor(base) {
-  try {
-    const u = new URL(base);
-    if (/^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(u.hostname) || u.hostname.endsWith('.local')) return '';   // tak terjangkau dari internet
-    return `${u.origin}/api/payments/klikqris/webhook`;
-  } catch { return ''; }
-}
-
 export async function createCheckout(input, { requestBase }) {
   const cfg = await getPaymentConfig();
   if (!cfg.ready) throw new HttpError(503, 'Pembayaran belum tersedia. Silakan coba lagi nanti.');
@@ -185,7 +191,7 @@ export async function createCheckout(input, { requestBase }) {
         customer: { name: input.name, email: input.email, whatsapp: input.whatsapp },
         product: { ref: product._id, productId: product.productId, name: product.name, category: product.category?.name || '', imageKey: (product.media || []).find((m) => m.type === 'image' && m.key && m.source !== 'steam')?.key || '', kind: product.kind || 'normal' },
         amount: product.price,
-        payment: { mode: cfg.mode, provider: klikqris.providerFor(cfg.mode) },
+        payment: { mode: cfg.mode, provider: qris31.PROVIDER },
         origin: cfg.publicBaseUrl || requestBase,   // dipakai tautan di notifikasi (tanpa request)
         events: [log('created', `produk #${product.productId}`)],
       });
@@ -199,14 +205,8 @@ export async function createCheckout(input, { requestBase }) {
   }
   if (!order) throw new HttpError(500, 'Gagal membuat pesanan. Silakan coba lagi.');
 
-  const base = cfg.publicBaseUrl || requestBase;
   try {
-    const tx = await klikqris.createTransaction(cfg, {
-      orderId: order.orderNo,
-      amount: order.amount,
-      keterangan: `Pembelian ${order.product.name}`.slice(0, 100),
-      callbackUrl: callbackUrlFor(base),
-    });
+    const tx = await qris31.createTransaction(cfg, { orderId: order.orderNo, amount: order.amount });
     const now = new Date();
     const expiresAt = new Date(now.getTime() + EXPIRY_MS);   // 10 menit sejak transaksi dibuat, jam server
     order = await Order.findOneAndUpdate(
@@ -214,8 +214,8 @@ export async function createCheckout(input, { requestBase }) {
       {
         $set: {
           totalAmount: tx.totalAmount, uniqueAmount: tx.uniqueAmount, expiresAt,
-          'payment.gatewayStatus': tx.status, 'payment.qrisUrl': tx.qrisUrl, 'payment.qrisImage': tx.qrisImage, 'payment.reportUrl': tx.reportUrl, 'payment.directUrl': tx.directUrl,
-          'payment.signature': tx.signature, 'payment.gatewayExpiredAt': tx.expiredAt, 'payment.createdAt': now,
+          'payment.gatewayStatus': tx.status, 'payment.gatewayTxId': tx.id, 'payment.qrisUrl': tx.qrisUrl, 'payment.qrisImage': tx.qrisImage,
+          'payment.gatewayExpiredAt': tx.expiredAt, 'payment.createdAt': now,
         },
         $inc: { rev: 1 },
         $push: { events: push(log('qris_created', `total ${tx.totalAmount}`)) },
@@ -224,11 +224,11 @@ export async function createCheckout(input, { requestBase }) {
     );
     scheduleExpiry(order);
   } catch (err) {
-    const detail = err instanceof klikqris.GatewayError ? `[${err.kind}] ${err.message} ${err.status || ''} ${err.detail}`.trim() : String(err?.message || err);
-    console.error(`[payment] gagal membuat transaksi KlikQRIS untuk ${order.orderNo}: ${detail}`);   // tanpa kredensial
+    const detail = err instanceof qris31.GatewayError ? `[${err.kind}] ${err.message} ${err.status || ''} ${err.detail}`.trim() : String(err?.message || err);
+    console.error(`[payment] gagal membuat transaksi 31 QRIS untuk ${order.orderNo}: ${detail}`);   // tanpa kredensial
     order = await Order.findOneAndUpdate(
       { _id: order._id, status: 'PENDING' },
-      { $set: { status: 'FAILED', failureReason: detail.slice(0, 300) }, $inc: { rev: 1 }, $push: { events: push(log('create_failed', detail)) } },
+      { $set: { status: 'FAILED', failureKind: 'create', failureReason: detail.slice(0, 300) }, $inc: { rev: 1 }, $push: { events: push(log('create_failed', detail)) } },
       { new: true },
     ) || order;
   }
@@ -280,7 +280,7 @@ async function markPaid(orderNo, { source, gatewayStatus, gatewayPaidAt = '' }) 
   const won = await Order.findOneAndUpdate(
     { orderNo, status: { $in: ['PENDING', 'EXPIRED'] } },     // hanya satu pemanggil yang lolos; callback ganda tidak memproses ulang
     {
-      $set: { status: 'SUCCESS', latePayment: late, 'payment.paidAt': now, 'payment.source': source, 'payment.gatewayStatus': gatewayStatus, 'payment.gatewayPaidAt': gatewayPaidAt },
+      $set: { status: 'SUCCESS', latePayment: late, 'payment.review': false, 'payment.paidAt': now, 'payment.source': source, 'payment.gatewayStatus': gatewayStatus, 'payment.gatewayPaidAt': gatewayPaidAt },
       $inc: { rev: 1 },
       $push: { events: push(log('paid', `${source}${late ? ' · setelah order dinyatakan kedaluwarsa' : ''}`)) },
     },
@@ -312,68 +312,155 @@ async function markExpired(orderNo, { source, gatewayStatus = '' }) {
   return won;
 }
 
+async function markFailed(orderNo, { kind, reason, source, gatewayStatus = '' }) {
+  const won = await Order.findOneAndUpdate(
+    { orderNo, status: 'PENDING' },
+    {
+      $set: { status: 'FAILED', failureKind: kind, failureReason: reason.slice(0, 300), 'payment.review': false, ...(gatewayStatus ? { 'payment.gatewayStatus': gatewayStatus } : {}) },
+      $inc: { rev: 1 },
+      $push: { events: push(log(kind === 'cancelled' ? 'cancelled' : 'rejected', `${source} · ${reason}`)) },
+    },
+    { new: true },
+  );
+  if (won) {
+    await emitOrder(won);
+    queueOrderEvent(won, 'paymentFailed');
+  }
+  return won;
+}
+
+/** Gateway menandai pembayaran 'perlu dicek': pesanan TIDAK diaktifkan; ditandai agar Admin memeriksa. Idempoten. */
+async function markReview(orderNo, { source, gatewayStatus }) {
+  const won = await Order.findOneAndUpdate(
+    { orderNo, status: { $in: ['PENDING', 'EXPIRED'] }, 'payment.review': { $ne: true } },
+    { $set: { 'payment.review': true, 'payment.gatewayStatus': gatewayStatus }, $inc: { rev: 1 }, $push: { events: push(log('review', `${source} · gateway meminta pembayaran diperiksa`)) } },
+    { new: true },
+  );
+  if (won) await emitOrder(won);
+  return won;
+}
+
 /**
- * Satu pintu untuk webhook dan pengecekan status. Hanya status resmi KlikQRIS yang dikenali.
+ * Satu pintu untuk webhook dan pengecekan status. `gw` = hasil klasifikasi qris31 ({ kind, status, paidAt }).
  * Mengembalikan order yang berubah, atau null bila tidak ada perubahan (mis. callback ganda).
  */
-export async function applyGatewayStatus(orderNo, gwStatus, { source, gatewayPaidAt = '' } = {}) {
-  const s = String(gwStatus || '').toUpperCase();
-  if (PAID.has(s)) return markPaid(orderNo, { source, gatewayStatus: s, gatewayPaidAt });
-  if (s === 'EXPIRED') return markExpired(orderNo, { source: `${source} · KlikQRIS EXPIRED`, gatewayStatus: s });
-  if (s !== 'PENDING') console.warn(`[payment] status KlikQRIS tidak dikenali untuk ${orderNo}: "${String(gwStatus).slice(0, 40)}" (diabaikan)`);
-  return null;
+export async function applyGatewayStatus(orderNo, gw, { source } = {}) {
+  const status = String(gw?.status || '').toUpperCase();
+  switch (gw?.kind) {
+    case 'paid': return markPaid(orderNo, { source, gatewayStatus: status, gatewayPaidAt: gw.paidAt || '' });
+    case 'expired': return markExpired(orderNo, { source: `${source} · 31 QRIS EXPIRED`, gatewayStatus: status });
+    case 'rejected': return markFailed(orderNo, { kind: 'rejected', reason: 'Pembayaran ditolak oleh gateway', source, gatewayStatus: status });
+    case 'cancelled': return markFailed(orderNo, { kind: 'cancelled', reason: 'Transaksi dibatalkan', source, gatewayStatus: status });
+    case 'review': return markReview(orderNo, { source, gatewayStatus: status });
+    case 'pending': return null;
+    default:
+      console.warn(`[payment] status 31 QRIS tidak dikenali untuk ${orderNo}: "${status.slice(0, 40)}" (diabaikan)`);
+      return null;
+  }
 }
 
 /* ---------- Webhook ---------- */
-const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
 const sameMoney = (a, b) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) < 0.005;
+const TERMINAL_WEBHOOK = new Set(['applied', 'duplicate', 'ignored']);
+const clip = (v, n) => String(v ?? '').slice(0, n);
 
 /**
- * Payload MY PG (bersarang): { status: 'success', message, data: { order_id, amount_request, amount_paid, payment_date,
- *   status: 'PAID' | 'EXPIRED', merchant_id, via, signature } }. Status transaksi ada di `data.status` (bukan status amplop).
- * Payload datar lama (order_id, status, total_amount, payment_date, signature di tingkat atas; mode In-House/Sandbox dan
- * pesanan lama) tetap dibaca, dengan verifikasi yang sama.
- * Validasi (semua wajib lolos sebelum status disentuh): signature == signature dari respons create; merchant_id (bila ada)
- * == Merchant ID mode order; nominal dibayar == total_amount tersimpan (wajib ada untuk PAID); amount_request (bila ada) == harga order.
- * Balasan 200 = diterima (termasuk callback ganda / order tak dikenal); 401 = signature salah; 400 = payload/nominal/merchant tidak cocok.
+ * Webhook 31 QRIS (POST /api/payments/31qris/webhook). Urutan:
+ *   1. X-Signature (HMAC atas byte mentah body, secret = Webhook Secret) -> 401 bila salah; tidak ada yang disentuh.
+ *   2. Idempotensi: body yang sama (hash) yang sudah selesai diproses dibalas 200 `duplicate` tanpa memproses ulang.
+ *   3. Order dicari lewat order_id / ID transaksi; tak dikenal = 200 diabaikan (bisa milik aplikasi lain pada gateway yang sama).
+ *   4. Isi webhook TIDAK dipercaya untuk menentukan status: status dibaca ulang dari gateway, lalu nominal divalidasi dan diterapkan secara atomik.
+ *   5. Gateway tak terjangkau / respons tak valid -> 503 supaya gateway mencoba ulang (worker juga tetap mengecek berkala).
+ * Setiap pengiriman dicatat di WebhookLog (termasuk yang ditolak).
  */
-export async function handleWebhook(body) {
-  const d = body?.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : body;
-  const orderId = typeof d?.order_id === 'string' ? d.order_id : '';
-  const signature = typeof d?.signature === 'string' ? d.signature : '';
-  const gwStatus = typeof d?.status === 'string' ? d.status.toUpperCase() : '';
-  if (!orderId || !signature || !gwStatus) return { code: 400, body: { ok: false, error: 'payload tidak valid' } };
+export async function handleWebhook({ rawBody, body, signature, ip = '' }) {
+  const raw = Buffer.isBuffer(rawBody) ? rawBody : Buffer.alloc(0);
+  const payload = body && typeof body === 'object' && !Array.isArray(body) ? body : null;
+  const parsed = payload ? qris31.parseWebhook(payload) : { id: '', orderId: '', status: '', event: '', kind: 'unknown', totalAmount: null, paidAmount: null };
+  const base = {
+    provider: qris31.PROVIDER, orderNo: clip(parsed.orderId, 40), txId: clip(parsed.id, 80), event: clip(parsed.event, 80), gatewayStatus: clip(parsed.status, 40),
+    payload: raw.toString('utf8').slice(0, 8192), ip: clip(ip, 64), receivedAt: new Date(),
+  };
+  const reject = async (code, error, note) => {
+    await WebhookLog.create({ ...base, signatureValid: false, outcome: 'rejected', httpCode: code, note }).catch(() => {});
+    return { code, body: { ok: false, error } };
+  };
 
-  const order = await Order.findOne({ orderNo: orderId }).select('+payment.signature');
-  if (!order) return { code: 200, body: { ok: true, ignored: 'order tidak dikenal' } };   // bisa milik aplikasi lain pada merchant yang sama; 200 agar tidak diulang terus
-  if (!order.payment?.signature || !safeEqual(signature, order.payment.signature)) {
-    console.warn(`[payment] webhook DITOLAK (signature tidak cocok) untuk ${orderId}`);
-    return { code: 401, body: { ok: false, error: 'signature tidak valid' } };
+  const cred = await getCredentials();
+  if (!cred.webhookSecret) {
+    console.warn('[payment] webhook 31 QRIS diterima tetapi Webhook Secret belum diatur');
+    return reject(503, 'webhook secret belum diatur', 'Webhook Secret belum diatur di server');
   }
-  if (d.merchant_id !== undefined && d.merchant_id !== null && String(d.merchant_id) !== '') {
-    const cred = await getCredentials(order.payment?.mode);
-    if (cred.merchantId && String(d.merchant_id) !== cred.merchantId) {
-      console.warn(`[payment] webhook DITOLAK (merchant_id tidak cocok) untuk ${orderId}`);
-      return { code: 400, body: { ok: false, error: 'merchant tidak cocok' } };
+  if (!qris31.verifySignature(raw, signature, cred.webhookSecret)) {
+    console.warn('[payment] webhook 31 QRIS DITOLAK (X-Signature tidak valid)');
+    return reject(401, 'signature tidak valid', signature ? 'X-Signature tidak cocok' : 'Header X-Signature tidak ada');
+  }
+  if (!payload) return reject(400, 'payload tidak valid', 'Body bukan objek JSON');
+
+  const bodyHash = crypto.createHash('sha256').update(raw).digest('hex');
+  let entry;
+  try {
+    entry = await WebhookLog.create({ ...base, bodyHash, signatureValid: true, outcome: 'processing' });
+  } catch (err) {
+    if (err?.code !== 11000) throw err;
+    const prev = await WebhookLog.findOneAndUpdate({ bodyHash }, { $inc: { deliveries: 1 }, $set: { receivedAt: new Date() } }, { new: true });
+    if (prev && TERMINAL_WEBHOOK.has(prev.outcome)) return { code: 200, body: { ok: true, duplicate: true } };
+    if (!prev) return { code: 503, body: { ok: false, error: 'coba lagi' } };
+    if (prev.outcome === 'processing' && Date.now() - prev.updatedAt.getTime() < 15_000) return { code: 503, body: { ok: false, error: 'sedang diproses' } };   // kiriman ganda bersamaan
+    entry = prev;   // pengiriman sebelumnya gagal (error/rejected): proses ulang
+  }
+  const finish = async (code, resBody, outcome, note = '') => {
+    await WebhookLog.updateOne({ _id: entry._id }, { $set: { outcome, httpCode: code, note: clip(note, 300) } }).catch(() => {});
+    emitAdmin('payment-webhook', { orderNo: base.orderNo, outcome });   // Admin Web memuat ulang riwayat webhook
+    return { code, body: resBody };
+  };
+
+  try {
+    const order = (parsed.orderId && await Order.findOne({ orderNo: parsed.orderId }))
+      || (parsed.id && await Order.findOne({ 'payment.gatewayTxId': parsed.id }));
+    if (!order) return finish(200, { ok: true, ignored: 'order tidak dikenal' }, 'ignored', 'order tidak dikenal');
+    if (order.payment?.provider !== qris31.PROVIDER) return finish(200, { ok: true, ignored: 'bukan order 31 QRIS' }, 'ignored', 'order lama (bukan 31 QRIS)');
+    await WebhookLog.updateOne({ _id: entry._id }, { $set: { orderNo: order.orderNo, txId: order.payment.gatewayTxId || base.txId } });
+
+    // Nominal pada webhook (bila ada) harus cocok dengan transaksi tersimpan; ketidakcocokan = ditolak, status tidak disentuh.
+    const claimed = parsed.paidAmount ?? parsed.totalAmount;
+    if (claimed !== null && claimed !== undefined && order.totalAmount !== null && !sameMoney(claimed, order.totalAmount)) {
+      console.warn(`[payment] webhook DITOLAK (nominal ${claimed} != ${order.totalAmount}) untuk ${order.orderNo}`);
+      await Order.updateOne({ _id: order._id }, { $push: { events: push(log('amount_mismatch', `webhook ${claimed} != ${order.totalAmount}`)) } });
+      return finish(400, { ok: false, error: 'nominal tidak cocok' }, 'rejected', `nominal ${claimed} != ${order.totalAmount}`);
     }
+    await Order.updateOne({ _id: order._id }, { $inc: { 'payment.webhookCount': 1 }, $set: { 'payment.lastWebhookAt': new Date() } });
+
+    // Status SELALU dibaca ulang dari gateway; isi webhook hanya pemicu.
+    const result = await checkRemote(order, { source: 'webhook' });
+    // Webhook menyatakan perubahan tetapi gateway masih 'pending' (mis. webhook mendahului commit gateway): jangan dianggap selesai.
+    // 503 + outcome 'error' = gateway mencoba ulang dan kiriman yang sama diproses ulang (bukan dilewati sebagai duplikat).
+    if (!result.changed && result.kind === 'pending' && ['paid', 'review', 'rejected', 'expired', 'cancelled'].includes(parsed.kind)) {
+      return finish(503, { ok: false, error: 'gateway belum mengonfirmasi, coba lagi' }, 'error', `webhook ${parsed.status} tetapi gateway masih ${result.status}`);
+    }
+    const note = result.changed ? `→ ${result.changed.status}` : `gateway: ${result.status || '—'}; tidak ada perubahan`;
+    return finish(200, { ok: true, duplicate: !result.changed }, result.changed ? 'applied' : 'duplicate', note);
+  } catch (err) {
+    const detail = err instanceof qris31.GatewayError ? `[${err.kind}] ${err.message} ${err.detail}`.trim() : String(err?.message || err);
+    console.error(`[payment] webhook 31 QRIS gagal diproses: ${detail}`);
+    return finish(503, { ok: false, error: 'gagal memverifikasi ke gateway, coba lagi' }, 'error', detail);   // 503: gateway akan mencoba ulang
   }
-  const paid = num(d.amount_paid ?? d.total_amount);
-  if (PAID.has(gwStatus) && !Number.isFinite(paid)) {
-    console.warn(`[payment] webhook DITOLAK (nominal dibayar tidak ada) untuk ${orderId}`);
-    return { code: 400, body: { ok: false, error: 'nominal tidak ada' } };
-  }
-  if (Number.isFinite(paid) && !sameMoney(paid, order.totalAmount)) {
-    console.warn(`[payment] webhook DITOLAK (nominal ${paid} != ${order.totalAmount}) untuk ${orderId}`);
-    return { code: 400, body: { ok: false, error: 'nominal tidak cocok' } };
-  }
-  const requested = num(d.amount_request);
-  if (Number.isFinite(requested) && !sameMoney(requested, order.amount)) {
-    console.warn(`[payment] webhook DITOLAK (amount_request ${requested} != ${order.amount}) untuk ${orderId}`);
-    return { code: 400, body: { ok: false, error: 'nominal tidak cocok' } };
-  }
-  await Order.updateOne({ _id: order._id }, { $inc: { 'payment.webhookCount': 1 }, $set: { 'payment.lastWebhookAt': new Date() } });
-  const changed = await applyGatewayStatus(orderId, gwStatus, { source: 'webhook', gatewayPaidAt: typeof d.payment_date === 'string' ? d.payment_date : '' });
-  return { code: 200, body: { ok: true, duplicate: !changed } };
+}
+
+/** Riwayat webhook untuk Admin Web (terbaru lebih dulu). */
+export async function listWebhookLogs({ page = 1, limit = 20, orderNo = '' } = {}) {
+  const filter = orderNo ? { orderNo } : {};
+  const [total, docs] = await Promise.all([
+    WebhookLog.countDocuments(filter),
+    WebhookLog.find(filter).sort({ receivedAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+  ]);
+  return {
+    total,
+    items: docs.map((w) => ({
+      id: String(w._id), at: iso(w.receivedAt), orderNo: w.orderNo, txId: w.txId, event: w.event, gatewayStatus: w.gatewayStatus,
+      signatureValid: w.signatureValid, outcome: w.outcome, httpCode: w.httpCode, note: w.note, deliveries: w.deliveries, payload: w.payload, ip: w.ip,
+    })),
+  };
 }
 
 /* ---------- Pengecekan status (fallback) & kedaluwarsa ---------- */
@@ -385,27 +472,33 @@ const once = (key, fn) => {
   return p;
 };
 
-async function checkRemote(order) {
-  const cred = await getCredentials(order.payment?.mode);
-  if (!cred.ready) return null;
+/**
+ * Baca status dari 31 QRIS lalu terapkan. Mengembalikan { changed, status }.
+ * Order lama (bukan 31 QRIS) tidak pernah dicek ke gateway. Lunas hanya bila nominal dari gateway sama dengan total tersimpan.
+ */
+async function checkRemote(order, { source = 'status-check' } = {}) {
+  if (order.payment?.provider !== qris31.PROVIDER) return { changed: null, status: '', kind: 'unknown' };
+  const cred = await getCredentials();
+  if (!cred.ready) throw new qris31.GatewayError('API Key 31 QRIS belum diisi.', { kind: 'auth' });
   await Order.updateOne({ _id: order._id }, { $set: { 'payment.lastCheckedAt': new Date() } });
-  // Order baru (MY PG) -> /qrisv2/status/{id_merchant}/{order_id}; order lama / sandbox -> /qris/status/{order_id}
-  const r = await klikqris.checkStatus(cred, order.orderNo, { legacy: order.payment?.provider !== klikqris.PROVIDER_MYPG });
-  // Lunas hanya bila nominal yang dilaporkan KlikQRIS sama dengan total_amount tersimpan
-  if (PAID.has(r.status) && r.totalAmount !== null && !sameMoney(r.totalAmount, order.totalAmount)) {
-    console.warn(`[payment] status-check DITOLAK (total_amount ${r.totalAmount} != ${order.totalAmount}) untuk ${order.orderNo}`);
-    await Order.updateOne({ _id: order._id }, { $push: { events: push(log('amount_mismatch', `status-check ${r.totalAmount} != ${order.totalAmount}`)) } });
-    return null;
+  const r = await qris31.getTransaction(cred, { id: order.payment?.gatewayTxId, orderId: order.orderNo });
+  if (r.kind === 'paid') {
+    const reported = r.paidAmount ?? r.totalAmount;
+    if (reported !== null && !sameMoney(reported, order.totalAmount)) {
+      console.warn(`[payment] status-check DITOLAK (nominal ${reported} != ${order.totalAmount}) untuk ${order.orderNo}`);
+      await Order.updateOne({ _id: order._id }, { $push: { events: push(log('amount_mismatch', `${source} ${reported} != ${order.totalAmount}`)) } });
+      return { changed: null, status: r.status, kind: r.kind };
+    }
   }
-  return applyGatewayStatus(order.orderNo, r.status, { source: 'status-check', gatewayPaidAt: r.paidAt });
+  return { changed: await applyGatewayStatus(order.orderNo, r, { source }), status: r.status, kind: r.kind };
 }
 
-/** Jatuh tempo: tanyakan KlikQRIS dulu (mungkin sudah dibayar), baru tutup order. Tidak ada pembatalan sepihak oleh frontend. */
+/** Jatuh tempo: tanyakan 31 QRIS dulu (mungkin sudah dibayar), baru tutup order. Tidak ada pembatalan sepihak oleh frontend. */
 async function settleExpiry(order) {
   let reachable = true;
   try {
-    const changed = await checkRemote(order);
-    if (changed) return changed;                      // dibayar (SUCCESS) atau KlikQRIS menyatakan EXPIRED
+    const { changed } = await checkRemote(order);
+    if (changed) return changed;                      // dibayar / ditolak / dibatalkan / 31 QRIS menyatakan EXPIRED
   } catch (err) {
     reachable = false;
     console.warn(`[payment] cek status ${order.orderNo} gagal: ${err.message}`);
@@ -417,7 +510,7 @@ async function settleExpiry(order) {
 async function failOrphan(order) {
   const won = await Order.findOneAndUpdate(
     { _id: order._id, status: 'PENDING', expiresAt: null },
-    { $set: { status: 'FAILED', failureReason: 'Transaksi tidak selesai dibuat.' }, $inc: { rev: 1 }, $push: { events: push(log('create_failed', 'tidak ada QRIS setelah batas waktu')) } },
+    { $set: { status: 'FAILED', failureKind: 'create', failureReason: 'Transaksi tidak selesai dibuat.' }, $inc: { rev: 1 }, $push: { events: push(log('create_failed', 'tidak ada QRIS setelah batas waktu')) } },
     { new: true },
   );
   if (won) {
@@ -522,7 +615,7 @@ export async function trackOrders({ by, q }) {
   } else {
     docs = await Order.find({ 'customer.email': q }).sort({ createdAt: -1 }).limit(TRACK_LIMIT);   // memakai indeks customer.email
   }
-  // Order yang sudah lewat batas bayar dituntaskan dulu (cek KlikQRIS), sama seperti halaman Payment: status tidak pernah usang
+  // Order yang sudah lewat batas bayar dituntaskan dulu (cek 31 QRIS), sama seperti halaman Payment: status tidak pernah usang
   docs = await Promise.all(docs.map(async (d) => ensureOrderCode(await settleIfDue(d))));
   const { waAdmin } = await getPaymentConfig();
   const orders = await Promise.all(docs.map(async (d) => ({ ...pubTrack(d, { redeem: await trackRedeem(d) }), watch: watchTokenFor(d.orderNo) })));
@@ -552,9 +645,9 @@ async function tick() {
     for (const o of await Order.find({ status: 'PENDING', expiresAt: null, createdAt: { $lte: new Date(Date.now() - ORPHAN_MS) } }).limit(25)) await settleIfDue(o);
     // Sistem Code: order yang sudah SUCCESS tapi belum sempat diberi code (proses mati di tengah jalan) dipulihkan di sini
     for (const o of await Order.find({ 'product.kind': 'code', status: 'SUCCESS', codeState: '', updatedAt: { $lte: new Date(Date.now() - 20_000) } }).limit(25)) await ensureOrderCode(o);
-    // Fallback bila webhook terlambat/tidak sampai (mis. localhost tanpa tunnel): cek status ke KlikQRIS secara berkala
+    // Fallback bila webhook terlambat/tidak sampai (mis. localhost tanpa tunnel): cek status ke 31 QRIS secara berkala
     const stale = await Order.find({
-      status: 'PENDING', expiresAt: { $gt: now },
+      status: 'PENDING', expiresAt: { $gt: now }, 'payment.provider': qris31.PROVIDER,
       $or: [{ 'payment.lastCheckedAt': null }, { 'payment.lastCheckedAt': { $lt: new Date(Date.now() - POLL_EVERY_MS) } }],
     }).sort({ 'payment.lastCheckedAt': 1 }).limit(20);
     for (const o of stale) {
@@ -584,11 +677,41 @@ export function stopPaymentWorker() {
 /* ---------- Admin ---------- */
 export async function testGateway() {
   const cred = await getCredentials();
-  if (!cred.ready) throw new HttpError(422, 'Lengkapi API Key dan Merchant ID untuk mode aktif terlebih dahulu.');
+  if (!cred.ready) throw new HttpError(422, 'Isi API Key 31 QRIS terlebih dahulu.');
   try {
-    await klikqris.testCredentials(cred);
-    return { ok: true, mode: cred.mode };
+    await qris31.getQrisStatus(cred);
+    return { ok: true, mode: cred.mode, webhookReady: Boolean(cred.webhookSecret) };
   } catch (err) {
-    throw new HttpError(502, err instanceof klikqris.GatewayError && err.status ? `KlikQRIS menolak kredensial (HTTP ${err.status}). Periksa API Key dan Merchant ID.` : 'KlikQRIS tidak dapat dihubungi. Coba lagi.');
+    if (err instanceof qris31.GatewayError && err.kind === 'scope') {
+      // Kunci valid, tetapi tanpa izin qris:read. Itu bukan kegagalan koneksi; izin transaksi diperiksa saat transaksi dibuat.
+      return { ok: true, mode: cred.mode, webhookReady: Boolean(cred.webhookSecret), warning: 'Kunci terhubung, tetapi tidak memiliki izin qris:read (INSUFFICIENT_SCOPE).' };
+    }
+    if (err instanceof qris31.GatewayError && err.kind === 'auth') throw new HttpError(502, `31 QRIS menolak API Key (HTTP ${err.status || 401}). Periksa API Key.`);
+    throw new HttpError(502, '31 QRIS tidak dapat dihubungi. Coba lagi.');
   }
+}
+
+/**
+ * Batalkan pesanan yang masih menunggu (Admin Web): cek status dulu (jangan membatalkan yang sudah dibayar),
+ * lalu POST /v1/transactions/{id}/cancel, lalu tandai FAILED (dibatalkan).
+ */
+export async function cancelOrder(id) {
+  const o = await Order.findById(id);
+  if (!o) throw new HttpError(404, 'Pesanan tidak ditemukan.');
+  if (o.status !== 'PENDING') throw new HttpError(409, 'Hanya pesanan yang masih menunggu pembayaran yang bisa dibatalkan.');
+  if (o.payment?.provider === qris31.PROVIDER && o.payment.gatewayTxId) {
+    const cred = await getCredentials();
+    try {
+      const { changed } = await checkRemote(o, { source: 'admin' });
+      if (changed) throw new HttpError(409, `Status pesanan baru saja berubah menjadi ${changed.status}. Muat ulang daftar.`);
+      await qris31.cancelTransaction(cred, o.payment.gatewayTxId);
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      if (err instanceof qris31.GatewayError && err.kind === 'scope') throw new HttpError(403, 'API Key tidak memiliki izin transactions:cancel (INSUFFICIENT_SCOPE).');
+      throw new HttpError(502, err instanceof qris31.GatewayError ? `31 QRIS menolak pembatalan: ${err.detail || err.message}` : 'Gagal membatalkan di 31 QRIS.');
+    }
+  }
+  const won = await markFailed(o.orderNo, { kind: 'cancelled', reason: 'Dibatalkan oleh Admin', source: 'admin' });
+  if (!won) throw new HttpError(409, 'Status pesanan baru saja berubah. Muat ulang daftar.');
+  return { orderNo: won.orderNo, status: won.status };
 }

@@ -246,15 +246,11 @@ export const trackInput = z.discriminatedUnion('by', [
   z.object({ by: z.literal('email'), q: trackEmailField }),
 ]);
 
-const credSet = z.object({
-  merchantId: z.string().trim().max(120).optional().default(''),
+export const paymentSettingsInput = z.object({
   apiKey: z.string().trim().max(400).optional().default(''),
   clearApiKey: z.boolean().optional().default(false),
-});
-export const paymentSettingsInput = z.object({
-  mode: z.enum(['sandbox', 'production']),
-  sandbox: credSet.optional().default({}),
-  production: credSet.optional().default({}),
+  webhookSecret: z.string().trim().max(400).optional().default(''),
+  clearWebhookSecret: z.boolean().optional().default(false),
   waAdmin: z.string().trim().max(25).optional().default(''),
   publicBaseUrl: z.string().trim().max(200).optional().default(''),
 });

@@ -59,9 +59,10 @@
     PENDING: { tone: 'wait', icon: I.clock, title: 'Menunggu pembayaran', order: 'Menunggu Pembayaran', pay: 'Belum dibayar', chip: 'chip chip--wait' },
     SUCCESS: { tone: 'ok', icon: I.check, title: 'Pembayaran berhasil', order: 'Pembayaran Berhasil', pay: 'Lunas', chip: 'chip chip--ok' },
     EXPIRED: { tone: 'warn', icon: I.clock, title: 'Pesanan expired', order: 'Pesanan Expired', pay: 'Kedaluwarsa', chip: 'chip chip--warn' },
-    FAILED: { tone: 'danger', icon: I.x, title: 'Pembayaran gagal', order: 'Pembayaran Gagal', pay: 'Gagal dibuat', chip: 'chip chip--danger' },
+    FAILED: { tone: 'danger', icon: I.x, title: 'Pembayaran gagal', order: 'Pembayaran Gagal', pay: 'Gagal', chip: 'chip chip--danger' },
   };
-  const stOf = (o) => ST[o.status] || ST.PENDING;
+  const ST_CANCELLED = { ...ST.FAILED, title: 'Pembayaran dibatalkan', order: 'Pesanan Dibatalkan', pay: 'Dibatalkan' };
+  const stOf = (o) => (o.status === 'FAILED' && o.failureKind === 'cancelled' ? ST_CANCELLED : ST[o.status] || ST.PENDING);
   const OPEN = ['PENDING', 'EXPIRED'];   // EXPIRED: pembayaran terlambat masih bisa terkonfirmasi
 
   /* Validasi: aturan sama dengan server (lib/schemas.js) supaya pesan galat konsisten */
@@ -184,6 +185,7 @@
   const thumb = (o) => (o.product.imageUrl ? `<img src="${esc(o.product.imageUrl)}" alt="" decoding="async" data-seed="${o.product.id}">` : artwork(o.product.id));
 
   function say(o) {
+    if (o.status === 'PENDING' && o.needsReview) return 'Gateway sedang memeriksa pembayaran Anda. Jangan membayar lagi; status berubah otomatis begitu selesai. Hubungi Admin bila terlalu lama.';
     if (o.status === 'PENDING') {
       return o.expiresAt
         ? `Kami menunggu pembayaran QRIS Anda. Batas bayar <b>${when(o.expiresAt)}</b>. Buka tautan pembayaran yang dikirim ke email atau WhatsApp Anda untuk melihat kode QRIS.`
