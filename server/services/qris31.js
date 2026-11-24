@@ -51,7 +51,7 @@ const ALIAS = {
   total: ['total_amount', 'amount_total', 'payable_amount', 'final_amount', 'amount_to_pay', 'total'],
   unique: ['unique_code', 'unique_amount', 'amount_uniq', 'unique'],
   paid: ['amount_paid', 'paid_amount'],
-  qr: ['qris_image', 'qr_image', 'qr_image_url', 'qris_url', 'qr_url', 'image_url', 'qr'],
+  qr: ['qris_image', 'qr_image', 'qr_image_url', 'qris_url', 'qr_url', 'image_url', 'qr_image_base64', 'qris_base64', 'qr_base64', 'qr_code_url', 'qr_code', 'qrcode', 'qris', 'qr'],
   expires: ['expires_at', 'expired_at', 'expiry'],
   paidAt: ['paid_at', 'payment_date', 'settled_at'],
 };
@@ -111,7 +111,7 @@ async function call(cred, method, path, body) {
     }
     if (res.status === 401 || res.status === 403) throw new GatewayError('Autentikasi 31 QRIS gagal (periksa API Key).', { status: res.status, kind: 'auth', code, detail: msg });
     if (res.status === 404) throw new GatewayError('Transaksi tidak ditemukan di 31 QRIS.', { status: 404, kind: 'notfound', code, detail: msg });
-    throw new GatewayError('31 QRIS menolak permintaan.', { status: res.status, kind: 'api', code, detail: msg });
+    throw new GatewayError('31 QRIS menolak permintaan.', { status: res.status, kind: 'api', code, detail: `${code ? `${code}: ` : ''}${msg}` });
   }
   if (json === null || typeof json !== 'object') {
     throw new GatewayError('Respons 31 QRIS bukan JSON yang valid.', { status: res.status, kind: 'invalid', detail: text.slice(0, 120) });
@@ -163,13 +163,20 @@ function normalize(json) {
  * Respons tanpa ID transaksi, nominal, atau QR dianggap tidak valid: order tidak pernah dianggap berhasil dibuat.
  */
 export async function createTransaction(cred, { orderId, amount }) {
-  const t = normalize(await call(cred, 'POST', '/v1/transactions', { order_id: orderId, amount }));
+  const json = await call(cred, 'POST', '/v1/transactions', { order_id: orderId, amount });
+  const t = normalize(json);
+  // Gateway yang hanya mengirim kode unik (tanpa total) -> total = nominal + kode unik
+  if (t.totalAmount === null && t.uniqueAmount !== null) t.totalAmount = round2(amount + t.uniqueAmount);
   const problems = [];
   if (!t.id) problems.push('id');
   if (t.orderId && t.orderId !== orderId) problems.push('order_id');
   if (t.totalAmount === null || t.totalAmount < amount) problems.push('total_amount');
   if (!t.qrisUrl && !t.qrisImage) problems.push('qris');
-  if (problems.length) throw new GatewayError('Respons 31 QRIS tidak lengkap.', { kind: 'invalid', detail: `bermasalah: ${problems.join(', ')}` });
+  if (problems.length) {
+    // Hanya NAMA field (bukan nilai) yang dicatat, supaya cocok-tidaknya skema terlihat di log/Admin tanpa membocorkan data.
+    const keys = Object.keys(unwrap(json) || {}).slice(0, 25).join(',');
+    throw new GatewayError('Respons 31 QRIS tidak lengkap.', { kind: 'invalid', detail: `bermasalah: ${problems.join(', ')}; field respons: ${keys || '(kosong)'}` });
+  }
   return { ...t, uniqueAmount: t.uniqueAmount !== null ? t.uniqueAmount : round2(t.totalAmount - amount) };
 }
 
