@@ -50,16 +50,16 @@ export default {
           <section class="card"><div class="card__head"><h3>31 QRIS Gateway</h3><span id="conn">${connPill()}</span></div>
             <div class="card__body stack">
               <label class="field"><span>API Gateway URL</span><input value="${s.gateway.baseUrl}" readonly><small>Diatur di server (variabel <code>QRIS31_BASE_URL</code>), bukan dari browser.</small></label>
-              ${secretField({ name: 'apiKey', label: 'API Key', set: s.apiKeySet, readable: s.apiKeyReadable, hint: s.apiKeyHint, fromEnv: s.apiKeyFromEnv, placeholder: 'Tempel API Key dari dashboard 31 QRIS', clearName: 'clearApiKey' })}
+              ${secretField({ name: 'apiKey', label: 'API Key', set: s.apiKeySet, readable: s.apiKeyReadable, hint: s.apiKeyHint, fromEnv: s.apiKeyFromEnv, placeholder: 'Tempel API Key (31QRIS_…) dari aplikasi 31 QRIS', clearName: 'clearApiKey' })}
               <p class="muted">API Key hanya dipakai backend (header <code>Authorization: Bearer</code>) dan tidak pernah dikirim ke browser. Izin yang dibutuhkan: <code>transactions:create</code>, <code>transactions:read</code>, <code>transactions:cancel</code>, <code>qris:read</code>. Kunci tanpa izin dibalas 403 <code>INSUFFICIENT_SCOPE</code>.</p>
               <div class="actions"><button class="btn" type="button" id="test">Uji koneksi</button><span class="muted" id="test-out" role="status">${conn.text}</span></div>
             </div></section>
 
           <section class="card"><div class="card__head"><h3>Webhook 31 QRIS</h3>${s.webhookReady ? html`<span class="pill pill--ok">Secret terpasang</span>` : html`<span class="pill pill--warn">Secret belum diisi</span>`}</div>
             <div class="card__body stack">
-              <p class="muted">Isi <b>URL webhook</b> berikut di dashboard 31 QRIS, lalu tempel <b>Webhook secret</b> (<code>whsec_…</code>) di bawah. Setiap webhook diverifikasi lewat tanda tangan HMAC pada header <code>X-Signature</code>, dicatat, dan status transaksi dibaca ulang dari gateway sebelum pesanan diaktifkan. Tanpa webhook, status tetap dicek berkala ke gateway. Bila secret diganti/dibuat ulang di dashboard, perbarui di sini.</p>
+              <p class="muted">Isi <b>URL webhook</b> berikut di dashboard 31 QRIS, lalu tempel <b>Webhook Secret</b> dari aplikasi 31 QRIS di bawah. Setiap webhook diverifikasi lewat tanda tangan HMAC-SHA256 pada header <code>X-31QRIS-Signature</code> (atas <code>timestamp.body</code>, toleransi 300 detik), dicatat, dan status transaksi dibaca ulang dari gateway sebelum pesanan diaktifkan. Tanpa webhook, status tetap dicek berkala ke gateway. Bila secret diganti/dibuat ulang di dashboard, perbarui di sini.</p>
               <div class="copybox"><code id="wh">${s.webhookUrl}</code><button class="btn btn--sm" type="button" id="copy-wh">${icon('copy')}Salin</button></div>
-              ${secretField({ name: 'webhookSecret', label: 'Webhook Secret', set: s.webhookSecretSet, readable: s.webhookSecretReadable, hint: s.webhookSecretHint, fromEnv: s.webhookSecretFromEnv, placeholder: 'whsec_…', clearName: 'clearWebhookSecret' })}
+              ${secretField({ name: 'webhookSecret', label: 'Webhook Secret', set: s.webhookSecretSet, readable: s.webhookSecretReadable, hint: s.webhookSecretHint, fromEnv: s.webhookSecretFromEnv, placeholder: 'Tempel Webhook Secret dari aplikasi 31 QRIS', clearName: 'clearWebhookSecret' })}
               <label class="field"><span>URL publik toko (opsional)</span><input name="publicBaseUrl" value="${s.publicBaseUrl}" maxlength="200" placeholder="https://toko.domainmu.com"><small>Isi bila backend berada di belakang proxy/domain lain; dipakai untuk URL webhook di atas dan tautan notifikasi. Kosong = alamat server ini.</small></label>
             </div></section>
 

@@ -17,7 +17,7 @@ import * as qris31 from './qris31.js';
 /**
  * Alur pembayaran (backend = sumber kebenaran):
  *   createCheckout -> order PENDING -> 31 QRIS POST /v1/transactions -> expiresAt = sekarang + 10 menit (waktu SERVER)
- *   Webhook 31 QRIS (X-Signature HMAC) hanyalah PEMICU: setelah signature valid, status dibaca ulang dari gateway
+ *   Webhook 31 QRIS (X-31QRIS-Signature, HMAC atas `timestamp.body`) hanyalah PEMICU: setelah signature valid, status dibaca ulang dari gateway
  *   (GET /v1/transactions/{id} atau /by-order/{order_id}); pengecekan berkala memakai jalur yang sama.
  *   -> applyGatewayStatus (transisi atomik, idempoten) -> MongoDB -> Socket.IO (room per-order) -> halaman Payment berubah tanpa refresh.
  *   Pembayaran hanya SUCCESS bila status 'paid' dan nominal cocok dari gateway; 'perlu dicek' tidak pernah mengaktifkan pesanan.
@@ -206,7 +206,7 @@ export async function createCheckout(input, { requestBase }) {
   if (!order) throw new HttpError(500, 'Gagal membuat pesanan. Silakan coba lagi.');
 
   try {
-    const tx = await qris31.createTransaction(cfg, { orderId: order.orderNo, amount: order.amount });
+    const tx = await qris31.createTransaction(cfg, { orderId: order.orderNo, amount: order.amount, description: `${product.name} (${order.orderNo})`, expiryMinutes: EXPIRY_MS / 60_000 });
     const now = new Date();
     const expiresAt = new Date(now.getTime() + EXPIRY_MS);   // 10 menit sejak transaksi dibuat, jam server
     order = await Order.findOneAndUpdate(
@@ -224,8 +224,9 @@ export async function createCheckout(input, { requestBase }) {
     );
     scheduleExpiry(order);
   } catch (err) {
-    const detail = err instanceof qris31.GatewayError ? `[${err.kind}] ${err.message} ${err.status || ''} ${err.detail}`.trim() : String(err?.message || err);
-    console.error(`[payment] gagal membuat transaksi 31 QRIS untuk ${order.orderNo}: ${detail}`);   // tanpa kredensial
+    // Diagnostik lengkap (endpoint, HTTP status, kode & pesan gateway, request_id, waktu) ke log server dan catatan order di Admin Web; tanpa kredensial.
+    const detail = err instanceof qris31.GatewayError ? err.summary() : String(err?.message || err);
+    console.error(`[payment] ${new Date().toISOString()} gagal membuat transaksi 31 QRIS untuk ${order.orderNo}: ${detail}`);
     order = await Order.findOneAndUpdate(
       { _id: order._id, status: 'PENDING' },
       { $set: { status: 'FAILED', failureKind: 'create', failureReason: detail.slice(0, 300) }, $inc: { rev: 1 }, $push: { events: push(log('create_failed', detail)) } },
@@ -366,14 +367,14 @@ const clip = (v, n) => String(v ?? '').slice(0, n);
 
 /**
  * Webhook 31 QRIS (POST /api/payments/31qris/webhook). Urutan:
- *   1. X-Signature (HMAC atas byte mentah body, secret = Webhook Secret) -> 401 bila salah; tidak ada yang disentuh.
- *   2. Idempotensi: body yang sama (hash) yang sudah selesai diproses dibalas 200 `duplicate` tanpa memproses ulang.
+ *   1. X-31QRIS-Signature = sha256=HMAC(secret, `${X-31QRIS-Timestamp}.${byte mentah body}`), timestamp maks. 300 detik -> 401 bila salah; tidak ada yang disentuh.
+ *   2. Idempotensi: X-31QRIS-Event-ID (cadangan: hash body) yang sudah selesai diproses dibalas 200 `duplicate` tanpa memproses ulang.
  *   3. Order dicari lewat order_id / ID transaksi; tak dikenal = 200 diabaikan (bisa milik aplikasi lain pada gateway yang sama).
  *   4. Isi webhook TIDAK dipercaya untuk menentukan status: status dibaca ulang dari gateway, lalu nominal divalidasi dan diterapkan secara atomik.
  *   5. Gateway tak terjangkau / respons tak valid -> 503 supaya gateway mencoba ulang (worker juga tetap mengecek berkala).
  * Setiap pengiriman dicatat di WebhookLog (termasuk yang ditolak).
  */
-export async function handleWebhook({ rawBody, body, signature, ip = '' }) {
+export async function handleWebhook({ rawBody, body, signature, timestamp, eventId = '', ip = '' }) {
   const raw = Buffer.isBuffer(rawBody) ? rawBody : Buffer.alloc(0);
   const payload = body && typeof body === 'object' && !Array.isArray(body) ? body : null;
   const parsed = payload ? qris31.parseWebhook(payload) : { id: '', orderId: '', status: '', event: '', kind: 'unknown', totalAmount: null, paidAmount: null };
@@ -391,13 +392,17 @@ export async function handleWebhook({ rawBody, body, signature, ip = '' }) {
     console.warn('[payment] webhook 31 QRIS diterima tetapi Webhook Secret belum diatur');
     return reject(503, 'webhook secret belum diatur', 'Webhook Secret belum diatur di server');
   }
-  if (!qris31.verifySignature(raw, signature, cred.webhookSecret)) {
-    console.warn('[payment] webhook 31 QRIS DITOLAK (X-Signature tidak valid)');
-    return reject(401, 'signature tidak valid', signature ? 'X-Signature tidak cocok' : 'Header X-Signature tidak ada');
+  const sig = qris31.checkWebhookSignature(raw, { signature, timestamp }, cred.webhookSecret);
+  if (!sig.ok) {
+    const why = { missing: 'Header X-31QRIS-Signature / X-31QRIS-Timestamp tidak ada', stale: 'X-31QRIS-Timestamp di luar toleransi 300 detik', mismatch: 'X-31QRIS-Signature tidak cocok (periksa Webhook Secret)', '': 'X-31QRIS-Signature tidak cocok (periksa Webhook Secret)' }[sig.reason];
+    console.warn(`[payment] webhook 31 QRIS DITOLAK: ${why}`);
+    return reject(401, 'signature tidak valid', why);
   }
   if (!payload) return reject(400, 'payload tidak valid', 'Body bukan objek JSON');
 
-  const bodyHash = crypto.createHash('sha256').update(raw).digest('hex');
+  // Event ID sama pada setiap percobaan kirim ulang -> kunci idempotensi resmi. Tanpa header itu, pakai hash byte mentah body.
+  const evId = clip(eventId || parsed.eventId, 80);
+  const bodyHash = evId ? `evt:${evId}` : crypto.createHash('sha256').update(raw).digest('hex');
   let entry;
   try {
     entry = await WebhookLog.create({ ...base, bodyHash, signatureValid: true, outcome: 'processing' });
@@ -416,6 +421,7 @@ export async function handleWebhook({ rawBody, body, signature, ip = '' }) {
   };
 
   try {
+    if (parsed.event === 'webhook.test') return finish(200, { ok: true, ignored: 'webhook.test' }, 'ignored', 'uji kirim dari aplikasi 31 QRIS');
     const order = (parsed.orderId && await Order.findOne({ orderNo: parsed.orderId }))
       || (parsed.id && await Order.findOne({ 'payment.gatewayTxId': parsed.id }));
     if (!order) return finish(200, { ok: true, ignored: 'order tidak dikenal' }, 'ignored', 'order tidak dikenal');
@@ -441,8 +447,8 @@ export async function handleWebhook({ rawBody, body, signature, ip = '' }) {
     const note = result.changed ? `→ ${result.changed.status}` : `gateway: ${result.status || '—'}; tidak ada perubahan`;
     return finish(200, { ok: true, duplicate: !result.changed }, result.changed ? 'applied' : 'duplicate', note);
   } catch (err) {
-    const detail = err instanceof qris31.GatewayError ? `[${err.kind}] ${err.message} ${err.detail}`.trim() : String(err?.message || err);
-    console.error(`[payment] webhook 31 QRIS gagal diproses: ${detail}`);
+    const detail = err instanceof qris31.GatewayError ? err.summary() : String(err?.message || err);
+    console.error(`[payment] ${new Date().toISOString()} webhook 31 QRIS gagal diproses: ${detail}`);
     return finish(503, { ok: false, error: 'gagal memverifikasi ke gateway, coba lagi' }, 'error', detail);   // 503: gateway akan mencoba ulang
   }
 }
@@ -679,14 +685,16 @@ export async function testGateway() {
   const cred = await getCredentials();
   if (!cred.ready) throw new HttpError(422, 'Isi API Key 31 QRIS terlebih dahulu.');
   try {
-    await qris31.getQrisStatus(cred);
-    return { ok: true, mode: cred.mode, webhookReady: Boolean(cred.webhookSecret) };
+    const me = await qris31.getMe(cred);   // GET /v1/me: tanpa izin khusus, memuat izin kunci serta kesiapan QRIS & webhook akun
+    const scopes = Array.isArray(me.key?.scopes) ? me.key.scopes : [];
+    const missing = ['transactions:create', 'transactions:read', 'transactions:cancel'].filter((x) => !scopes.includes(x));
+    const warnings = [];
+    if (missing.length) warnings.push(`API Key belum memiliki izin: ${missing.join(', ')}.`);
+    if (me.account?.qris_configured === false) warnings.push('Gambar QRIS belum diunggah di aplikasi 31 QRIS (transaksi akan ditolak QRIS_NOT_CONFIGURED).');
+    return { ok: true, mode: cred.mode, webhookReady: Boolean(cred.webhookSecret), ...(warnings.length ? { warning: warnings.join(' ') } : {}) };
   } catch (err) {
-    if (err instanceof qris31.GatewayError && err.kind === 'scope') {
-      // Kunci valid, tetapi tanpa izin qris:read. Itu bukan kegagalan koneksi; izin transaksi diperiksa saat transaksi dibuat.
-      return { ok: true, mode: cred.mode, webhookReady: Boolean(cred.webhookSecret), warning: 'Kunci terhubung, tetapi tidak memiliki izin qris:read (INSUFFICIENT_SCOPE).' };
-    }
-    if (err instanceof qris31.GatewayError && err.kind === 'auth') throw new HttpError(502, `31 QRIS menolak API Key (HTTP ${err.status || 401}). Periksa API Key.`);
+    if (err instanceof qris31.GatewayError && (err.kind === 'auth' || err.kind === 'scope')) throw new HttpError(502, `31 QRIS menolak API Key (HTTP ${err.status || 401}${err.code ? ` ${err.code}` : ''}). Periksa API Key.`);
+    if (err instanceof qris31.GatewayError) console.warn(`[payment] tes koneksi 31 QRIS gagal: ${err.summary()}`);
     throw new HttpError(502, '31 QRIS tidak dapat dihubungi. Coba lagi.');
   }
 }

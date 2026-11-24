@@ -82,7 +82,7 @@ export function createApp() {
   }));
   app.use(compression());
   app.use(cookieParser());
-  // rawBody: byte mentah dibutuhkan untuk verifikasi signature webhook Resend (Svix) dan 31 QRIS (HMAC X-Signature)
+  // rawBody: byte mentah dibutuhkan untuk verifikasi signature webhook Resend (Svix) dan 31 QRIS (HMAC X-31QRIS-Signature)
   app.use(express.json({ limit: '256kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/webhooks/') || req.originalUrl.startsWith('/api/payments/31qris/webhook')) req.rawBody = buf; } }));
 
   app.get('/healthz', (_req, res) => {
@@ -106,7 +106,7 @@ export function createApp() {
   app.use('/api/public', publicRouter);
   app.use('/api/livechat', livechatPublicRouter);                    // Live Chat pelanggan (token percakapan per pelanggan)
   app.use('/api/orders', ordersRouter);                              // checkout + status order (token pelanggan)
-  app.use('/api/payments/31qris/webhook', webhookRouter);          // webhook 31 QRIS (HMAC X-Signature, server-ke-server)
+  app.use('/api/payments/31qris/webhook', webhookRouter);          // webhook 31 QRIS (HMAC X-31QRIS-Signature, server-ke-server)
   app.use('/api/webhooks', webhooksRouter);                          // webhook status pengiriman email (Resend)
 
   app.use('/api/admin/auth', originGuard, authRouter);
